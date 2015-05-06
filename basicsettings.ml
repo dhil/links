@@ -10,6 +10,9 @@ let web_mode = Settings.add_bool ("web_mode", false, `System)
 (** If [true], then wait for all child processes to finish before
     terminating *)
 let wait_for_child_processes = Settings.add_bool ("wait_for_child_processes", false, `User)
+let host_name = Settings.add_string ("host", "0.0.0.0", `User)
+let port = Settings.add_int ("port", 8080, `User)
+
 
 (** If [true], then enable concurrency on the server:
 
@@ -24,14 +27,14 @@ let concurrent_server = Settings.add_bool ("concurrent_server", true, `System)
 let printing_types = Settings.add_bool ("printing_types", true, `User)
 
 (** Name of the file containing the prelude code. *)
-let prelude_file = 
+let prelude_file =
   let prelude_dir = match Utility.getenv "LINKS_LIB" with
       None -> Filename.dirname Sys.executable_name
     | Some path -> path
   in Settings.add_string ("prelude", Filename.concat prelude_dir "prelude.links", `System)
 
 (** The banner *)
-let welcome_note = Settings.add_string ("welcome_note", 
+let welcome_note = Settings.add_string ("welcome_note",
 " _     _ __   _ _  __  ___\n\
  / |   | |  \\ | | |/ / / ._\\\n\
  | |   | | , \\| |   /  \\  \\\n\
@@ -75,7 +78,7 @@ let database_args = Settings.add_string("database_args", "", `User)
 let printing_functions = Settings.add_bool ("printing_functions", false, `User)
 
 (** Caching *)
-let cache_directory = 
+let cache_directory =
   Settings.add_string ("cache_directory", "", `User)
 let use_cache = Settings.add_bool("use_cache", true, `System)
 let make_cache = Settings.add_bool("make_cache", true, `System)
