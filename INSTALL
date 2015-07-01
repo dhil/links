@@ -37,6 +37,13 @@ through the OCaml package manager OPAM. Having installed OPAM, do:
 
   opam install deriving
 
+LWT, CONDUIT, COHTTP
+
+The app server version of Links depends a number of third-party
+libraries:
+
+  opam install lwt conduit cohttp
+
 BUILDING LINKS
 
 To build, move to the Links source directory (wherever this INSTALL
