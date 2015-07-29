@@ -9,7 +9,7 @@ type 'a field_env = 'a stringmap deriving (Show)
 module TypeVarSet : Utility.INTSET
 
 (* points *)
-type 'a point = 'a Unionfind.point 
+type 'a point = 'a Unionfind.point
   deriving (Show)
 
 type primitive = [ `Bool | `Int | `Char | `Float | `XmlItem | `DB | `String ]
@@ -158,6 +158,8 @@ type environment        = datatype Env.String.t
                             tycon_env : tycon_environment ;
                             effect_row : row }
     deriving (Show)
+
+val empty_typing_environment : typing_environment
 
 val concrete_type : datatype -> datatype
 val concrete_field_spec : field_spec -> field_spec
