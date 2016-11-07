@@ -123,7 +123,6 @@ SOURCES = $(OPC)                                \
           json.ml                               \
           database.mli database.ml              \
           linksregex.ml                         \
-          proc.mli proc.ml                      \
 	  lib.mli lib.ml                        \
           sugartoir.mli sugartoir.ml            \
           loader.mli loader.ml                  \
