@@ -7,6 +7,8 @@ open Proc
 open Performance
 open Utility
 
+let realpages = Settings.add_bool ("realpages", false, `System)
+
 type web_request =
   | ServerCont of
       Value.t                (* thunk *)
@@ -36,8 +38,10 @@ let is_client_program : Ir.program -> bool =
          | _ -> false)
       bs
 
-let serialize_call_to_client (continuation, name, arg) =
-  Json.jsonize_call continuation name arg
+(* SL: dead code *)
+
+(* let serialize_call_to_client (continuation, name, arg) = *)
+(*   Json.jsonize_call continuation name arg *)
 
 let parse_remote_call (valenv, nenv, tyenv) cgi_args =
   let fname = Utility.base64decode (assoc "__name" cgi_args) in
@@ -155,13 +159,27 @@ let perform_request cgi_args (valenv, nenv, tyenv) render_cont =
         (prerr_endline "Remaining procs on server after remote call!";
          assert(false));
       ("text/plain",
+       (* TODO: we should package up the result with event handlers,
+          client processes, and client messages *)
        Utility.base64encode (Json.jsonize_value result))
     | EvalMain (globals, (locals, main))->
         Debug.print("Doing EvalMain");
         ("text/html",
          if is_client_program (globals @ locals, main) then
-           let program = (globals @ locals, main) in
-           Debug.print "Running client program.";
+           if Settings.get_value realpages then
+             begin
+               Debug.print "Running client program from server";
+               let valenv, v = Evalir.run_program valenv (locals, main) in
+  (* Debug.print ("valenv" ^ Value.Show_env.show valenv); *)
+               Irtojs.generate_real_client_page
+                 ~cgi_env:cgi_args
+                 (Lib.nenv, Lib.typing_env)
+                 (globals @ locals)
+                 (valenv, v)
+             end
+           else
+             let program = (globals @ locals, main) in
+             Debug.print "Running client program.";
              lazy (Irtojs.generate_program_page
                      ~cgi_env:cgi_args
                      (Lib.nenv, Lib.typing_env)

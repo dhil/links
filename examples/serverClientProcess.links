@@ -1,11 +1,14 @@
 fun f() server {
   var manager = spawnClient {
-    receive {
-      case Click -> g()
+    fun h() {
+      receive {
+        case Click -> {g(); h()}
+      }
     }
+    h()
   };
 
-  <b l:onmousedown="{manager ! Click}">world</b>
+  <div id="hole"><b l:onmousedown="{manager ! Click}">world</b></div>
 }
 
 fun g() client {
@@ -17,9 +20,7 @@ fun dummy() client {
 }
 
 page
-  <html>
-    <body>
-      <b l:onmousedown="{replaceNode(f(), getNodeById("hole"))}">hello</b>
-      <div><div id="hole">to be replaced</div></div>
-    </body>
-  </html>
+  <body>
+    <b l:onmousedown="{replaceNode(f(), getNodeById("hole"))}">hello</b>
+    <div><div id="hole">to be replaced</div></div>
+  </body>
