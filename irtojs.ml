@@ -370,6 +370,9 @@ end
     direct-style.  A bit hackish, this list. *)
 let cps_prims = ["recv"; "sleep"; "spawnWait"; "receive"; "request"; "accept"]
 
+(** The type of continuations in the metalanguage **)
+type metacontinuation = code * code
+  
 (** Generate a JavaScript name from a binder, wordifying symbolic names *)
 let name_binder (x, info) =
   let name = Js.name_binder (x, info) in
@@ -380,10 +383,10 @@ let name_binder (x, info) =
   assert (name <> "");
   (x, Js.name_binder (x,info))
 
-let bind_continuation kappa body =
+let bind_continuation (kappa : metacontinuation) body =
   match kappa with
-    | Var _ -> body kappa
-    | _ ->
+  | Var _,_ -> body kappa (* FIXME : figure out the appropriate patterns for the handler component *)
+    | _,_ -> 
         (* It is important to generate a unique name for continuation
            bindings because in the JavaScript code:
 
@@ -395,14 +398,16 @@ let bind_continuation kappa body =
            function(args) {body} is just syntactic sugar for function
            f(args) {body}.)
         *)
-        let k = "_kappa" ^ (string_of_int (Var.fresh_raw_var ())) in
-          Bind (k, kappa, body (Var k))
+        let uid = string_of_int (Var.fresh_raw_var ()) in
+        let k = "_kappa" ^ uid in
+        let h = "_effh" ^ uid in
+          Bind (k, fst kappa, Bind (h, snd kappa, body ((Var k),(Var h))))
 
-let apply_yielding (f, args, k) =
-  Call(Var "_yield", f :: (args @ [k]))
+let apply_yielding (f, args, (k,effh)) =
+  Call(Var "_yield", f :: (args @ [k;effh]))
 
-let callk_yielding kappa arg =
-  Call(Var "_yieldCont", [kappa; arg])
+let callk_yielding (kappa,effh) arg =
+  Call(Var "_yieldCont", [kappa; effh; arg])
 
 (** [generate]
     Generates JavaScript code for a Links expression
@@ -432,12 +437,12 @@ let rec generate_value env : Ir.value -> code =
           (* HACK *)
           let name = VEnv.lookup env var in
             if Arithmetic.is name then
-              Fn (["x"; "y"; "__kappa"],
-                  callk_yielding (Var "__kappa")
+              Fn (["x"; "y"; "__kappa"; "__effh"],
+                  callk_yielding ((Var "__kappa"),(Var "__effh"))
                     (Arithmetic.gen (Var "x", name, Var "y")))
             else if StringOp.is name then
-              Fn (["x"; "y"; "__kappa"],
-                  callk_yielding (Var "__kappa")
+              Fn (["x"; "y"; "__kappa"; "__effh"],
+                  callk_yielding ((Var "__kappa"),(Var "__effh"))
                     (StringOp.gen (Var "x", name, Var "y")))
             else if Comparison.is name then
               Var (Comparison.js_name name)
@@ -576,7 +581,7 @@ struct
         code
 end
 
-let rec generate_tail_computation env : Ir.tail_computation -> code -> code =
+let rec generate_tail_computation env : Ir.tail_computation -> metacontinuation -> code =
   fun tc kappa ->
   let gv v = generate_value env v in
   let gc c kappa = snd (generate_computation env c kappa) in
@@ -604,7 +609,7 @@ let rec generate_tail_computation env : Ir.tail_computation -> code -> code =
                                 && not (List.mem f_name cps_prims)
                                 && Lib.primitive_location f_name <> `Server
                               then
-                                Call (kappa, [Call (Var ("_" ^ f_name), List.map gv vs)])
+                                Call (fst kappa, [Call (Var ("_" ^ f_name), List.map gv vs)]) (* FIXME : what about handlers? *)
                               else
                                 apply_yielding (gv (`Variable f), List.map gv vs, kappa)
                       end
@@ -635,7 +640,7 @@ let rec generate_tail_computation env : Ir.tail_computation -> code -> code =
             (fun kappa ->
                If (gv v, gc c1 kappa, gc c2 kappa))
 
-and generate_special env : Ir.special -> code -> code = fun sp kappa ->
+and generate_special env : Ir.special -> metacontinuation -> code = fun sp kappa ->
   let gv v = generate_value env v in
     match sp with
       (* | `App (f, vs) -> *)
@@ -660,9 +665,9 @@ and generate_special env : Ir.special -> code -> code = fun sp kappa ->
       | `Delete _ -> Die "Attempt to run a database delete on the client"
       | `CallCC v ->
           bind_continuation kappa
-            (fun kappa -> apply_yielding (gv v, [kappa], kappa))
+            (fun kappa -> apply_yielding (gv v, [fst kappa], kappa)) (* FIXME : It is correct to drop the handlers in the argument list? *)
       | `Select (l, c) ->
-         Call (kappa, [Call (Var "_send", [Dict ["_label", strlit l; "_value", Dict []]; gv c])])
+         Call (fst kappa, [Call (Var "_effh", [snd kappa]); Call (Var "_send", [Dict ["_label", strlit l; "_value", Dict []]; gv c])]) (* k h (send [l => []] c)) *)
       | `Choice (c, bs) ->
          let result = gensym () in
          let received = gensym () in
@@ -678,7 +683,7 @@ and generate_special env : Ir.special -> code -> code = fun sp kappa ->
       | `DoOperation _
       | `Handle _ -> failwith "irtojs.ml: Translation of `DoOperation and `Handle are not yet implemented."
 
-and generate_computation env : Ir.computation -> code -> (venv * code) =
+and generate_computation env : Ir.computation -> metacontinuation -> (venv * code) =
   fun (bs, tc) kappa ->
   let rec gbs env c =
     function
@@ -709,7 +714,7 @@ and generate_function env fs :
     let body =
       match location with
       | `Client | `Unknown ->
-        snd (generate_computation body_env body (Var "__kappa"))
+        snd (generate_computation body_env body ((Var "__kappa"),(Var "__effh")))
       | `Server -> generate_remote_call f xs_names (Dict [])
       | `Native -> failwith ("Not implemented native calls yet")
     in
@@ -745,57 +750,57 @@ and generate_binding env : Ir.binding -> (venv * (code -> code)) =
     | `Module _
     | `Alien _ -> env, (fun code -> code)
 
-(* SL: seems to be dead code *)
-and generate_declaration env : Ir.binding -> (venv * (code -> code)) =
-  function
-    | `Let (_, (_, `Return _)) as binding ->
-        generate_binding env binding
-    | `Let (b, _) ->
-        if not(Settings.get_value (Basicsettings.allow_impure_defs)) then
-          failwith "Top-level definitions must be values"
-        else
-          let (x, x_name) = name_binder b in
-          let env' = VEnv.bind env (x, x_name) in
-            (env',
-             fun code ->
-               Seq (DeclareVar (x_name, None), code))
-    | binding -> generate_binding env binding
+(* (\* SL: seems to be dead code *\) *)
+(* and generate_declaration env : Ir.binding -> (venv * (code -> code)) = *)
+(*   function *)
+(*     | `Let (_, (_, `Return _)) as binding -> *)
+(*         generate_binding env binding *)
+(*     | `Let (b, _) -> *)
+(*         if not(Settings.get_value (Basicsettings.allow_impure_defs)) then *)
+(*           failwith "Top-level definitions must be values" *)
+(*         else *)
+(*           let (x, x_name) = name_binder b in *)
+(*           let env' = VEnv.bind env (x, x_name) in *)
+(*             (env', *)
+(*              fun code -> *)
+(*                Seq (DeclareVar (x_name, None), code)) *)
+(*     | binding -> generate_binding env binding *)
 
-(* SL: seems to be dead code *)
-and generate_definition env
-    : Ir.binding -> code -> code =
-  function
-    | `Let (_, (_, `Return _)) -> (fun code -> code)
-    | `Let (b, (_, tc)) ->
-        let (_, x_name) = name_binder b in
-          (fun code ->
-             generate_tail_computation env tc
-               (Fn ([x_name ^ "$"], Bind(x_name, Var (x_name ^ "$"), code))))
-    | `Fun _
-    | `Rec _
-    | `Module _
-    | `Alien _ -> (fun code -> code)
-(* SL: seems to be dead code *)
-and generate_defs env : Ir.binding list -> (venv * (code -> code)) =
-  fun bs ->
-    let rec declare env c =
-      function
-        | [] -> env, c
-        | b :: bs ->
-            let env, c' = generate_declaration env b in
-              declare env (c -<- c') bs in
-    let env, with_declarations = declare env (fun code -> code) bs in
-    let rec define c =
-      function
-        | [] -> c
-        | b :: bs ->
-            let c' = generate_definition env b in
-              define (c -<- c') bs
-    in
-      if Settings.get_value Basicsettings.allow_impure_defs then
-        env, fun code -> with_declarations (define (fun code -> code) bs code)
-      else
-        env, with_declarations
+(* (\* SL: seems to be dead code *\) *)
+(* and generate_definition env *)
+(*     : Ir.binding -> code -> code = *)
+(*   function *)
+(*     | `Let (_, (_, `Return _)) -> (fun code -> code) *)
+(*     | `Let (b, (_, tc)) -> *)
+(*         let (_, x_name) = name_binder b in *)
+(*           (fun code -> *)
+(*              generate_tail_computation env tc *)
+(*                (Fn ([x_name ^ "$"], Bind(x_name, Var (x_name ^ "$"), code)))) *)
+(*     | `Fun _ *)
+(*     | `Rec _ *)
+(*     | `Module _ *)
+(*     | `Alien _ -> (fun code -> code) *)
+(* (\* SL: seems to be dead code *\) *)
+(* and generate_defs env : Ir.binding list -> (venv * (code -> code)) = *)
+(*   fun bs -> *)
+(*     let rec declare env c = *)
+(*       function *)
+(*         | [] -> env, c *)
+(*         | b :: bs -> *)
+(*             let env, c' = generate_declaration env b in *)
+(*               declare env (c -<- c') bs in *)
+(*     let env, with_declarations = declare env (fun code -> code) bs in *)
+(*     let rec define c = *)
+(*       function *)
+(*         | [] -> c *)
+(*         | b :: bs -> *)
+(*             let c' = generate_definition env b in *)
+(*               define (c -<- c') bs *)
+(*     in *)
+(*       if Settings.get_value Basicsettings.allow_impure_defs then *)
+(*         env, fun code -> with_declarations (define (fun code -> code) bs code) *)
+(*       else *)
+(*         env, with_declarations *)
 
 and generate_program env : Ir.program -> (venv * code) = fun ((bs, _) as comp) ->
   let (venv, code) = generate_computation env comp (Var "_start") in
@@ -999,8 +1004,8 @@ let generate_real_client_page ?(cgi_env=[]) (nenv, tyenv) defs (valenv, v) =
     ~onload:"_startRealPage()"
     []
 
-(* SL: seems to be dead code *)
-let generate_program_defs (nenv, tyenv) bs =
-  let _, venv, _ = initialise_envs (nenv, tyenv) in
-  let _, code = generate_defs venv bs in
-    [show (code Nothing)]
+(* (\* SL: seems to be dead code *\) *)
+(* let generate_program_defs (nenv, tyenv) bs = *)
+(*   let _, venv, _ = initialise_envs (nenv, tyenv) in *)
+(*   let _, code = generate_defs venv bs in *)
+(*     [show (code Nothing)] *)
