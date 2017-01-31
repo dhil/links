@@ -385,8 +385,8 @@ let name_binder (x, info) =
 
 let bind_continuation (kappa : metacontinuation) body =
   match kappa with
-  | Var _,_ -> body kappa (* FIXME : figure out the appropriate patterns for the handler component *)
-    | _,_ -> 
+  | Var _, Var _ -> body kappa
+  | _,_ -> 
         (* It is important to generate a unique name for continuation
            bindings because in the JavaScript code:
 
@@ -406,8 +406,8 @@ let bind_continuation (kappa : metacontinuation) body =
 let apply_yielding (f, args, (k,effh)) =
   Call(Var "_yield", f :: (args @ [k;effh]))
 
-let callk_yielding (kappa,effh) arg =
-  Call(Var "_yieldCont", [kappa; effh; arg])
+let callk_yielding (kappa,_) arg =
+  Call(Var "_yieldCont", [kappa; arg])
 
 (** [generate]
     Generates JavaScript code for a Links expression
@@ -549,7 +549,7 @@ struct
 
       match location with
       | `Client | `Native | `Unknown ->
-        let xs_names'' = xs_names'@["__kappa"] in
+        let xs_names'' = xs_names'@["__kappa"; "__effh"] in
         LetFun ((Js.var_name_binder fb,
                  xs_names'',
                  Call (Var (snd (name_binder fb)),
@@ -559,7 +559,7 @@ struct
       (* Seq (DeclareVar (Js.var_name_binder fb, Some (Var (snd (name_binder fb)))), code) *)
       | `Server ->
         LetFun ((Js.var_name_binder fb,
-                 xs_names'@["__kappa"],
+                 xs_names'@["__kappa"; "__effh"],
                  generate_remote_call f_var xs_names env,
                  location),
                 code)
@@ -667,7 +667,7 @@ and generate_special env : Ir.special -> metacontinuation -> code = fun sp kappa
           bind_continuation kappa
             (fun kappa -> apply_yielding (gv v, [fst kappa], kappa)) (* FIXME : It is correct to drop the handlers in the argument list? *)
       | `Select (l, c) ->
-         Call (fst kappa, [Call (Var "_effh", [snd kappa]); Call (Var "_send", [Dict ["_label", strlit l; "_value", Dict []]; gv c])]) (* k h (send [l => []] c)) *)
+         Call (fst kappa, [Call (Var "_send", [Dict ["_label", strlit l; "_value", Dict []]; gv c])]) 
       | `Choice (c, bs) ->
          let result = gensym () in
          let received = gensym () in
@@ -689,7 +689,9 @@ and generate_computation env : Ir.computation -> metacontinuation -> (venv * cod
     function
       | b :: bs ->
           let env, c' = generate_binding env b in
-            gbs env (c -<- c') bs
+          gbs env (c -<- c') bs (* metacontinuation = code * code 
+                                   (code -> code) 
+                                   (code * code) -> (code * code)*)
       | [] ->
           env, c (generate_tail_computation env tc kappa)
   in
@@ -735,7 +737,7 @@ and generate_binding env : Ir.binding -> (venv * (code -> code)) =
         let (x, x_name) = name_binder b in
         let env' = VEnv.bind env (x, x_name) in
           (env', fun code ->
-            generate_tail_computation env tc ((Fn ([x_name], code), Nothing))) (* FIXME Nothing should really be the handlers *)
+            generate_tail_computation env tc ((Fn ([x_name], code), (Var "__effh")))) (* FIXME _effh2 should really be the handlers *)
     | `Fun ((fb, _, _zs, _location) as def) ->
         let (f, f_name) = name_binder fb in
         let env' = VEnv.bind env (f, f_name) in
@@ -991,7 +993,7 @@ let generate_real_client_page ?(cgi_env=[]) (nenv, tyenv) defs (valenv, v) =
   let js = Json.resolve_state json_state in
 
   let printed_code =
-    let _venv, code = generate_computation venv ([], `Return (`Extend (StringMap.empty, None))) (Fn ([], Nothing)) in
+    let _venv, code = generate_computation venv ([], `Return (`Extend (StringMap.empty, None))) (Fn ([], Nothing), Fn ([], Nothing)) in (* FIXME ', _effh1' should be the handler *)
     let code = f code in
     let code = GenStubs.bindings defs code in
     let code = wrap_with_server_lib_stubs code in
