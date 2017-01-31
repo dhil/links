@@ -719,7 +719,7 @@ and generate_function env fs :
       | `Native -> failwith ("Not implemented native calls yet")
     in
     (f_name,
-     xs_names @ ["__kappa"],
+     xs_names @ ["__kappa"; "__effh"],
      body,
      location)
 
@@ -735,7 +735,7 @@ and generate_binding env : Ir.binding -> (venv * (code -> code)) =
         let (x, x_name) = name_binder b in
         let env' = VEnv.bind env (x, x_name) in
           (env', fun code ->
-                   generate_tail_computation env tc (Fn ([x_name], code)))
+            generate_tail_computation env tc ((Fn ([x_name], code), Nothing))) (* FIXME Nothing should really be the handlers *)
     | `Fun ((fb, _, _zs, _location) as def) ->
         let (f, f_name) = name_binder fb in
         let env' = VEnv.bind env (f, f_name) in
@@ -803,7 +803,7 @@ and generate_binding env : Ir.binding -> (venv * (code -> code)) =
 (*         env, with_declarations *)
 
 and generate_program env : Ir.program -> (venv * code) = fun ((bs, _) as comp) ->
-  let (venv, code) = generate_computation env comp (Var "_start") in
+  let (venv, code) = generate_computation env comp ((Var "_start"),(Var "_toplevel_handler")) in
   (venv, GenStubs.bindings bs code)
 
 
