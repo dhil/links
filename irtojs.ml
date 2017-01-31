@@ -135,7 +135,7 @@ struct
         | Bind (name, value, body) ->  name ^" = "^ show value ^"; "^ show body
         | Seq (l, r) -> show l ^"; "^ show r
         | Nothing -> ""
-        | Die msg -> "error('" ^ msg ^ "', __kappa)"
+        | Die msg -> "error('" ^ msg ^ "', __kappa, __effh)"
 end
 
 (** Pretty printer for JavaScript code *)
@@ -406,8 +406,8 @@ let bind_continuation (kappa : metacontinuation) body =
 let apply_yielding (f, args, (k,effh)) =
   Call(Var "_yield", f :: (args @ [k;effh]))
 
-let callk_yielding (kappa,_) arg =
-  Call(Var "_yieldCont", [kappa; arg])
+let callk_yielding (kappa,effh) arg =
+  Call(Var "_yieldCont", [kappa; effh; arg])
 
 (** [generate]
     Generates JavaScript code for a Links expression
@@ -609,7 +609,7 @@ let rec generate_tail_computation env : Ir.tail_computation -> metacontinuation 
                                 && not (List.mem f_name cps_prims)
                                 && Lib.primitive_location f_name <> `Server
                               then
-                                Call (fst kappa, [Call (Var ("_" ^ f_name), List.map gv vs)]) (* FIXME : what about handlers? *)
+                                Call (fst kappa, [Call (Var ("_" ^ f_name), List.map gv vs); snd kappa])
                               else
                                 apply_yielding (gv (`Variable f), List.map gv vs, kappa)
                       end
@@ -667,7 +667,7 @@ and generate_special env : Ir.special -> metacontinuation -> code = fun sp kappa
           bind_continuation kappa
             (fun kappa -> apply_yielding (gv v, [fst kappa], kappa)) (* FIXME : It is correct to drop the handlers in the argument list? *)
       | `Select (l, c) ->
-         Call (fst kappa, [Call (Var "_send", [Dict ["_label", strlit l; "_value", Dict []]; gv c])]) 
+         Call (fst kappa, [Call (Var "_send", [Dict ["_label", strlit l; "_value", Dict []]; gv c]); snd kappa]) 
       | `Choice (c, bs) ->
          let result = gensym () in
          let received = gensym () in
@@ -808,6 +808,17 @@ and generate_program env : Ir.program -> (venv * code) = fun ((bs, _) as comp) -
   let (venv, code) = generate_computation env comp ((Var "_start"),(Var "_toplevel_handler")) in
   (venv, GenStubs.bindings bs code)
 
+let toplevel_handler : code =
+  let return_case =
+    let v = "_v" ^ (string_of_int (Var.fresh_raw_var ())) in
+    Fn ([v], Var v)
+  in
+  let operation_case =
+    let z = "_z" ^ (string_of_int (Var.fresh_raw_var ())) in
+    Fn ([z], Die "Unhandled operation")
+  in
+  failwith "toplevel_handler has not yet been implemented"
+    
 
 let generate_toplevel_binding : Value.env -> Json.json_state -> venv -> Ir.binding -> Json.json_state * venv * string option * (code -> code) =
   fun valenv state varenv ->
