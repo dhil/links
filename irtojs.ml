@@ -187,7 +187,7 @@ struct
         | DeclareVar (x, c) -> PP.text "var" ^+^ PP.text x
             ^+^ (opt_app (fun c -> PP.text "=" ^+^ show c) PP.empty c)
 
-        | Die msg -> PP.text("error('" ^ msg ^ "', __kappa)")
+        | Die msg -> PP.text("error('" ^ msg ^ "', __kappa, __effh)")
         | Lit literal -> PP.text literal
 
         | LetFun ((name, vars, body, _location), rest) ->
@@ -519,7 +519,7 @@ and generate_xml env tag attrs children =
         Arr (List.map (generate_value env) children)])
 
 let generate_remote_call f_var xs_names env =
-  Call(Call (Var "LINKS.remoteCall", [Var "__kappa"]),
+  Call(Call (Var "LINKS.remoteCall", [Var "__kappa"; Var "__effh"]),
        [intlit f_var;
         env;
         Dict (
@@ -680,7 +680,19 @@ and generate_special env : Ir.special -> metacontinuation -> code = fun sp kappa
                cname, Bind (cname, channel, snd (generate_computation (VEnv.bind env (c, cname)) b kappa)) in
              let branches = StringMap.map generate_branch bs in
              Call (Var "receive", [gv c; Fn ([result], (Bind (received, scrutinee, (Case (received, branches, None)))))]))
-      | `DoOperation _
+      | `DoOperation (name, args, _) ->
+         let box (vs : Ir.value list) =
+           begin let open Pervasives in
+             List.mapi (fun i v -> (string_of_int @@ i + 1, gv v) ) vs
+             |> (fun vs -> Dict vs)
+           end
+         in
+         let operation = Dict [("_label", strlit name);
+                               ("_value", box args)]
+         in
+         bind_continuation kappa
+           (fun kappa ->
+             Call (snd kappa, [operation; fst kappa; snd kappa]))
       | `Handle _ -> failwith "irtojs.ml: Translation of `DoOperation and `Handle are not yet implemented."
 
 and generate_computation env : Ir.computation -> metacontinuation -> (venv * code) =
@@ -689,9 +701,7 @@ and generate_computation env : Ir.computation -> metacontinuation -> (venv * cod
     function
       | b :: bs ->
           let env, c' = generate_binding env b in
-          gbs env (c -<- c') bs (* metacontinuation = code * code 
-                                   (code -> code) 
-                                   (code * code) -> (code * code)*)
+          gbs env (c -<- c') bs
       | [] ->
           env, c (generate_tail_computation env tc kappa)
   in
@@ -737,7 +747,7 @@ and generate_binding env : Ir.binding -> (venv * (code -> code)) =
         let (x, x_name) = name_binder b in
         let env' = VEnv.bind env (x, x_name) in
           (env', fun code ->
-            generate_tail_computation env tc ((Fn ([x_name], code), (Var "__effh")))) (* FIXME _effh2 should really be the handlers *)
+            generate_tail_computation env tc ((Fn ([x_name], code), Var "__effh")))
     | `Fun ((fb, _, _zs, _location) as def) ->
         let (f, f_name) = name_binder fb in
         let env' = VEnv.bind env (f, f_name) in
@@ -805,20 +815,8 @@ and generate_binding env : Ir.binding -> (venv * (code -> code)) =
 (*         env, with_declarations *)
 
 and generate_program env : Ir.program -> (venv * code) = fun ((bs, _) as comp) ->
-  let (venv, code) = generate_computation env comp ((Var "_start"),(Var "_toplevel_handler")) in
-  (venv, GenStubs.bindings bs code)
-
-let toplevel_handler : code =
-  let return_case =
-    let v = "_v" ^ (string_of_int (Var.fresh_raw_var ())) in
-    Fn ([v], Var v)
-  in
-  let operation_case =
-    let z = "_z" ^ (string_of_int (Var.fresh_raw_var ())) in
-    Fn ([z], Die "Unhandled operation")
-  in
-  failwith "toplevel_handler has not yet been implemented"
-    
+  let (venv, code) = generate_computation env comp ((Var "_start"),(Var "_efferr")) in
+  (venv, GenStubs.bindings bs code)    
 
 let generate_toplevel_binding : Value.env -> Json.json_state -> venv -> Ir.binding -> Json.json_state * venv * string option * (code -> code) =
   fun valenv state varenv ->
@@ -936,7 +934,7 @@ let wrap_with_server_lib_stubs : code -> code = fun code ->
       (fun (name, args, body) code ->
          LetFun
            ((name,
-             args @ ["__kappa"],
+             args @ ["__kappa"; "__effh"],
              body,
              `Server),
             code))
@@ -1004,7 +1002,7 @@ let generate_real_client_page ?(cgi_env=[]) (nenv, tyenv) defs (valenv, v) =
   let js = Json.resolve_state json_state in
 
   let printed_code =
-    let _venv, code = generate_computation venv ([], `Return (`Extend (StringMap.empty, None))) (Fn ([], Nothing), Fn ([], Nothing)) in (* FIXME ', _effh1' should be the handler *)
+    let _venv, code = generate_computation venv ([], `Return (`Extend (StringMap.empty, None))) (Fn ([], Nothing), (Var "_efferr")) in
     let code = f code in
     let code = GenStubs.bindings defs code in
     let code = wrap_with_server_lib_stubs code in
