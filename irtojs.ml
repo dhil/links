@@ -688,12 +688,62 @@ and generate_special env : Ir.special -> metacontinuation -> code = fun sp kappa
            end
          in
          let operation = Dict [("_label", strlit name);
-                               ("_value", box args)]
+                               ("_value", box args);
+                               ("_cont", fst kappa)]
          in
          bind_continuation kappa
            (fun kappa ->
              Call (snd kappa, [operation; fst kappa; snd kappa]))
-      | `Handle _ -> failwith "irtojs.ml: Translation of `DoOperation and `Handle are not yet implemented."
+      | `Handle (v, clauses, _) ->
+         let comp = gv v in
+         let k, x =
+           match comp with
+           | Var x -> (fun e -> e), x
+           | _ -> let x = gensym ~prefix:"x" () in
+                  (fun e -> Bind (x, comp, e)), x
+         in
+         bind_continuation kappa
+           (fun (kappa,effh) ->
+             let (return_clause, operation_clauses) = StringMap.pop "Return" clauses in
+             let gen_cont (ct, xb, c) =
+               let env' =
+                 match ct with
+                 | `Effect kb -> VEnv.bind env (name_binder kb)
+                 | _ -> env
+               in
+               let (x, x_name) = name_binder xb in               
+               x_name, (snd (generate_computation (VEnv.bind env' (x, x_name)) c (kappa,effh)))
+             in
+             let return =
+               let (_, xb, c) = return_clause in
+               let (x, x_name) = name_binder xb in               
+               Fn ([x_name], (snd (generate_computation (VEnv.bind env (x, x_name)) c (kappa,effh))))
+             in
+             let operations =
+               let z = "_z" ^ (string_of_int (Var.fresh_raw_var ())) in
+               let gen_cont (ct, xb, c) =
+                 let env',k_name =
+                   match ct with
+                   | `Effect kb -> let kb' = name_binder kb in VEnv.bind env kb',snd kb'
+                   | _ -> assert false
+                 in
+                 let (x, x_name) = name_binder xb in
+                 k_name,x_name, (snd (generate_computation (VEnv.bind env' (x, x_name)) c (kappa,effh)))
+               in
+               let k = Call (Var "LINKS.project", [Var z; strlit "_cont"]) in
+               let clauses =
+                 StringMap.map
+                   (fun clause ->
+                     let (k_name,x_name,comp) = gen_cont clause in
+                     x_name, Bind (k_name, k, comp))
+                   operation_clauses
+               in
+               let forward = Some (z, Call (effh, [Var z])) in
+               Fn ([z], Case (z, clauses, forward))
+             in
+             Call (comp, [return; operations])
+           )
+         
 
 and generate_computation env : Ir.computation -> metacontinuation -> (venv * code) =
   fun (bs, tc) kappa ->
