@@ -1,0 +1,143 @@
+## Various utility functions
+sig intersperse : (a, [a]) ~> [a]
+fun intersperse(y, xs) {
+   switch (xs) {
+     case []      -> []    
+     case [x]     -> [x]
+     case x :: xs -> x :: y :: intersperse(y,xs)
+   }
+}
+
+
+sig listToString : ((a) ~e~> String) -> ([a]) ~e~> String
+fun listToString(elemToString)(xs) {
+  var xs = fold_left(fun (acc, x) { acc ^^ x }
+                    , ""
+                    , intersperse(", ", map(elemToString, xs)));
+  "[" ^^ xs ^^ "]"
+}
+
+sig maybeToString : ((a) -e-> String) -> (Maybe(a)) -e-> String
+fun maybeToString(eltToString)(m) {
+  switch (m) {
+    case Just(x) -> "Just(" ^^ eltToString(x) ^^ ")"
+    case Nothing -> "Nothing"
+  }
+}
+
+sig repeat : (Int, () ~e~> a) ~e~> [a]
+fun repeat(n, f) {
+  if (n <= 0) []
+  else f() :: repeat(n-1, f)
+}
+
+## Now for the interesting stuff
+
+# Modelling the outcome of a coin toss
+typename Toss = [|Heads|Tails|];
+
+# Conversion routine for `Toss'
+sig tossToString : (Toss) -> String
+fun tossToString(t) {
+  switch (t) {
+    case Heads -> "Heads"
+    case Tails -> "Tails"
+  }
+}
+
+# A nondeterministic choose operation
+sig choose : () {Choose:Bool |_}-> Bool
+fun choose() {do Choose}
+
+# Raising an exception `Fail'
+sig fail : forall a :: Type . () {Fail:Zero |_}-> a
+fun fail() {
+  switch (do Fail) { }
+}
+
+# Regular coin tossing
+sig toss : () {Choose:Bool |_}~> Toss
+fun toss() {
+  if (choose()) Heads
+  else Tails
+}
+
+# Drunk coin tossing
+sig drunkToss : () {Choose:Bool,Fail:Zero |_}~> Toss
+fun drunkToss() {
+  if (choose()) toss()
+  else fail()
+}
+
+sig allChoices : (Comp({Choose:Bool |e}, a)) -> Comp({Choose{_} |e}, [a])
+fun allChoices(m)() {
+  handle(m) {
+    case Return(x) -> [x]
+    case Choose(k) -> k(true) ++ k(false)
+  }
+}
+
+# Exception handler
+sig maybe : (Comp({Fail:Zero |e}, a)) -> Comp({Fail{_} |e}, Maybe(a))
+fun maybe(m)() {
+  handle(m) {
+    case Return(x) -> Just(x)
+    case Fail(_)   -> Nothing
+  }
+}
+
+# Formlet
+fun radioGroupVertical(items) {
+  for((xml, label) <- items)
+    <#>
+    <label>
+      {xml} {stringToXml(label)}
+    </label> <br/>
+    </#>
+}
+
+var tossFormlet =
+    formlet
+      <#>
+        <div>
+          <label>
+             Computation: { inputRadiogroup(["Regular toss", "Drunken toss"], "Regular toss", radioGroupVertical) -> comp }
+          </label>
+        </div>
+        <div>
+         <label>
+            Repetitions: { input -> n }
+         </label>
+        </div>
+        { submitButton("Evaluate!") -> submitted }
+      </#>
+   yields
+     ( comp = comp
+     , n    = stringToInt(n));
+
+fun evaluator(formData) {
+  var (printer, comp) =
+    if (formData.comp == "Regular toss")
+       (listToString(listToString(tossToString)), allChoices(fun() { repeat(formData.n, toss) }))
+    else
+       (listToString(tossToString), fun() { [Heads] });
+
+  var xs = comp();
+  replaceNode(
+      <div id="outcomes">{stringToXml(printer(xs))}</div>,
+      getNodeById("outcomes")
+      )
+}
+
+# Page
+fun mainPage(_) {
+  page
+    <html>
+      <body>
+        <#>
+         { tossFormlet => evaluator with multipart }
+        </#>
+        <div id="outcomes"></div>
+      </body>
+    </html>
+}
