@@ -3045,7 +3045,7 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * usagemap =
               2. Construct operation type
               3. Construct effect row where the operation name gets bound to the previously constructed operation type
               4. Unify with current effect context
-           *)
+            *)
            if String.compare opname HandlerUtils.return_case == 0 then
 	     Gripers.die pos "The implicit effect Return is not invocable"
            else
