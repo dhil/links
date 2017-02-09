@@ -407,7 +407,7 @@ let apply_yielding (f, args, (k,effh)) =
   Call(Var "_yield", f :: (args @ [k;effh]))
 
 let callk_yielding (kappa,effh) arg =
-  Call(Var "_yieldCont", [kappa; effh; arg])
+  Call(Var "_yieldCont", [kappa; arg; effh])
 
 (** [generate]
     Generates JavaScript code for a Links expression
@@ -687,19 +687,22 @@ and generate_special env : Ir.special -> metacontinuation -> code = fun sp kappa
              |> (fun vs -> Dict vs)
            end
          in
+         let x = gensym ~prefix:"_x" () in
          let operation = Dict [("_label", strlit name);
                                ("_value", box args);
-                               ("_cont", fst kappa)]
+                               ("_cont",
+                                Fn ([x; "__kappa_prime"; "__effh_prime"],
+                                    Call (Var "__kappa_prime", [Call (fst kappa, [Var x; snd kappa]); Var "__effh_prime"])))]
          in
          bind_continuation kappa
            (fun kappa ->
-             Call (snd kappa, [operation; fst kappa; snd kappa]))
+             Call (snd kappa, [operation]))
       | `Handle (v, clauses, _) ->
          let comp = gv v in
          let k, x =
            match comp with
            | Var x -> (fun e -> e), x
-           | _ -> let x = gensym ~prefix:"x" () in
+           | _ -> let x = gensym ~prefix:"_x" () in
                   (fun e -> Bind (x, comp, e)), x
          in
          bind_continuation kappa
@@ -720,7 +723,7 @@ and generate_special env : Ir.special -> metacontinuation -> code = fun sp kappa
                Fn ([x_name], (snd (generate_computation (VEnv.bind env (x, x_name)) c (kappa,effh))))
              in
              let operations =
-               let z = "_z" ^ (string_of_int (Var.fresh_raw_var ())) in
+               let z = gensym ~prefix:"_z" () in
                let gen_cont (ct, xb, c) =
                  let env',k_name =
                    match ct with
@@ -797,7 +800,7 @@ and generate_binding env : Ir.binding -> (venv * (code -> code)) =
         let (x, x_name) = name_binder b in
         let env' = VEnv.bind env (x, x_name) in
           (env', fun code ->
-            generate_tail_computation env tc ((Fn ([x_name], code), Var "__effh")))
+            generate_tail_computation env tc ((Fn ([x_name; "__effh"], code), Var "__effh")))
     | `Fun ((fb, _, _zs, _location) as def) ->
         let (f, f_name) = name_binder fb in
         let env' = VEnv.bind env (f, f_name) in
