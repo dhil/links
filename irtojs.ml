@@ -399,15 +399,15 @@ let bind_continuation (kappa : metacontinuation) body =
            f(args) {body}.)
         *)
         let uid = string_of_int (Var.fresh_raw_var ()) in
-        let k = "_kappa" ^ uid in
         let h = "_effh" ^ uid in
-          Bind (k, fst kappa, Bind (h, snd kappa, body ((Var k),(Var h))))
+        let k = "_kappa" ^ uid in
+          Bind (h, fst kappa, Bind (k, snd kappa, body ((Var h),(Var k))))
 
-let apply_yielding (f, args, (k,effh)) =
-  Call(Var "_yield", f :: (args @ [k;effh]))
+let apply_yielding (f, args, (effh,k)) =
+  Call(Var "_yield", f :: (args @ [effh;k]))
 
-let callk_yielding (kappa,effh) arg =
-  Call(Var "_yieldCont", [kappa; arg; effh])
+let callk_yielding (_,kappa) arg =
+  Call(Var "_yieldCont", [kappa; arg])
 
 (** [generate]
     Generates JavaScript code for a Links expression
@@ -437,12 +437,12 @@ let rec generate_value env : Ir.value -> code =
           (* HACK *)
           let name = VEnv.lookup env var in
             if Arithmetic.is name then
-              Fn (["x"; "y"; "__kappa"; "__effh"],
-                  callk_yielding ((Var "__kappa"),(Var "__effh"))
+              Fn (["x"; "y"; "__effh"; "__kappa"],
+                  callk_yielding ((Var "__effh"),(Var "__kappa"))
                     (Arithmetic.gen (Var "x", name, Var "y")))
             else if StringOp.is name then
-              Fn (["x"; "y"; "__kappa"; "__effh"],
-                  callk_yielding ((Var "__kappa"),(Var "__effh"))
+              Fn (["x"; "y"; "__effh"; "__kappa"],
+                  callk_yielding ((Var "__effh"),(Var "__kappa"))
                     (StringOp.gen (Var "x", name, Var "y")))
             else if Comparison.is name then
               Var (Comparison.js_name name)
@@ -519,7 +519,7 @@ and generate_xml env tag attrs children =
         Arr (List.map (generate_value env) children)])
 
 let generate_remote_call f_var xs_names env =
-  Call(Call (Var "LINKS.remoteCall", [Var "__kappa"; Var "__effh"]),
+  Call(Call (Var "LINKS.remoteCall", [Var "__effh"; Var "__kappa"]),
        [intlit f_var;
         env;
         Dict (
@@ -549,7 +549,7 @@ struct
 
       match location with
       | `Client | `Native | `Unknown ->
-        let xs_names'' = xs_names'@["__kappa"; "__effh"] in
+        let xs_names'' = xs_names'@[ "__effh";"__kappa"] in
         LetFun ((Js.var_name_binder fb,
                  xs_names'',
                  Call (Var (snd (name_binder fb)),
@@ -559,7 +559,7 @@ struct
       (* Seq (DeclareVar (Js.var_name_binder fb, Some (Var (snd (name_binder fb)))), code) *)
       | `Server ->
         LetFun ((Js.var_name_binder fb,
-                 xs_names'@["__kappa"; "__effh"],
+                 xs_names'@["__effh";"__kappa"],
                  generate_remote_call f_var xs_names env,
                  location),
                 code)
@@ -609,7 +609,7 @@ let rec generate_tail_computation env : Ir.tail_computation -> metacontinuation 
                                 && not (List.mem f_name cps_prims)
                                 && Lib.primitive_location f_name <> `Server
                               then
-                                Call (fst kappa, [Call (Var ("_" ^ f_name), List.map gv vs); snd kappa])
+                                Call (snd kappa, [Call (Var ("_" ^ f_name), List.map gv vs); fst kappa])
                               else
                                 apply_yielding (gv (`Variable f), List.map gv vs, kappa)
                       end
@@ -665,9 +665,9 @@ and generate_special env : Ir.special -> metacontinuation -> code = fun sp kappa
       | `Delete _ -> Die "Attempt to run a database delete on the client"
       | `CallCC v ->
           bind_continuation kappa
-            (fun kappa -> apply_yielding (gv v, [fst kappa], kappa)) (* FIXME : It is correct to drop the handlers in the argument list? *)
+            (fun kappa -> apply_yielding (gv v, [snd kappa], kappa)) (* FIXME : It is correct to drop the handlers in the argument list? *)
       | `Select (l, c) ->
-         Call (fst kappa, [Call (Var "_send", [Dict ["_label", strlit l; "_value", Dict []]; gv c]); snd kappa]) 
+         Call (snd kappa, [Call (Var "_send", [Dict ["_label", strlit l; "_value", Dict []]; gv c]); fst kappa]) 
       | `Choice (c, bs) ->
          let result = gensym () in
          let received = gensym () in
@@ -683,69 +683,57 @@ and generate_special env : Ir.special -> metacontinuation -> code = fun sp kappa
       | `DoOperation (name, args, _) ->
          let box (vs : Ir.value list) =
            begin let open Pervasives in
-             List.mapi (fun i v -> (string_of_int @@ i + 1, gv v) ) vs
-             |> (fun vs -> Dict vs)
+                 List.mapi (fun i v -> (string_of_int @@ i + 1, gv v) ) vs
+              |> (fun vs -> Dict vs)
            end
          in
          let x = gensym ~prefix:"_x" () in
          let operation = Dict [("_label", strlit name);
                                ("_value", box args);
-                               ("_cont",
-                                Fn ([x; "__kappa_prime"; "__effh_prime"],
-                                    Call (Var "__kappa_prime", [Call (fst kappa, [Var x; snd kappa]); Var "__effh_prime"])))]
+                               ("_resume",
+                                Fn ([x; "__ignore_effh_prime"; "__ignore_kappa_prime"], (* h' and k' are ignored *)
+                                    Call (snd kappa, [Var x])))]
          in
          bind_continuation kappa
            (fun kappa ->
-             Call (snd kappa, [operation]))
+             Call (fst kappa, [operation]))
       | `Handle (v, clauses, _) ->
          let comp = gv v in
-         let k, x =
-           match comp with
-           | Var x -> (fun e -> e), x
-           | _ -> let x = gensym ~prefix:"_x" () in
-                  (fun e -> Bind (x, comp, e)), x
-         in
          bind_continuation kappa
-           (fun (kappa,effh) ->
-             let (return_clause, operation_clauses) = StringMap.pop "Return" clauses in
-             let gen_cont (ct, xb, c) =
-               let env' =
-                 match ct with
-                 | `Effect kb -> VEnv.bind env (name_binder kb)
-                 | _ -> env
-               in
-               let (x, x_name) = name_binder xb in               
-               x_name, (snd (generate_computation (VEnv.bind env' (x, x_name)) c (kappa,effh)))
+           (fun ((effh,kappa) as cont) ->
+             let transl env binder comp =
+               let env' = VEnv.bind env (name_binder binder) in
+               snd (generate_computation env' comp cont)
              in
+             let (return_clause, operation_clauses) = StringMap.pop "Return" clauses in
              let return =
-               let (_, xb, c) = return_clause in
-               let (x, x_name) = name_binder xb in               
-               Fn ([x_name], (snd (generate_computation (VEnv.bind env (x, x_name)) c (kappa,effh))))
+               let (_, xb, body) = return_clause in
+               Fn ([snd @@ name_binder xb], transl env xb body)
              in
              let operations =
                let z = gensym ~prefix:"_z" () in
-               let gen_cont (ct, xb, c) =
+               let gen_cont (ct, xb, body) =
                  let env',k_name =
                    match ct with
-                   | `Effect kb -> let kb' = name_binder kb in VEnv.bind env kb',snd kb'
+                   | `Effect kb ->
+                      let kb' = name_binder kb in
+                      VEnv.bind env kb', snd kb'
                    | _ -> assert false
                  in
-                 let (x, x_name) = name_binder xb in
-                 k_name,x_name, (snd (generate_computation (VEnv.bind env' (x, x_name)) c (kappa,effh)))
+                 k_name, snd @@ name_binder xb, transl env' xb body
                in
-               let k = Call (Var "LINKS.project", [Var z; strlit "_cont"]) in
+               let resume = Call (Var "LINKS.project", [Var z; strlit "_resume"]) in
                let clauses =
                  StringMap.map
                    (fun clause ->
-                     let (k_name,x_name,comp) = gen_cont clause in
-                     x_name, Bind (k_name, k, comp))
+                     let (resume_name,x_name,comp) = gen_cont clause in
+                     x_name, Bind (resume_name, resume, comp))
                    operation_clauses
                in
                let forward = Some (z, Call (effh, [Var z])) in
                Fn ([z], Case (z, clauses, forward))
              in
-             Call (comp, [return; operations])
-           )
+             Call (comp, [operations; return]))
          
 
 and generate_computation env : Ir.computation -> metacontinuation -> (venv * code) =
@@ -762,7 +750,7 @@ and generate_computation env : Ir.computation -> metacontinuation -> (venv * cod
 
 and generate_function env fs :
     Ir.fun_def ->
-    (string * string list * code * Ir.location) =
+   (string * string list * code * Ir.location) =
   fun (fb, (_, xsb, body), zb, location) ->
     let (f, f_name) = name_binder fb in
     assert (f_name <> "");
@@ -779,12 +767,12 @@ and generate_function env fs :
     let body =
       match location with
       | `Client | `Unknown ->
-        snd (generate_computation body_env body ((Var "__kappa"),(Var "__effh")))
+        snd (generate_computation body_env body ((Var "__effh"),(Var "__kappa")))
       | `Server -> generate_remote_call f xs_names (Dict [])
       | `Native -> failwith ("Not implemented native calls yet")
     in
     (f_name,
-     xs_names @ ["__kappa"; "__effh"],
+     xs_names @ ["__effh"; "__kappa"],
      body,
      location)
 
@@ -800,7 +788,7 @@ and generate_binding env : Ir.binding -> (venv * (code -> code)) =
         let (x, x_name) = name_binder b in
         let env' = VEnv.bind env (x, x_name) in
           (env', fun code ->
-            generate_tail_computation env tc ((Fn ([x_name; "__effh"], code), Var "__effh")))
+            generate_tail_computation env tc (Var "__effh",(Fn ([x_name], code))))
     | `Fun ((fb, _, _zs, _location) as def) ->
         let (f, f_name) = name_binder fb in
         let env' = VEnv.bind env (f, f_name) in
@@ -868,7 +856,7 @@ and generate_binding env : Ir.binding -> (venv * (code -> code)) =
 (*         env, with_declarations *)
 
 and generate_program env : Ir.program -> (venv * code) = fun ((bs, _) as comp) ->
-  let (venv, code) = generate_computation env comp ((Var "_start"),(Var "_efferr")) in
+  let (venv, code) = generate_computation env comp ((Var "_efferr"),(Var "_start")) in
   (venv, GenStubs.bindings bs code)    
 
 let generate_toplevel_binding : Value.env -> Json.json_state -> venv -> Ir.binding -> Json.json_state * venv * string option * (code -> code) =
@@ -987,7 +975,7 @@ let wrap_with_server_lib_stubs : code -> code = fun code ->
       (fun (name, args, body) code ->
          LetFun
            ((name,
-             args @ ["__kappa"; "__effh"],
+             args @ ["__effh"; "__kappa"],
              body,
              `Server),
             code))
@@ -1055,7 +1043,7 @@ let generate_real_client_page ?(cgi_env=[]) (nenv, tyenv) defs (valenv, v) =
   let js = Json.resolve_state json_state in
 
   let printed_code =
-    let _venv, code = generate_computation venv ([], `Return (`Extend (StringMap.empty, None))) (Fn ([], Nothing), (Var "_efferr")) in
+    let _venv, code = generate_computation venv ([], `Return (`Extend (StringMap.empty, None))) ((Var "_efferr"), Fn ([], Nothing)) in
     let code = f code in
     let code = GenStubs.bindings defs code in
     let code = wrap_with_server_lib_stubs code in
