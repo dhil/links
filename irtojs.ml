@@ -380,7 +380,16 @@ let name_binder (x, info) =
   assert (name <> "");
   (x, Js.name_binder (x,info))
 
-let bind_continuation kappa body =
+(* In the metalanguage the continuation is simply some code, however
+   in the object language the continuation is a list. As a consequence
+   all operations on continuations must be done in the object
+   language. *)
+type continuation = code
+
+(* Extends the continuation [r] with a frame [k] *)   
+let cons k r = Call (Var "_lsCons", [k; r])
+  
+let bind_continuation (kappa : continuation) body =
   match kappa with
     | Var _ -> body kappa
     | _ ->
@@ -401,7 +410,7 @@ let bind_continuation kappa body =
 let apply_yielding (f, args, k) =
   Call(Var "_yield", f :: (args @ [k]))
 
-let callk_yielding kappa arg =
+let callk_yielding (kappa : continuation) arg =
   Call(Var "_yieldCont", [kappa; arg])
 
 (** [generate]
@@ -576,7 +585,7 @@ struct
         code
 end
 
-let rec generate_tail_computation env : Ir.tail_computation -> code -> code =
+let rec generate_tail_computation env : Ir.tail_computation -> continuation -> code =
   fun tc kappa ->
   let gv v = generate_value env v in
   let gc c kappa = snd (generate_computation env c kappa) in
@@ -635,7 +644,7 @@ let rec generate_tail_computation env : Ir.tail_computation -> code -> code =
             (fun kappa ->
                If (gv v, gc c1 kappa, gc c2 kappa))
 
-and generate_special env : Ir.special -> code -> code = fun sp kappa ->
+and generate_special env : Ir.special -> continuation -> code = fun sp kappa ->
   let gv v = generate_value env v in
     match sp with
       (* | `App (f, vs) -> *)
@@ -675,10 +684,62 @@ and generate_special env : Ir.special -> code -> code = fun sp kappa ->
                cname, Bind (cname, channel, snd (generate_computation (VEnv.bind env (c, cname)) b kappa)) in
              let branches = StringMap.map generate_branch bs in
              Call (Var "receive", [gv c; Fn ([result], (Bind (received, scrutinee, (Case (received, branches, None)))))]))
-      | `DoOperation _
-      | `Handle _ -> failwith "irtojs.ml: Translation of `DoOperation and `Handle are not yet implemented."
+      | `DoOperation (name, args, _) ->
+         let box (vs : Ir.value list) =
+           begin let open Pervasives in
+                 List.mapi (fun i v -> (string_of_int @@ i + 1, gv v) ) vs
+              |> (fun vs -> Dict vs)
+           end
+         in
+         let transl_op' name args resume_with ks =
+           bind_continuation ks
+             (fun ks ->               
+               let h = gensym ~prefix:"_h" () in
+               let operation =
+                 Dict [("_label", strlit name);
+                       ("_value", box args);
+                       ("_resume", resume_with h)]
+               in
+               let k = Fn ([h; "__ks"], Call (Var h, [operation; Var "__ks"])) in
+               callk_yielding ks k)
+         in
+         (* [[op p]](k' :: ks) = [[op]](p, \x ks.k' x ((\y ks.y h ks) :: ks), ks)  *)
+         let transl_op name args ks =
+           bind_continuation ks
+             (fun ks ->
+(*               let k = gensym ~prefix:"_ks" () in*)
+               let k' = "_k_prime" in
+               let bind k' body = Bind (k', Call (Var "_lsHead", [ks]), body) in
+               let ks' = (Call (Var "_lsTail", [ks])) in
+               let x = gensym ~prefix:"_x" () in
+               let y = gensym ~prefix:"_y" () in
+               let resume h =
+                 let ks'' = cons (Fn ([y], Call (Var y, [Var h; Var "__ks"]))) ks in
+                 Fn ([x; "__ks"],
+                     bind k'
+                       (Call (Var k', [Var x; ks''])))
+               in
+               transl_op' name args resume ks')
+         in                  
+         transl_op name args kappa
+      | `Handle (m, clauses, _) ->
+         let comp = gv m in
+         let transl env binder comp ks =
+           let env' = VEnv.bind env (name_binder binder) in
+           snd (generate_computation env' comp ks)
+         in
+         let (return_clause, operation_clauses) = StringMap.pop "Return" clauses in
+         let return ks =
+           let (_, xb, body) = return_clause in
+           Fn ([snd @@ name_binder xb; "__ks"], callk_yielding (Var "__ks") (Fn (["_h"; "__ks"], Call (transl env xb body ks, [Var "__ks"])))) (* FIXME : correct to use kappa here? *)
+         in
+         let operations = () in
+         bind_continuation kappa
+           (fun ks ->
+             let ks = cons (return ks) ks in
+             Call (comp, [ks])) 
 
-and generate_computation env : Ir.computation -> code -> (venv * code) =
+and generate_computation env : Ir.computation -> continuation -> (venv * code) =
   fun (bs, tc) kappa ->
   let rec gbs env c =
     function
@@ -745,57 +806,57 @@ and generate_binding env : Ir.binding -> (venv * (code -> code)) =
     | `Module _
     | `Alien _ -> env, (fun code -> code)
 
-(* SL: seems to be dead code *)
-and generate_declaration env : Ir.binding -> (venv * (code -> code)) =
-  function
-    | `Let (_, (_, `Return _)) as binding ->
-        generate_binding env binding
-    | `Let (b, _) ->
-        if not(Settings.get_value (Basicsettings.allow_impure_defs)) then
-          failwith "Top-level definitions must be values"
-        else
-          let (x, x_name) = name_binder b in
-          let env' = VEnv.bind env (x, x_name) in
-            (env',
-             fun code ->
-               Seq (DeclareVar (x_name, None), code))
-    | binding -> generate_binding env binding
+(* (\* SL: seems to be dead code *\) *)
+(* and generate_declaration env : Ir.binding -> (venv * (code -> code)) = *)
+(*   function *)
+(*     | `Let (_, (_, `Return _)) as binding -> *)
+(*         generate_binding env binding *)
+(*     | `Let (b, _) -> *)
+(*         if not(Settings.get_value (Basicsettings.allow_impure_defs)) then *)
+(*           failwith "Top-level definitions must be values" *)
+(*         else *)
+(*           let (x, x_name) = name_binder b in *)
+(*           let env' = VEnv.bind env (x, x_name) in *)
+(*             (env', *)
+(*              fun code -> *)
+(*                Seq (DeclareVar (x_name, None), code)) *)
+(*     | binding -> generate_binding env binding *)
 
-(* SL: seems to be dead code *)
-and generate_definition env
-    : Ir.binding -> code -> code =
-  function
-    | `Let (_, (_, `Return _)) -> (fun code -> code)
-    | `Let (b, (_, tc)) ->
-        let (_, x_name) = name_binder b in
-          (fun code ->
-             generate_tail_computation env tc
-               (Fn ([x_name ^ "$"], Bind(x_name, Var (x_name ^ "$"), code))))
-    | `Fun _
-    | `Rec _
-    | `Module _
-    | `Alien _ -> (fun code -> code)
-(* SL: seems to be dead code *)
-and generate_defs env : Ir.binding list -> (venv * (code -> code)) =
-  fun bs ->
-    let rec declare env c =
-      function
-        | [] -> env, c
-        | b :: bs ->
-            let env, c' = generate_declaration env b in
-              declare env (c -<- c') bs in
-    let env, with_declarations = declare env (fun code -> code) bs in
-    let rec define c =
-      function
-        | [] -> c
-        | b :: bs ->
-            let c' = generate_definition env b in
-              define (c -<- c') bs
-    in
-      if Settings.get_value Basicsettings.allow_impure_defs then
-        env, fun code -> with_declarations (define (fun code -> code) bs code)
-      else
-        env, with_declarations
+(* (\* SL: seems to be dead code *\) *)
+(* and generate_definition env *)
+(*     : Ir.binding -> code -> code = *)
+(*   function *)
+(*     | `Let (_, (_, `Return _)) -> (fun code -> code) *)
+(*     | `Let (b, (_, tc)) -> *)
+(*         let (_, x_name) = name_binder b in *)
+(*           (fun code -> *)
+(*              generate_tail_computation env tc *)
+(*                (Fn ([x_name ^ "$"], Bind(x_name, Var (x_name ^ "$"), code)))) *)
+(*     | `Fun _ *)
+(*     | `Rec _ *)
+(*     | `Module _ *)
+(*     | `Alien _ -> (fun code -> code) *)
+(* (\* SL: seems to be dead code *\) *)
+(* and generate_defs env : Ir.binding list -> (venv * (code -> code)) = *)
+(*   fun bs -> *)
+(*     let rec declare env c = *)
+(*       function *)
+(*         | [] -> env, c *)
+(*         | b :: bs -> *)
+(*             let env, c' = generate_declaration env b in *)
+(*               declare env (c -<- c') bs in *)
+(*     let env, with_declarations = declare env (fun code -> code) bs in *)
+(*     let rec define c = *)
+(*       function *)
+(*         | [] -> c *)
+(*         | b :: bs -> *)
+(*             let c' = generate_definition env b in *)
+(*               define (c -<- c') bs *)
+(*     in *)
+(*       if Settings.get_value Basicsettings.allow_impure_defs then *)
+(*         env, fun code -> with_declarations (define (fun code -> code) bs code) *)
+(*       else *)
+(*         env, with_declarations *)
 
 and generate_program env : Ir.program -> (venv * code) = fun ((bs, _) as comp) ->
   let (venv, code) = generate_computation env comp (Var "_start") in
@@ -986,7 +1047,18 @@ let generate_real_client_page ?(cgi_env=[]) (nenv, tyenv) defs (valenv, v) =
   let js = Json.resolve_state json_state in
 
   let printed_code =
-    let _venv, code = generate_computation venv ([], `Return (`Extend (StringMap.empty, None))) (Fn ([], Nothing)) in
+    let toplevel_ks = 
+      let f = "__f" in
+      let ks = "__ks" in
+      let unhandled = Fn (["__y"; ks], Call (Var "_efferr", [Var "__y"; Var ks])) in (* The toplevel handler '_efferr' is defined in jslib.js *)
+      Call (Var "_lsSingleton", [Fn ([f; ks], Call (Var f, [unhandled; Var ks]))])
+    in
+    let b,g =
+      let b = Var.fresh_binder_of_type Types.unit_type in
+      let h = Var.fresh_binder_of_type Types.unit_type in
+      b,`Fun (b, ([], [h], ([], `Return (`Extend (StringMap.empty, None)))), None, `Client)
+    in
+    let _venv, code = generate_computation venv ([g], `Return (`Variable (Var.var_of_binder b))) toplevel_ks in
     let code = f code in
     let code = GenStubs.bindings defs code in
     let code = wrap_with_server_lib_stubs code in
@@ -999,8 +1071,8 @@ let generate_real_client_page ?(cgi_env=[]) (nenv, tyenv) defs (valenv, v) =
     ~onload:"_startRealPage()"
     []
 
-(* SL: seems to be dead code *)
-let generate_program_defs (nenv, tyenv) bs =
-  let _, venv, _ = initialise_envs (nenv, tyenv) in
-  let _, code = generate_defs venv bs in
-    [show (code Nothing)]
+(* (\* SL: seems to be dead code *\) *)
+(* let generate_program_defs (nenv, tyenv) bs = *)
+(*   let _, venv, _ = initialise_envs (nenv, tyenv) in *)
+(*   let _, code = generate_defs venv bs in *)
+(*     [show (code Nothing)] *)
