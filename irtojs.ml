@@ -384,12 +384,20 @@ let name_binder (x, info) =
    in the object language the continuation is a list. As a consequence
    all operations on continuations must be done in the object
    language. *)
-type continuation = code
+module Continuation: sig
+  type t = code
 
-(* Extends the continuation [r] with a frame [k] *)   
-let cons k r = Call (Var "_lsCons", [k; r])
+  val push : t -> t -> t
+  val pop : t -> t * t
+end = struct
+  type t = code
+  (* Extends the continuation [r] with a frame [k] *)
+  let push k r = Call (Var "_lsCons", [k; r])
+  (* Returns the top frame and the remainder of the continuation *)
+  let pop k = Call (Var "_lsHead", [k]), Call (Var "_lsTail", [k])
+end
   
-let bind_continuation (kappa : continuation) body =
+let bind_continuation (kappa : Continuation.t) body =
   match kappa with
     | Var _ -> body kappa
     | _ ->
@@ -410,8 +418,11 @@ let bind_continuation (kappa : continuation) body =
 let apply_yielding (f, args, k) =
   Call(Var "_yield", f :: (args @ [k]))
 
-let callk_yielding (kappa : continuation) arg =
+let callk_yielding (kappa : Continuation.t) arg =
   Call(Var "_yieldCont", [kappa; arg])
+
+let callk_direct (kappa : Continuation.t) arg =
+  Call(Var "_applyCont", [kappa; arg])
 
 (** [generate]
     Generates JavaScript code for a Links expression
@@ -585,7 +596,7 @@ struct
         code
 end
 
-let rec generate_tail_computation env : Ir.tail_computation -> continuation -> code =
+let rec generate_tail_computation env : Ir.tail_computation -> Continuation.t -> code =
   fun tc kappa ->
   let gv v = generate_value env v in
   let gc c kappa = snd (generate_computation env c kappa) in
@@ -613,7 +624,7 @@ let rec generate_tail_computation env : Ir.tail_computation -> continuation -> c
                                 && not (List.mem f_name cps_prims)
                                 && Lib.primitive_location f_name <> `Server
                               then
-                                Call (kappa, [Call (Var ("_" ^ f_name), List.map gv vs)])
+                                callk_direct kappa (Call (Var ("_" ^ f_name), List.map gv vs))
                               else
                                 apply_yielding (gv (`Variable f), List.map gv vs, kappa)
                       end
@@ -644,7 +655,7 @@ let rec generate_tail_computation env : Ir.tail_computation -> continuation -> c
             (fun kappa ->
                If (gv v, gc c1 kappa, gc c2 kappa))
 
-and generate_special env : Ir.special -> continuation -> code = fun sp kappa ->
+and generate_special env : Ir.special -> Continuation.t -> code = fun sp kappa ->
   let gv v = generate_value env v in
     match sp with
       (* | `App (f, vs) -> *)
@@ -694,13 +705,13 @@ and generate_special env : Ir.special -> continuation -> code = fun sp kappa ->
          let transl_op' name args resume_with ks =
            bind_continuation ks
              (fun ks ->               
-               let h = gensym ~prefix:"_h" () in
+               let h = "__h" in
                let operation =
                  Dict [("_label", strlit name);
                        ("_value", box args);
                        ("_resume", resume_with h)]
                in
-               let k = Fn ([h; "__ks"], Call (Var h, [operation; Var "__ks"])) in
+               let k = Fn ([h; "__kappa"], Call (Var h, [operation; Var "__kappa"])) in
                callk_yielding ks k)
          in
          (* [[op p]](k' :: ks) = [[op]](p, \x ks.k' x ((\y ks.y h ks) :: ks), ks)  *)
@@ -708,14 +719,14 @@ and generate_special env : Ir.special -> continuation -> code = fun sp kappa ->
            bind_continuation ks
              (fun ks ->
 (*               let k = gensym ~prefix:"_ks" () in*)
-               let k' = "_k_prime" in
+               let k' = "_k_prime" in       
                let bind k' body = Bind (k', Call (Var "_lsHead", [ks]), body) in
                let ks' = (Call (Var "_lsTail", [ks])) in
                let x = gensym ~prefix:"_x" () in
                let y = gensym ~prefix:"_y" () in
                let resume h =
-                 let ks'' = cons (Fn ([y], Call (Var y, [Var h; Var "__ks"]))) ks in
-                 Fn ([x; "__ks"],
+                 let ks'' = Continuation.push (Fn ([y], Call (Var y, [Var h; Var "__kappa"]))) ks in
+                 Fn ([x; "__kappa"],
                      bind k'
                        (Call (Var k', [Var x; ks''])))
                in
@@ -731,15 +742,15 @@ and generate_special env : Ir.special -> continuation -> code = fun sp kappa ->
          let (return_clause, operation_clauses) = StringMap.pop "Return" clauses in
          let return ks =
            let (_, xb, body) = return_clause in
-           Fn ([snd @@ name_binder xb; "__ks"], callk_yielding (Var "__ks") (Fn (["_h"; "__ks"], Call (transl env xb body ks, [Var "__ks"])))) (* FIXME : correct to use kappa here? *)
+           Fn ([snd @@ name_binder xb; "__kappa"], callk_yielding (Var "__kappa") (Fn (["__h"; "__kappa"], transl env xb body (Call (Var "_lsSingleton", [Var "__kappa"]))))) (* FIXME : correct to use kappa here? *)
          in
          let operations = () in
          bind_continuation kappa
            (fun ks ->
-             let ks = cons (return ks) ks in
+             let ks = Continuation.push (return ks) ks in
              Call (comp, [ks])) 
 
-and generate_computation env : Ir.computation -> continuation -> (venv * code) =
+and generate_computation env : Ir.computation -> Continuation.t -> (venv * code) =
   fun (bs, tc) kappa ->
   let rec gbs env c =
     function
@@ -788,10 +799,17 @@ and generate_binding env : Ir.binding -> (venv * (code -> code)) =
            fun code ->
              Bind (x_name, generate_value env v, code))
     | `Let (b, (_, tc)) ->
-        let (x, x_name) = name_binder b in
+(*       let (x, x_name) = name_binder b in
+       let x_name' = gensym ~prefix:"__x_prime" () in
         let env' = VEnv.bind env (x, x_name) in
           (env', fun code ->
-                   generate_tail_computation env tc (Fn ([x_name], code)))
+            generate_tail_computation env tc (Call (Var "_lsSingleton", [Fn ([x_name'; "__kappa"],
+                                                                           apply_yielding (Var x_name', [Var "_efferr"], Call (Var "_lsSingleton", [Fn ([x_name; "__kappa"], code)])))])))
+*)
+       let (x, x_name) = name_binder b in
+       let env' = VEnv.bind env (x, x_name) in
+       (env', fun code ->
+         generate_tail_computation env tc (Call (Var "_lsSingleton", [Fn ([x_name; "__kappa"], code)])))
     | `Fun ((fb, _, _zs, _location) as def) ->
         let (f, f_name) = name_binder fb in
         let env' = VEnv.bind env (f, f_name) in
@@ -1049,7 +1067,7 @@ let generate_real_client_page ?(cgi_env=[]) (nenv, tyenv) defs (valenv, v) =
   let printed_code =
     let toplevel_ks = 
       let f = "__f" in
-      let ks = "__ks" in
+      let ks = "__kappa" in
       let unhandled = Fn (["__y"; ks], Call (Var "_efferr", [Var "__y"; Var ks])) in (* The toplevel handler '_efferr' is defined in jslib.js *)
       Call (Var "_lsSingleton", [Fn ([f; ks], Call (Var f, [unhandled; Var ks]))])
     in
