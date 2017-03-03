@@ -120,6 +120,7 @@ SOURCES = $(OPC)                                \
           sugartoir.mli sugartoir.ml            \
           loader.mli loader.ml                  \
           $(DB_CODE)                            \
+	  continuation.mli                      \
           irtojs.mli irtojs.ml                  \
           query.mli query.ml                              \
           queryshredding.ml                     \

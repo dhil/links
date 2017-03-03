@@ -11,6 +11,108 @@ let find_fun = Tables.find Tables.fun_defs
 let dynamic_static_routes = Settings.add_bool ("dynamic_static_routes", false, `User)
 let allow_static_routes = ref true
 
+(** Signature for the Evaluator **)
+module type EVALUATOR = sig
+  type k (* Continuation type *)
+
+  val computation : Value.env -> k -> Ir.computation -> Proc.thread_result Lwt.t
+
+  (** [apply_cont_toplevel cont env v] applies a continuation to a value
+      and returns the result. Finishing the main thread normally comes
+      here immediately. *)
+  val apply_cont_toplevel : k -> Value.env -> Value.t -> Proc.thread_result Lwt.t
+  val apply_with_cont : k -> Value.env -> Value.t * Value.t list -> Proc.thread_result Lwt.t  
+  val apply_toplevel : Value.env -> Value.t * Value.t list -> Proc.thread_result Lwt.t
+
+  val eval_toplevel : Value.env -> Ir.program -> Value.t 
+end
+  
+(** Continuations **)
+open Continuation
+type purecontinuation_frame = Ir.scope * Ir.var * Value.env * Ir.computation
+type purecontinuation = purecontinuation_frame list
+type continuation = (purecontinuation * unit) list
+
+(* "Converts" a pure continuation into a (generalised) continuation *)
+module UnsafeCast(P : PURECONTINUATION)
+  : CONTINUATION with type t = P.t
+                 and type r = P.r =
+struct
+  include P
+
+  type clauses = unit      (* dummy type *)
+  type handler_spec = unit (* dummy type *)
+    
+  let install_handler _ _k = failwith "Cannot install handler on pure continuation."
+  let handle _k ~op =
+    let _ = op in (* Silence unused warning *)
+    failwith "Cannot handle operations on pure continuation."
+end
+
+(** Continuation implementations **)
+module PureContinuation(Eval : EVALUATOR with type k = purecontinuation) = struct
+  module Frame = struct
+    type nonrec t = purecontinuation_frame
+    let make env scope var comp = scope, var, env, comp    
+  end
+
+  type r = Proc.thread_result Lwt.t
+  type t = Frame.t list
+    
+  let apply ~env ~cont ~arg =
+    let v = arg in
+    match cont with
+    | [] -> Proc.finish (env, v)
+    | ((scope, var, locals, comp) : Frame.t) :: cont ->
+       let env = Value.bind var (v, scope) (Value.shadow env ~by:locals) in
+       Eval.computation env cont comp
+
+  let empty = []
+
+  let (<>) g f = f @ g
+
+  let exhausted = function
+    | [] -> true
+    | _  -> false
+
+  let (&>) frame cont = frame :: cont       
+end
+
+(* module Continuation(Eval : EVALUATOR with type k = continuation) = struct *)
+(*   module Frame = struct *)
+(*     type nonrec t = purecontinuation_frame *)
+(*     let make env scope var comp = scope, var, env, comp     *)
+(*   end *)
+
+(*   type clauses = unit      (\* dummy type *\) *)
+(*   type handler_spec = unit (\* dummy type *\) *)
+    
+(*   type r = Proc.thread_result Lwt.t *)
+(*   type t = (purecontinuation * unit) list *)
+(*   let apply _env (_cont : t) _arg = *)
+(*     match _cont with *)
+(*     | [] -> failwith "N/A" *)
+(*     | (frame :: delim, h) :: cont ->  *)
+(*        let (scope, var, locals, comp) : Frame.t = frame in *)
+(*        let cont = (delim,h) :: cont in *)
+(*        Eval.computation locals cont comp *)
+
+(*   let empty = [] *)
+(*   let (<>) g f = f @ g *)
+(*   let exhausted = function *)
+(*     | [] -> true *)
+(*     | _  -> false *)
+
+(*   let (&>) frame cont = *)
+(*     match cont with *)
+(*     | [] -> failwith "N/A" (\* TODO: Allocate new pure continuation and pair it with the error handler *\) *)
+(*     | (frames,h) :: cont -> (frame :: frames, h) :: cont *)
+       
+(*   let install_handler _ _k = failwith "N/A" *)
+(*   let handle _k ~op = failwith "N/A" *)
+(* end   *)
+
+(** Interpreter **)  
 module Eval = functor (Webs : WEBSERVER) ->
 struct
 
