@@ -84,6 +84,59 @@ type access_point = [
 
 type chan = (channel_id * channel_id)
 
+module type VENV = sig
+  type 'v t
+
+  val set_request_data : 'v t -> RequestData.request_data -> 'v t
+  val empty : 'v t
+  val bind  : Ir.var -> (t * Ir.scope) -> 'v t -> 'v t
+  val find : Ir.var -> 'v t -> t
+  val mem : Ir.var -> 'v t -> bool
+  val lookup : Ir.var -> 'v t -> t option
+  val lookupS : Ir.var -> 'v t -> (t * Ir.scope) option
+  val shadow : 'v t -> by:'v t -> 'v t
+  val fold : (Ir.var -> (t * Ir.scope) -> 'a -> 'a) -> 'v t -> 'a -> 'a
+  val globals : 'v t -> 'v t
+  val request_data : 'v t -> RequestData.request_data
+  (* used only by json.ml, webif.ml ... *)
+  val get_parameters : 'v t -> (t*Ir.scope) Utility.intmap
+  val extend : 'v t -> (t*Ir.scope) Utility.intmap -> 'v t
+  val localise : 'v t -> Ir.var -> 'v t
+
+  type 'cv ct
+  val compress   : ('v -> 'cv) -> 'v t -> 'cv ct
+  val uncompress : ('cv -> 'v) -> 'cv ct -> 'v t
+end
+
+module VEnv : VENV
+
+(* Continuation *)
+module type CONTINUATION = sig
+  type 'v env = 'v VEnt.t
+  type ('v env, 'r) t
+
+  module Frame : sig
+    type nonrec 'env t
+    val of_expr : 'env -> Ir.tail_computation -> 'env t
+    val make : Ir.scope -> Ir.var -> 'env -> Ir.computation -> 'env t
+  end
+
+  val empty : ('v VEnv.t, 'r) t
+  val (<>)  : ('v VEnv.t, 'r) t -> ('v VEnv.t, 'r) t -> ('v VEnv.t, 'r) t
+  val (&>)  : ('v VEnt.t) Frame.t -> ('v VEnv.t, 'r) t -> ('v VEnv.t, 'r) t
+
+  val apply : ~eval:('v VEnv.t -> ('v VEnt.t, 'r) -> Ir.computation -> 'r) ->
+              ~env:'v VEnv.t -> ('v VEnv.t, 'r) t -> 'v -> 'r
+
+  val to_string : ('v VEnv.t, 'r) t -> string
+
+  type ('cv, r) ct
+  val compress   : ('v -> 'cv) -> ('v VEnv.t, 'r) t -> ('cv, 'r) ct
+  val uncompress : ('cv -> 'v) -> ('cv, 'r) ct -> ('v  VEnv.t, 'r) t
+end
+
+module Continuation : CONTINUATION
+
 type t = [
 | primitive_value
 | `List of t list
@@ -98,57 +151,12 @@ type t = [
 | `SessionChannel of chan
 | `Socket of in_channel * out_channel
 | `SpawnLocation of spawn_location
-  ]
-and frame = Ir.scope * Ir.var * env * Ir.computation
-and continuation = [
-  | `PureCont of frame list
-  | `GenCont of frame list list
-  ]
-and env
+]
+and continuation = (env, 'r) Continuation.t
+and env = t VEnv.t
     deriving (Show)
 
-(* Continuation *)
-module type FRAME = sig
-  type t = frame
-  val of_expr : env -> Ir.tail_computation -> t
-  val make : Ir.scope -> Ir.var -> env -> Ir.computation -> t
-end
-
-module type CONTINUATION = sig
-  type t = continuation
-
-  module Frame : FRAME
-
-  val empty : t
-  val (<>)  : t -> t -> t
-  val (&>)  : Frame.t -> t -> t
-
-  val to_string : t -> string
-end
-
-module Continuation : CONTINUATION
-
 type delegated_chan = (chan * (t list))
-
-val set_request_data : env -> RequestData.request_data -> env
-
-val empty_env : env
-val bind  : Ir.var -> (t * Ir.scope) -> env -> env
-val find : Ir.var -> env -> t
-val mem : Ir.var -> env -> bool
-val lookup : Ir.var -> env -> t option
-val lookupS : Ir.var -> env -> (t * Ir.scope) option
-val shadow : env -> by:env -> env
-val fold : (Ir.var -> (t * Ir.scope) -> 'a -> 'a) -> env -> 'a -> 'a
-val globals : env -> env
-val request_data : env -> RequestData.request_data
-(* used only by json.ml, webif.ml ... *)
-val get_parameters : env -> (t*Ir.scope) Utility.intmap
-
-val extend : env -> (t*Ir.scope) Utility.intmap -> env
-
-
-val localise : env -> Ir.var -> env
 
 val project : string -> [> `Record of (string * 'b) list ] -> 'b
 val untuple : t -> t list
@@ -199,9 +207,6 @@ val marshal_continuation : continuation -> string
 
 val unmarshal_continuation : env -> string -> continuation
 val unmarshal_value : env -> string -> t
-
-(* val expr_to_contframe : env -> Ir.tail_computation -> *)
-(*   (Ir.scope * Ir.var * env * Ir.computation) *)
 
 (* Given a value, retreives a list of channels that are contained inside *)
 val get_contained_channels : t -> chan list

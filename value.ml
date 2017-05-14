@@ -252,156 +252,72 @@ type access_point = [
 type chan = (channel_id * channel_id)
   deriving (Show)
 
-type frame = Ir.scope * Ir.var * env * Ir.computation
-and continuation = [
-  | `PureCont of frame list
-  | `GenCont of frame list list
-  ]
-and t = [
-| primitive_value
-| `List of t list
-| `Record of (string * t) list
-| `Variant of string * t
-| `FunctionPtr of (Ir.var * t option)
-| `PrimitiveFunction of string * Var.var option
-| `ClientFunction of string
-| `Continuation of continuation
-| `Pid of dist_pid
-| `AccessPointID of access_point
-| `SessionChannel of chan
-| `Socket of in_channel * out_channel
-| `SpawnLocation of spawn_location
-]
-and env = {
-  all : (t * Ir.scope) Utility.intmap;
-  globals : (t * Ir.scope) Utility.intmap;
-  request_data : RequestData.request_data
-}
-  deriving (Show)
+module type VENV = sig
+  type 'v t
 
-type delegated_chan = (chan * (t list))
+  val set_request_data : 'v t -> RequestData.request_data -> 'v t
+  val empty : 'v t
+  val bind  : Ir.var -> (t * Ir.scope) -> 'v t -> 'v t
+  val find : Ir.var -> 'v t -> t
+  val mem : Ir.var -> 'v t -> bool
+  val lookup : Ir.var -> 'v t -> t option
+  val lookupS : Ir.var -> 'v t -> (t * Ir.scope) option
+  val shadow : 'v t -> by:'v t -> 'v t
+  val fold : (Ir.var -> (t * Ir.scope) -> 'a -> 'a) -> 'v t -> 'a -> 'a
+  val globals : 'v t -> 'v t
+  val request_data : 'v t -> RequestData.request_data
+  (* used only by json.ml, webif.ml ... *)
+  val get_parameters : 'v t -> (t*Ir.scope) Utility.intmap
+  val extend : 'v t -> (t*Ir.scope) Utility.intmap -> 'v t
+  val localise : 'v t -> Ir.var -> 'v t
 
-let set_request_data env rd = { env with request_data = rd }
-
-module type FRAME = sig
-  type t = frame
-  val of_expr : env -> Ir.tail_computation -> t
-  val make : Ir.scope -> Ir.var -> env -> Ir.computation -> t
+  type 'cv ct
+  val compress   : ('v -> 'cv) -> 'v t -> 'cv ct
+  val uncompress : ('cv -> 'v) -> 'cv ct -> 'v t
 end
 
-module Frame = struct
-  type t = frame
+module VEnv : VENV = struct
+  type 'v t = {
+      all : ('v * Ir.scope) Utility.intmap;
+      globals : ('v * Ir.scope) Utility.intmap;
+      request_data : RequestData.request_data
+    }
 
-  let make scope var env comp = (scope, var, env, comp)
-  let of_expr env tc =
-    make (`Local : Ir.scope) (Var.dummy_var : Ir.var) (env : env) (([], tc) : Ir.computation)
-end
+  let set_request_data env rd = { env with request_data = rd }
+  let request_data env = env.request_data
 
-module type CONTINUATION = sig
-  type t = continuation
+  (** {1 Environment stuff} *)
+  (** {2 IntMap-based implementation with global memoization} *)
 
-  module Frame : FRAME
-
-  val empty : t
-  val (<>)  : t -> t -> t
-  val (&>)  : Frame.t -> t -> t
-
-  val to_string : t -> string
-end
-
-module PureContinuation = struct
-  type t = continuation
-
-  module Frame = Frame
-
-  let empty = `PureCont []
-  let (<>) k k' =
-    match k, k' with
-    | `PureCont xs, `PureCont ys -> `PureCont (xs @ ys)
-    | _ -> assert false
-
-  let (&>) f = function
-    | `PureCont fs -> `PureCont (f :: fs)
-    | _ -> assert false
-
-  let to_string = function
-    | _ -> failwith "Continuation.to_string not yet implemented."
-end
-
-module Continuation = PureContinuation
-
-let map_pure_continuation f = function
-  | `PureCont fs  -> `PureCont (List.map f fs)
-  | `GenCont fss  -> `GenCont (List.map (fun fs -> List.map f fs) fss)
-
-let request_data env = env.request_data
-
-(** {1 Environment stuff} *)
-(** {2 IntMap-based implementation with global memoization} *)
-
-let empty_env = {
-  all = IntMap.empty;
-  globals = IntMap.empty;
-  request_data = RequestData.new_empty_request_data ()
-}
-let bind name (v,scope) env =
-  (* Maintains globals as submap of global bindings. *)
-  match scope with
-    `Local ->
+  let empty = {
+      all = IntMap.empty;
+      globals = IntMap.empty;
+      request_data = RequestData.new_empty_request_data ()
+    }
+  let bind name (v,scope) env =
+    (* Maintains globals as submap of global bindings. *)
+    match scope with
+      `Local ->
       { env with all = IntMap.add name (v,scope) env.all }
-  | `Global ->
-      { env with
-          all = IntMap.add name (v,scope) env.all;
-          globals = IntMap.add name (v,scope) env.globals;
-      }
-let find name env = fst (IntMap.find name env.all)
-let mem name env = IntMap.mem name env.all
-let lookup name env = opt_map fst (IntMap.lookup name env.all)
-let lookupS name env = IntMap.lookup name env.all
-let extend env bs = IntMap.fold (fun k v r -> bind k v r) bs env
+    | `Global ->
+       { env with
+         all = IntMap.add name (v,scope) env.all;
+         globals = IntMap.add name (v,scope) env.globals;
+       }
+  let find name env = fst (IntMap.find name env.all)
+  let mem name env = IntMap.mem name env.all
+  let lookup name env = opt_map fst (IntMap.lookup name env.all)
+  let lookupS name env = IntMap.lookup name env.all
+  let extend env bs = IntMap.fold (fun k v r -> bind k v r) bs env
 
-let get_parameters env = env.all
+  let get_parameters env = env.all
 
-let shadow env ~by:env_by =
-(* Assumes that globals never change *)
-  let by_all = env_by.all in
-  IntMap.fold (fun name v env -> bind name v env) by_all env
+  let shadow env ~by:env_by =
+    (* Assumes that globals never change *)
+    let by_all = env_by.all in
+    IntMap.fold (fun name v env -> bind name v env) by_all env
 
-let fold f env a = IntMap.fold f env.all a
-let globals env = { env with all = env.globals }
-
-(** {1 Compressed values for more efficient pickling} *)
-type compressed_primitive_value = [
-| primitive_value_basis
-| `Table of string * string * string list list * string
-| `Database of string
-]
-  deriving (Show, Eq, Typeable, Pickle, Dump)
-
-type compressed_continuation = [
-  | `PureCont of (Ir.var * compressed_env) list
-  | `GenCont  of (Ir.var * compressed_env) list list
-  ]
-and compressed_t = [
-| compressed_primitive_value
-| `List of compressed_t list
-| `Record of (string * compressed_t) list
-| `Variant of string * compressed_t
-| `FunctionPtr of (Ir.var * compressed_t option)
-| `PrimitiveFunction of string
-| `ClientFunction of string
-| `Continuation of compressed_continuation ]
-and compressed_env = (Ir.var * compressed_t) list
-  deriving (Show, Eq, Typeable, Dump, Pickle)
-
-let compress_primitive_value : primitive_value -> [>compressed_primitive_value]=
-  function
-    | #primitive_value_basis as v -> v
-    | `Table ((_database, db), table, keys, row) ->
-        `Table (db, table, keys, Types.string_of_datatype (`Record row))
-    | `Database (_database, s) -> `Database s
-
-let localise env var =
+  let localise env var =
   (* let module M = Deriving_Show.Show_option(Show_intset) in *)
   (* Debug.print ("cont vars (" ^ string_of_int var ^ "): " ^ *)
   (*              M.show (Tables.lookup Tables.cont_vars var)); *)
@@ -416,11 +332,145 @@ let localise env var =
     empty_env
 
 
-let rec compress_continuation (cont:continuation) : compressed_continuation =
-  let compress_frame (_scope, var, locals, _body) =
-    (var, compress_env locals)
-  in
-  map_pure_continuation compress_frame cont
+  let fold f env a = IntMap.fold f env.all a
+  let globals env = { env with all = env.globals }
+
+
+  (** Compression **)
+  type 'cv ct = Ir.var * 'cv
+  let compress (compress_val : 'v -> 'cv) (env : 'v t) : 'cv ct =
+    List.rev
+      (fold
+         (fun name (v, scope) compressed ->
+           if scope = `Global then
+             compressed
+           else
+             (name, compress_val v)::compressed)
+         env
+         [])
+
+  let uncompress uncompress_val globals env =
+  try
+    List.fold_left
+      (fun env (name, v) ->
+        bind name (uncompress_val globals v, Tables.find Tables.scopes name) env)
+      empty
+      env
+  with NotFound str -> failwith("In uncompress_env: " ^ str
+end
+
+(* Continuation *)
+module type CONTINUATION = sig
+  type ('v VEnv.t, 'r) t
+
+  module Frame : sig
+    type nonrec 'env t
+    (** Return the continuation frame that evaluates the given expression
+    in the given environment. *)
+    val of_expr : 'env -> Ir.tail_computation -> 'env t
+    val make : Ir.scope -> Ir.var -> 'env -> Ir.computation -> 'env t
+  end
+
+  val empty : ('v VEnv.t, 'r) t
+  val (<>)  : ('v VEnv.t, 'r) t -> ('v VEnv.t, 'r) t -> ('v VEnv.t, 'r) t
+  val (&>)  : ('v VEnt.t) Frame.t -> ('v VEnv.t, 'r) t -> ('v VEnv.t, 'r) t
+
+  val apply : ~eval:('v VEnv.t -> ('v VEnt.t, 'r) -> Ir.computation -> 'r) ->
+              ~env:'v VEnv.t -> ('v VEnv.t, 'r) t -> 'v -> 'r
+
+  val to_string : ('v VEnv.t, 'r) t -> string
+
+  type ('cv, r) ct
+  val compress   : ('v -> 'cv) -> ('v VEnv.t, 'r) t -> ('cv, 'r) ct
+  val uncompress : ('cv -> 'v) -> ('cv, 'r) ct -> ('v  VEnv.t, 'r) t
+end
+
+(** Continuations **)
+type 'env frame = Ir.scope * Ir.var * 'env * Ir.computation
+
+module PureContinuation : CONTINUATION = struct
+  type ('v VEnv.t, 'r) = ('v VEnt.t) frame list
+
+  let empty = []
+  let (<>) k1 k2 = k1 @ k2
+  let (&>) f k = f :: k
+  let apply ~eval ~env k v =
+    match k with
+    | [] -> Eval.finish env v
+    | ((scope, var, locals, comp) :: cont) ->
+       let env = VEnv.bind var (v, scope) (VEnv.shadow env ~by:locals) in
+       eval env cont comp
+
+  let to_string k = failwith "PureContinuation: to_string is not yet implemented."
+
+  type nonrec 'cv ct = (Ir.var * ('cv VEnv.ct) list
+
+  let compress compress_val k =
+    List.map (fun (_, var, locals) -> (var, VEnv.compress compress_val locals)) k
+  let uncompress uncompress_val k =
+    let uncompress_frame (var, env) =
+      let scope = Tables.find Tables.scopes var in
+      let body = Tables.find Tables.cont_defs var in
+      let env = VEnv.uncompress uncompress_val globals env in
+      let locals = localise env var in
+      (scope, var, locals, body)
+    in
+    List.map uncompress_frame k
+end
+
+module Continuation = PureContinuation
+
+type t = [
+| primitive_value
+| `List of t list
+| `Record of (string * t) list
+| `Variant of string * t
+| `FunctionPtr of (Ir.var * t option)
+| `PrimitiveFunction of string * Var.var option
+| `ClientFunction of string
+| `Continuation of continuation
+| `Pid of dist_pid
+| `AccessPointID of access_point
+| `SessionChannel of chan
+| `Socket of in_channel * out_channel
+| `SpawnLocation of spawn_location
+]
+and continuation = (env, 'r) Continuation.t
+and env = t VEnv.t
+    deriving (Show)
+
+type delegated_chan = (chan * (t list))
+
+(** {1 Compressed values for more efficient pickling} *)
+type compressed_primitive_value = [
+| primitive_value_basis
+| `Table of string * string * string list list * string
+| `Database of string
+]
+  deriving (Show, Eq, Typeable, Pickle, Dump)
+
+
+type compressed_t = [
+| compressed_primitive_value
+| `List of compressed_t list
+| `Record of (string * compressed_t) list
+| `Variant of string * compressed_t
+| `FunctionPtr of (Ir.var * compressed_t option)
+| `PrimitiveFunction of string
+| `ClientFunction of string
+| `Continuation of compressed_continuation ]
+and compressed_continuation = compressed_t Continuation.ct
+and compressed_env = compressed_t VEnv.ct
+  deriving (Show, Eq, Typeable, Dump, Pickle)
+
+let compress_primitive_value : primitive_value -> [>compressed_primitive_value]=
+  function
+    | #primitive_value_basis as v -> v
+    | `Table ((_database, db), table, keys, row) ->
+        `Table (db, table, keys, Types.string_of_datatype (`Record row))
+    | `Database (_database, s) -> `Database s
+
+let compress_continuation = Continuation.compress
 and compress_t (v : t) : compressed_t =
   let cv = compress_t in
     match v with
@@ -438,16 +488,7 @@ and compress_t (v : t) : compressed_t =
       | `SessionChannel _ -> assert false (* mmmmm *)
       | `AccessPointID _ -> assert false (* mmmmm *)
       | `SpawnLocation _sl -> assert false (* wheeee! *)
-and compress_env env : compressed_env =
-  List.rev
-    (fold
-       (fun name (v, scope) compressed ->
-          if scope = `Global then
-            compressed
-          else
-            (name, compress_t v)::compressed)
-       env
-       [])
+and compress_env = VEnv.compress
 
 (* let string_of_value : t -> string = *)
 (*   fun v -> Show.show show_compressed_t (compress_t v) *)
@@ -468,17 +509,7 @@ let uncompress_primitive_value : compressed_primitive_value -> [> primitive_valu
         let database = db_connect driver params in
           `Database database
 
-let rec uncompress_continuation globals cont
-    : continuation =
-  let uncompress_frame (var, env) =
-    let scope = Tables.find Tables.scopes var in
-    let body = Tables.find Tables.cont_defs var in
-    let env = uncompress_env globals env in
-    let locals = localise env var in
-    (scope, var, locals, body)
-  in
-  map_pure_continuation uncompress_frame cont
-and uncompress_t globals (v : compressed_t) : t =
+let uncompress_t globals (v : compressed_t) : t =
   let uv = uncompress_t globals in
     match v with
       | #compressed_primitive_value as v -> uncompress_primitive_value v
@@ -489,14 +520,8 @@ and uncompress_t globals (v : compressed_t) : t =
       | `PrimitiveFunction f -> `PrimitiveFunction (f,None)
       | `ClientFunction f -> `ClientFunction f
       | `Continuation cont -> `Continuation (uncompress_continuation globals cont)
-and uncompress_env globals env : env =
-  try
-  List.fold_left
-    (fun env (name, v) ->
-       bind name (uncompress_t globals v, Tables.find Tables.scopes name) env)
-    empty_env
-    env
-  with NotFound str -> failwith("In uncompress_env: " ^ str)
+let uncompress_continuation = Continuation.uncompress
+and uncompress_env = VEnv.uncompress
 
 let string_as_charlist s : t =
   `List (List.rev (List.rev_map (fun x -> `Char x) (explode s)))
@@ -770,14 +795,6 @@ let unmarshal_value env : string -> t =
     let v = (load (base64decode s)) in
     (* Debug.print ("unmarshalling: " ^ Show_compressed_t.show v); *)
       uncompress_t (globals env) v
-
-(** Return the continuation frame that evaluates the given expression
-    in the given environment. *)
-(* let expr_to_contframe env expr = *)
-(*   ((`Local        : Ir.scope), *)
-(*    (Var.dummy_var : Ir.var), *)
-(*    (env           : env), *)
-(*    (([], expr)    : Ir.computation)) *)
 
 let rec get_contained_channels v =
   let get_list_contained_channels xs =
