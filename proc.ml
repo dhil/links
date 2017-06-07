@@ -35,17 +35,21 @@ struct
       | `UndeployedProcessFound (* Process found, not yet sent to client *)
     ]
 
+  type blocked_status =
+    | Sleeping of float * float (* duration, start *)
+    | Blocked
+
   type scheduler_state =
-      { blocked : (process_id, unit Lwt.u) Hashtbl.t;
-        client_processes : (client_id, client_proc_map) Hashtbl.t;
+    { blocked : (process_id, (unit Lwt.u * blocked_status)) Hashtbl.t;
+      client_processes : (client_id, client_proc_map) Hashtbl.t;
         (* external_processes maps client IDs to a set of processes spawned by the client.
          * We don't have values to store for these, and they're always active. *)
-        external_processes : (client_id, pid_set) Hashtbl.t;
+      external_processes : (client_id, pid_set) Hashtbl.t;
         (* spawnwait processes: maps spawned process ID to a pair of parent process
          * and return value (initially None, becomes Some after process finishes evaluating *)
-        spawnwait_processes : (process_id, (process_id * Value.t option)) Hashtbl.t;
-        angels : (process_id, unit Lwt.t) Hashtbl.t;
-        step_counter : int ref }
+      spawnwait_processes : (process_id, (process_id * Value.t option)) Hashtbl.t;
+      angels : (process_id, unit Lwt.t) Hashtbl.t;
+      step_counter : int ref }
 
   let state = {
     blocked          = Hashtbl.create 10000;
@@ -154,12 +158,35 @@ struct
     Ignores if the process does not exist.
    *)
   let awaken pid =
-    match Hashtbl.lookup state.blocked pid with
-    | None -> () (* process not blocked *)
-    | Some doorbell ->
+    let ring doorbell =
       Debug.print ("Awakening blocked process " ^ ProcessID.to_string pid);
       Hashtbl.remove state.blocked pid;
       Lwt.wakeup doorbell ()
+    in
+    match Hashtbl.lookup state.blocked pid with
+    | None -> () (* process not blocked *)
+    | Some (doorbell, status) ->
+       match status with
+       | Sleeping (duration, start) ->
+          let now = Unix.time () in
+          if abs_float (now -. start) > (duration -. 1e-10)
+          then ring doorbell
+          else ()
+       | Blocked -> ring doorbell
+
+
+  let sleep ~duration pstate =
+    let pid = get_current_pid () in
+    Debug.print (Printf.sprintf "Putting process %s to sleep for %f time" (ProcessID.to_string pid) duration);
+    let t =
+      if ProcessID.equal pid main_process_pid then
+        Lwt_unix.sleep duration
+      else
+        let (t,u) = Lwt.wait () in
+        Hashtbl.add state.blocked pid (u, Sleeping (duration, Unix.time ()));
+        t
+    in
+    t >>= pstate
 
   (** Increment the scheduler's step counter and return the new value. *)
   let count_step () =
@@ -192,7 +219,7 @@ struct
     let pid = get_current_pid () in
     Debug.print ("Blocking process " ^ ProcessID.to_string pid);
     let (t, u) = Lwt.wait () in
-    Hashtbl.add state.blocked pid u;
+    Hashtbl.add state.blocked pid (u, Blocked);
     t >>= pstate
 
   (** Given a process state, create a new process and return its identifier. *)

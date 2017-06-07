@@ -28,6 +28,7 @@ sig
   val resolve_external_processes : Value.t -> unit
 
   val awaken : process_id -> unit
+  val sleep : duration:float -> thread -> thread_result Lwt.t
 
   val finish : Value.env * Value.t -> thread_result Lwt.t
   val yield : thread -> thread_result Lwt.t

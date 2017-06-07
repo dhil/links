@@ -939,12 +939,7 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
   (*    type system. *\) *)
 
   "sleep",
-  (p1 (fun _ ->
-         (* FIXME: This isn't right : it freezes all threads *)
-         (*Unix.sleep (int_of_num (unbox_int duration));
-         `Record []*)
-         failwith "The sleep function is not implemented on the server yet"
-      ),
+  (`PFun (fun _ -> assert false),
    datatype "(Int) ~> ()",
   IMPURE);
 

@@ -447,7 +447,10 @@ struct
        end
     | `PrimitiveFunction ("serveWebsockets", _), [] ->
         Webs.set_accepting_websocket_requests true;
-        apply_cont cont env (`Record [])
+      apply_cont cont env (`Record [])
+    | `PrimitiveFunction ("sleep", _), [duration] ->
+       let duration = (float_of_int -<- Value.unbox_int) duration in
+       Proc.sleep ~duration (fun () -> apply_cont cont env (`Record []))
     (*****************)
     | `PrimitiveFunction (n,None), args ->
        apply_cont cont env (Lib.apply_pfun n args (Value.request_data env))
