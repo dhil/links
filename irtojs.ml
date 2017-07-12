@@ -354,9 +354,83 @@ let name_binder (x, info) =
   assert (name <> "");
   (x, Js.name_binder (x,info))
 
-let bind_continuation kappa body =
-  match kappa with
-    | Var _ -> body kappa
+let apply_yielding (f, args, k) =
+  Call(Var "_yield", f :: (args @ [k]))
+
+module type CONTINUATION = sig
+  type t
+  type t_struct = Cons of t * t
+                | Singleton of t
+
+  (* Continuation inspection *)
+  val inspect : t -> t_struct
+
+  (* A continuation is a monoid *)
+  val identity : t
+  val (<>) : t -> t -> t
+
+  val pop : t -> t * t
+
+  val reflect : code -> t
+  val reify   : t -> code
+
+  (* Continuation name binding *)
+  val bind : t -> (t -> code) -> code
+
+  (* Continuation application generation *)
+  val apply : ?kind:[`Yield | `Direct] -> t -> code -> code
+
+  (* kify *)
+  val kify : (t -> code * venv) -> code * venv
+
+  (* Generates appropriate primitive bindings *)
+  val primitive_bindings : string
+end
+
+module DefaultContinuation : CONTINUATION = struct
+  type t = Identity
+         | Code of code
+  type t_struct = Cons of t * t
+                | Singleton of t
+
+  let inspect k = Singleton k
+  let pop k = k, Identity
+
+  let identity = Identity
+  let (<>) a b =
+    match a with
+    | Identity -> b
+    | Code _ -> a
+(* Lemma. The triple [t, Identity, <>] forms a monoid.
+   Proof.
+   We first show that Identity is a neutral element:
+      Identity <> a
+     = (definition of <>)
+      a
+     = (definition of <>)
+      a <> Identity,       for all a in t
+   Next, we show that (<>) is associative:
+     a <> (b <> c)
+    = (definition of <>)
+     a
+
+     (a <> b) <> c
+    = (definition of <>)
+     a <> c
+    = (definition of <>)
+     a
+
+    This implies a <> (b <> c) = (a <> b) <> c.
+*)
+
+  let reflect x = Code x
+  let reify = function
+    | Identity -> Fn (["_x"], Var "_x")
+    | Code code -> code
+
+  let bind k body =
+    match k with
+    | Code (Var _) -> body k
     | _ ->
         (* It is important to generate a unique name for continuation
            bindings because in the JavaScript code:
@@ -369,22 +443,34 @@ let bind_continuation kappa body =
            function(args) {body} is just syntactic sugar for function
            f(args) {body}.)
         *)
-        let k = "_kappa" ^ (string_of_int (Var.fresh_raw_var ())) in
-          Bind (k, kappa, body (Var k))
+       let kb = "_kappa" ^ (string_of_int (Var.fresh_raw_var ())) in
+       Bind (kb, reify k, body (reflect (Var kb)))
 
-let apply_yielding (f, args, k) =
-  Call(Var "_yield", f :: (args @ [k]))
+  let apply ?kind k arg =
+    match kind with
+    | Some `Direct -> Call (Var "_applyCont", [reify k; arg])
+    | _            -> Call (Var "_yieldCont", [reify k; arg])
 
-let callk_yielding kappa arg =
-  Call(Var "_yieldCont", [kappa; arg])
+  let primitive_bindings =
+    "var _applyCont = _applyCont_Default; var _yieldCont = _yieldCont_Default;"
+
+  let kify fn =
+    match fn (reflect (Var "__ks")) with
+    | Fn (args, body), env -> Fn (args @ ["__ks = undefined"], body), env
+    | _ -> failwith "error: kify: none function argument."
+end
 
 (** [generate]
     Generates JavaScript code for a Links expression
 
     With CPS transform, result of generate is always of type : (a -> w) -> b
 *)
-let rec generate_value env : Ir.value -> code =
-  let gv v = generate_value env v in
+
+module CPS (K : CONTINUATION) = struct
+  type continuation = K.t
+
+  let rec generate_value env : Ir.value -> code =
+    let gv v = generate_value env v in
     function
       | `Constant c ->
           begin
@@ -407,11 +493,11 @@ let rec generate_value env : Ir.value -> code =
           let name = VEnv.lookup env var in
             if Arithmetic.is name then
               Fn (["x"; "y"; "__kappa"],
-                  callk_yielding (Var "__kappa")
+                  K.apply (K.reflect (Var "__kappa"))
                     (Arithmetic.gen (Var "x", name, Var "y")))
             else if StringOp.is name then
               Fn (["x"; "y"; "__kappa"],
-                  callk_yielding (Var "__kappa")
+                  K.apply (K.reflect (Var "__kappa"))
                     (StringOp.gen (Var "x", name, Var "y")))
             else if Comparison.is name then
               Var (Comparison.js_name name)
@@ -549,13 +635,13 @@ struct
         code
 end
 
-let rec generate_tail_computation env : Ir.tail_computation -> code -> code =
+let rec generate_tail_computation env : Ir.tail_computation -> continuation -> code =
   fun tc kappa ->
   let gv v = generate_value env v in
   let gc c kappa = snd (generate_computation env c kappa) in
     match tc with
       | `Return v ->
-          callk_yielding kappa (gv v)
+          K.apply kappa (gv v)
       | `Apply (f, vs) ->
           let f = strip_poly f in
             begin
@@ -565,24 +651,25 @@ let rec generate_tail_computation env : Ir.tail_computation -> code -> code =
                       begin
                         match vs with
                           | [l; r] when Arithmetic.is f_name ->
-                              callk_yielding kappa (Arithmetic.gen (gv l, f_name, gv r))
+                              K.apply kappa (Arithmetic.gen (gv l, f_name, gv r))
                           | [l; r] when StringOp.is f_name ->
-                              callk_yielding kappa (StringOp.gen (gv l, f_name, gv r))
+                              K.apply kappa (StringOp.gen (gv l, f_name, gv r))
                           | [l; r] when Comparison.is f_name ->
-                              callk_yielding kappa (Comparison.gen (gv l, f_name, gv r))
+                              K.apply kappa (Comparison.gen (gv l, f_name, gv r))
                           | [v] when f_name = "negate" || f_name = "negatef" ->
-                              callk_yielding kappa (Unop ("-", gv v))
+                              K.apply kappa (Unop ("-", gv v))
                           | _ ->
                               if Lib.is_primitive f_name
                                 && not (List.mem f_name cps_prims)
                                 && Lib.primitive_location f_name <> `Server
                               then
-                                Call (kappa, [Call (Var ("_" ^ f_name), List.map gv vs)])
+                                let arg = Call (Var ("_" ^ f_name), List.map gv vs) in
+                                K.apply ~kind:`Direct kappa arg
                               else
-                                apply_yielding (gv (`Variable f), List.map gv vs, kappa)
+                                apply_yielding (gv (`Variable f), List.map gv vs, K.reify kappa)
                       end
                 | _ ->
-                    apply_yielding (gv f, List.map gv vs, kappa)
+                    apply_yielding (gv f, List.map gv vs, K.reify kappa)
             end
       | `Special special ->
           generate_special env special kappa
@@ -595,7 +682,7 @@ let rec generate_tail_computation env : Ir.tail_computation -> code -> code =
                   let x = gensym ~prefix:"x" () in
                     (fun e -> Bind (x, v, e)), x
           in
-            bind_continuation kappa
+            K.bind kappa
               (fun kappa ->
                  let gen_cont (xb, c) =
                    let (x, x_name) = name_binder xb in
@@ -604,21 +691,22 @@ let rec generate_tail_computation env : Ir.tail_computation -> code -> code =
                  let default = opt_map gen_cont default in
                    k (Case (x, cases, default)))
       | `If (v, c1, c2) ->
-          bind_continuation kappa
+          K.bind kappa
             (fun kappa ->
                If (gv v, gc c1 kappa, gc c2 kappa))
 
-and generate_special env : Ir.special -> code -> code = fun sp kappa ->
+and generate_special env : Ir.special -> continuation -> code
+  = fun sp kappa ->
   let gv v = generate_value env v in
     match sp with
       | `Wrong _ -> Die "Internal Error: Pattern matching failed" (* THIS MESSAGE SHOULD BE MORE INFORMATIVE *)
       | `Database _ | `Table _
           when Settings.get_value js_hide_database_info ->
-          callk_yielding kappa (Dict [])
+          K.apply kappa (Dict [])
       | `Database v ->
-          callk_yielding kappa (Dict [("_db", gv v)])
+          K.apply kappa (Dict [("_db", gv v)])
       | `Table (db, table_name, keys, (readtype, _writetype, _needtype)) ->
-          callk_yielding kappa
+          K.apply kappa
             (Dict [("_table",
                     Dict [("db", gv db);
                           ("name", gv table_name);
@@ -629,14 +717,17 @@ and generate_special env : Ir.special -> code -> code = fun sp kappa ->
       | `Update _ -> Die "Attempt to run a database update on the client"
       | `Delete _ -> Die "Attempt to run a database delete on the client"
       | `CallCC v ->
-          bind_continuation kappa
-            (fun kappa -> apply_yielding (gv v, [kappa], kappa))
+          K.bind kappa
+            (fun kappa ->
+              let k = K.reify kappa in
+              apply_yielding (gv v, [k], k))
       | `Select (l, c) ->
-         Call (kappa, [Call (Var "_send", [Dict ["_label", strlit l; "_value", Dict []]; gv c])])
+         let arg = Call (Var "_send", [Dict ["_label", strlit l; "_value", Dict []]; gv c]) in
+         K.apply ~kind:`Direct kappa arg
       | `Choice (c, bs) ->
          let result = gensym () in
          let received = gensym () in
-         bind_continuation kappa
+         K.bind kappa
             (fun kappa ->
              let scrutinee = Call (Var "LINKS.project", [Var result; strlit "1"]) in
              let channel = Call (Var "LINKS.project", [Var result; strlit "2"]) in
@@ -646,17 +737,71 @@ and generate_special env : Ir.special -> code -> code = fun sp kappa ->
              let branches = StringMap.map generate_branch bs in
              Call (Var "receive", [gv c; Fn ([result], (Bind (received, scrutinee, (Case (received, branches, None)))))]))
 
-and generate_computation env : Ir.computation -> code -> (venv * code) =
-  fun (bs, tc) kappa ->
-  let rec gbs env c =
-    function
-      | b :: bs ->
-          let env, c' = generate_binding env b in
-            gbs env (c -<- c') bs
-      | [] ->
-          env, c (generate_tail_computation env tc kappa)
-  in
-    gbs env (fun code -> code) bs
+  and generate_computation env : Ir.computation -> continuation -> (venv * code) =
+    fun (bs, tc) kappa ->
+      let rec gbs : venv -> continuation -> Ir.binding list -> venv * code =
+        fun env kappa ->
+        function
+        | `Let (b, (_, `Return v)) :: bs ->
+           let (x, x_name) = name_binder b in
+           let env', rest = gbs (VEnv.bind env (x, x_name)) kappa bs in
+           (env', Bind (x_name, generate_value env v, rest))
+      (** let (x, x_name) = name_binder b in
+          let kbs, kappa, kappas' =
+            match kappas with
+            | Cons (kappa, kappas) ->
+              (fun code -> code), kappa, kappas
+            | Reflect ks ->
+              (fun code ->
+                 Bind ("__k", Call (Var "_lsHead", [ks]),
+                       Bind ("__ks", Call (Var "_lsTail", [ks]), code))),
+              Var "__k", Reflect (Var "__ks") in
+          let (x, x_name) = name_binder b in
+          let env', body = gbs (VEnv.bind env (x, x_name)) (Cons (kappa, Reflect (Var "__ks"))) bs in
+          let kappa' = Fn ([x_name; "__ks"], body) in
+          env', kbs (generate_tail_computation env tc (Cons (kappa', kappas'))) **)
+(*        | `Let (b, (_, tc)) :: bs ->
+          let (x, x_name) = name_binder b in*)
+           (* let kbs, kappa, kappas' = *)
+           (*   match K.inspect kappa with *)
+           (*   | K.Cons (kappa, kappas) -> *)
+           (*      (fun code -> code), kappa, kappas *)
+           (*   | K.Singleton kappa -> *)
+           (*      let k, ks = K.pop kappa in *)
+           (*      (fun code -> *)
+           (*        Bind ("__k", K.reify k, *)
+           (*              Bind ("__ks", K.reify ks, code))), *)
+           (*      (K.reflect (Var "__kappa")), (K.reflect (Var "__ks")) *)
+        (* in *)
+        | `Let (b, (_, tc)) :: bs ->
+           let (x, x_name) = name_binder b in
+           let k, ks = K.pop kappa in
+           let k',env' =
+             K.kify
+               (fun ks ->
+                 let env', body = gbs (VEnv.bind env (x, x_name)) K.(k <> ks) bs in
+                 Fn ([x_name], body), env')
+           in
+           env', generate_tail_computation env tc K.((reflect k') <> ks)
+        (* | `Let (b, (_, tc)) :: bs -> *)
+        (*    let (x, x_name) = name_binder b in *)
+        (*    let env', rest = gbs (VEnv.bind env (x, x_name)) kappa bs in *)
+        (*    let k = K.reflect (Fn ([x_name], rest)) in *)
+        (*    (env', generate_tail_computation env tc k) *)
+        | `Fun ((fb, _, _zs, _location) as def) :: bs ->
+           let (f, f_name) = name_binder fb in
+           let def_header = generate_function env [] def in
+           let env', rest = gbs (VEnv.bind env (f, f_name)) kappa bs in
+           (env', LetFun (def_header, rest))
+        | `Rec defs :: bs ->
+           let fs = List.map (fun (fb, _, _, _) -> name_binder fb) defs in
+           let env', rest = gbs (List.fold_left VEnv.bind env fs) kappa bs in
+           (env', LetRec (List.map (generate_function env fs) defs, rest))
+        | `Module _ :: bs
+        | `Alien _ :: bs -> gbs env kappa bs
+        | [] -> (env, generate_tail_computation env tc kappa)
+      in
+      gbs env kappa bs
 
 and generate_function env fs :
     Ir.fun_def ->
@@ -677,7 +822,7 @@ and generate_function env fs :
     let body =
       match location with
       | `Client | `Unknown ->
-        snd (generate_computation body_env body (Var "__kappa"))
+        snd (generate_computation body_env body (K.reflect (Var "__kappa")))
       | `Server -> generate_remote_call f xs_names (Dict [])
       | `Native -> failwith ("Not implemented native calls yet")
     in
@@ -686,35 +831,8 @@ and generate_function env fs :
      body,
      location)
 
-and generate_binding env : Ir.binding -> (venv * (code -> code)) =
-  function
-    | `Let (b, (_, `Return v)) ->
-        let (x, x_name) = name_binder b in
-        let env' = VEnv.bind env (x, x_name) in
-          (env',
-           fun code ->
-             Bind (x_name, generate_value env v, code))
-    | `Let (b, (_, tc)) ->
-        let (x, x_name) = name_binder b in
-        let env' = VEnv.bind env (x, x_name) in
-          (env', fun code ->
-                   generate_tail_computation env tc (Fn ([x_name], code)))
-    | `Fun ((fb, _, _zs, _location) as def) ->
-        let (f, f_name) = name_binder fb in
-        let env' = VEnv.bind env (f, f_name) in
-        let def_header = generate_function env [] def in
-          (env', fun code ->
-             LetFun (def_header, code))
-    | `Rec defs ->
-        let fs = List.map (fun (fb, _, _, _) -> name_binder fb) defs in
-        let env' = List.fold_left VEnv.bind env fs in
-          (env', fun code ->
-             LetRec (List.map (generate_function env fs) defs, code))
-    | `Module _
-    | `Alien _ -> env, (fun code -> code)
-
 and generate_program env : Ir.program -> (venv * code) = fun ((bs, _) as comp) ->
-  let (venv, code) = generate_computation env comp (Var "_start") in
+  let (venv, code) = generate_computation env comp (K.reflect (Var "_start")) in
   (venv, GenStubs.bindings bs code)
 
 
@@ -917,7 +1035,7 @@ let generate_real_client_page ?(cgi_env=[]) (nenv, tyenv) defs (valenv, v) ws_co
   let state_string = JsonState.to_string json_state in
 
   let printed_code =
-    let _venv, code = generate_computation venv ([], `Return (`Extend (StringMap.empty, None))) (Fn ([], Nothing)) in
+    let _venv, code = generate_computation venv ([], `Return (`Extend (StringMap.empty, None))) (K.reflect (Fn ([], Nothing))) in
     let code = f code in
     let code = GenStubs.bindings defs code in
     let code = wrap_with_server_lib_stubs code in
@@ -926,7 +1044,14 @@ let generate_real_client_page ?(cgi_env=[]) (nenv, tyenv) defs (valenv, v) ws_co
     ~cgi_env:cgi_env
     ~body:printed_code
     ~html:(Value.string_of_xml ~close_tags:true bs)
-    ~head:(script_tag("  var _jsonState = " ^ state_string ^ "\n" ^ init_vars)
+    ~head:(script_tag (K.primitive_bindings) ^ "\n" ^ script_tag("  var _jsonState = " ^ state_string ^ "\n" ^ init_vars)
       ^ Value.string_of_xml ~close_tags:true hs)
     ~onload:"_startRealPage()"
     []
+end
+
+module Compiler = CPS(DefaultContinuation)
+
+let generate_program_page = Compiler.generate_program_page
+let generate_real_client_page = Compiler.generate_real_client_page
+let make_boiler_page = Compiler.make_boiler_page
