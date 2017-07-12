@@ -455,8 +455,8 @@ module DefaultContinuation : CONTINUATION = struct
     "var _applyCont = _applyCont_Default; var _yieldCont = _yieldCont_Default;"
 
   let kify fn =
-    match fn (reflect (Var "__ks")) with
-    | Fn (args, body), env -> reflect @@ Fn (args @ ["__ks = undefined"], body), env
+    match fn Identity with
+    | Fn (args, body) as k, env -> reflect k, env
     | _ -> failwith "error: kify: none function argument."
 end
 
