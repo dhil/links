@@ -381,7 +381,7 @@ module type CONTINUATION = sig
   val apply : ?kind:[`Yield | `Direct] -> t -> code -> code
 
   (* kify *)
-  val kify : (t -> code * venv) -> code * venv
+  val kify : (t -> code * venv) -> t * venv
 
   (* Generates appropriate primitive bindings *)
   val primitive_bindings : string
@@ -456,7 +456,7 @@ module DefaultContinuation : CONTINUATION = struct
 
   let kify fn =
     match fn (reflect (Var "__ks")) with
-    | Fn (args, body), env -> Fn (args @ ["__ks = undefined"], body), env
+    | Fn (args, body), env -> reflect @@ Fn (args @ ["__ks = undefined"], body), env
     | _ -> failwith "error: kify: none function argument."
 end
 
@@ -782,7 +782,7 @@ and generate_special env : Ir.special -> continuation -> code
                  let env', body = gbs (VEnv.bind env (x, x_name)) K.(k <> ks) bs in
                  Fn ([x_name], body), env')
            in
-           env', generate_tail_computation env tc K.((reflect k') <> ks)
+           env', generate_tail_computation env tc K.(k' <> ks)
         (* | `Let (b, (_, tc)) :: bs -> *)
         (*    let (x, x_name) = name_binder b in *)
         (*    let env', rest = gbs (VEnv.bind env (x, x_name)) kappa bs in *)
