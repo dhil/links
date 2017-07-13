@@ -358,70 +358,61 @@ let apply_yielding (f, args, k) =
   Call(Var "_yield", f :: (args @ [k]))
 
 module type CONTINUATION = sig
+  (* Invariant: the continuation structure is algebraic. For
+     programming purposes it is instructive to think of a continuation
+     as an abstract list. *)
   type t
-  type t_struct = Cons of t * t
-                | Singleton of t
 
-  (* Continuation inspection *)
-  val inspect : t -> t_struct
-
-  (* A continuation is a monoid *)
+  (* A continuation is a monoid. *)
   val identity : t
   val (<>) : t -> t -> t
 
+  (* Returns the head and tail of the continuation. *)
   val pop : t -> t * t
 
+  (* Turns code into a continuation. *)
   val reflect : code -> t
+  (* Turns a continuation into code. *)
   val reify   : t -> code
 
-  (* Continuation name binding *)
+  (* Continuation name binding. *)
   val bind : t -> (t -> code) -> code
 
-  (* Continuation application generation *)
-  val apply : ?kind:[`Yield | `Direct] -> t -> code -> code
+  (* Continuation application generation. The optional strategy
+     parameter decides whether the application should be yielding or
+     direct. *)
+  val apply : ?strategy:[`Yield | `Direct] -> t -> code -> code
 
-  (* kify *)
-  val kify : (t -> code * venv) -> t * venv
+  (* Augments a function [Fn] with a continuation parameter and
+     reflects the result as a continuation. The continuation parameter
+     in the callback provides access to the current continuation. *)
+  val kify : (t -> venv * code) -> venv * t
 
   (* Generates appropriate primitive bindings *)
   val primitive_bindings : string
 end
 
 module DefaultContinuation : CONTINUATION = struct
+  (* We can think of this particular continuation structure as
+     singleton list. *)
   type t = Identity
          | Code of code
-  type t_struct = Cons of t * t
-                | Singleton of t
 
-  let inspect k = Singleton k
+  (* Pop returns the code in "the singleton list" as the first
+     component, and returns a fresh singleton list containing the
+     identity element in the second component. *)
   let pop k = k, Identity
 
   let identity = Identity
+  (* This continuation is a degenerate monoid. The multiplicative
+     operator is "forgetful" in the sense that it ignores its second
+     argument b whenever a != Identity. Meaning that a <> b == a when
+     a != Identity. In other words, composition never yields an
+     interesting new element. *)
   let (<>) a b =
     match a with
     | Identity -> b
     | Code _ -> a
-(* Lemma. The triple [t, Identity, <>] forms a monoid.
-   Proof.
-   We first show that Identity is a neutral element:
-      Identity <> a
-     = (definition of <>)
-      a
-     = (definition of <>)
-      a <> Identity,       for all a in t
-   Next, we show that (<>) is associative:
-     a <> (b <> c)
-    = (definition of <>)
-     a
-
-     (a <> b) <> c
-    = (definition of <>)
-     a <> c
-    = (definition of <>)
-     a
-
-    This implies a <> (b <> c) = (a <> b) <> c.
-*)
 
   let reflect x = Code x
   let reify = function
@@ -446,17 +437,17 @@ module DefaultContinuation : CONTINUATION = struct
        let kb = "_kappa" ^ (string_of_int (Var.fresh_raw_var ())) in
        Bind (kb, reify k, body (reflect (Var kb)))
 
-  let apply ?kind k arg =
-    match kind with
-    | Some `Direct -> Call (Var "_applyCont", [reify k; arg])
-    | _            -> Call (Var "_yieldCont", [reify k; arg])
+  let apply ?(strategy=`Yield) k arg =
+    match strategy with
+    | `Direct -> Call (Var "_applyCont", [reify k; arg])
+    | _       -> Call (Var "_yieldCont", [reify k; arg])
 
   let primitive_bindings =
     "var _applyCont = _applyCont_Default; var _yieldCont = _yieldCont_Default;"
 
   let kify fn =
     match fn Identity with
-    | Fn (args, body) as k, env -> reflect k, env
+    | env, (Fn _ as k) -> env, reflect k
     | _ -> failwith "error: kify: none function argument."
 end
 
@@ -664,7 +655,7 @@ let rec generate_tail_computation env : Ir.tail_computation -> continuation -> c
                                 && Lib.primitive_location f_name <> `Server
                               then
                                 let arg = Call (Var ("_" ^ f_name), List.map gv vs) in
-                                K.apply ~kind:`Direct kappa arg
+                                K.apply ~strategy:`Direct kappa arg
                               else
                                 apply_yielding (gv (`Variable f), List.map gv vs, K.reify kappa)
                       end
@@ -723,7 +714,7 @@ and generate_special env : Ir.special -> continuation -> code
               apply_yielding (gv v, [k], k))
       | `Select (l, c) ->
          let arg = Call (Var "_send", [Dict ["_label", strlit l; "_value", Dict []]; gv c]) in
-         K.apply ~kind:`Direct kappa arg
+         K.apply ~strategy:`Direct kappa arg
       | `Choice (c, bs) ->
          let result = gensym () in
          let received = gensym () in
@@ -776,11 +767,11 @@ and generate_special env : Ir.special -> continuation -> code
         | `Let (b, (_, tc)) :: bs ->
            let (x, x_name) = name_binder b in
            let k, ks = K.pop kappa in
-           let k',env' =
+           let env',k' =
              K.kify
                (fun ks ->
                  let env', body = gbs (VEnv.bind env (x, x_name)) K.(k <> ks) bs in
-                 Fn ([x_name], body), env')
+                 env', Fn ([x_name], body))
            in
            env', generate_tail_computation env tc K.(k' <> ks)
         (* | `Let (b, (_, tc)) :: bs -> *)
