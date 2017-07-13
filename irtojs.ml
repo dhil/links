@@ -449,13 +449,36 @@ module DefaultContinuation : CONTINUATION = struct
     | _ -> failwith "error: kify: none function argument."
 end
 
+
+(** Compiler interface *)
+module type COMPILER = sig
+  val generate_program_page : ?cgi_env:(string * string) list ->
+    (Var.var Env.String.t * Types.typing_environment) ->
+    Ir.program ->  string
+
+  val generate_real_client_page : ?cgi_env:(string * string) list ->
+    (Var.var Env.String.t * Types.typing_environment) ->
+    Ir.binding list -> (Value.env * Value.t) ->
+    Webserver_types.websocket_url option -> string
+
+  val make_boiler_page :
+    ?cgi_env:(string * string) list ->
+    ?onload:string ->
+    ?body:string ->
+    ?html:string ->
+    ?head:string ->
+    string list -> string
+end
+
 (** [generate]
     Generates JavaScript code for a Links expression
 
     With CPS transform, result of generate is always of type : (a -> w) -> b
 *)
 
-module CPS (K : CONTINUATION) = struct
+module CPS_Compiler: functor (K : CONTINUATION) -> sig
+  include IR_COMPILER
+end = functor (K : CONTINUATION) -> struct
   type continuation = K.t
 
   let apply_yielding f args k =
@@ -625,6 +648,48 @@ struct
          (List.map binding bindings)
          identity)
         code
+
+        (* FIXME: this code should really be merged with the other
+   stub-generation code and we should generate a numbered version of
+   every library function.
+*)
+
+(** stubs for server-only primitives *)
+let wrap_with_server_lib_stubs : code -> code = fun code ->
+  let server_library_funcs =
+    List.rev
+      (Env.Int.fold
+         (fun var _v funcs ->
+            let name = Lib.primitive_name var in
+              if Lib.primitive_location name = `Server then
+                (name, var)::funcs
+              else
+                funcs)
+         (Lib.value_env) [])
+  in
+  let rec some_vars = function
+    | 0 -> []
+    | n -> (some_vars (n-1) @ ["x"^string_of_int n])
+  in
+  let prim_server_calls =
+    concat_map (fun (name, var) ->
+                  match Lib.primitive_arity name with
+                        None -> []
+                    | Some arity ->
+                        let args = some_vars arity in
+                          [(name, args, generate_remote_call var args (Dict[]))])
+      server_library_funcs
+  in
+  List.fold_right
+    (fun (name, args, body) code ->
+      LetFun
+        ((name,
+          args @ ["__kappa"],
+          body,
+          `Server),
+         code))
+    prim_server_calls
+    code
 end
 
 let rec generate_tail_computation env : Ir.tail_computation -> continuation -> code =
@@ -736,33 +801,6 @@ and generate_special env : Ir.special -> continuation -> code
            let (x, x_name) = name_binder b in
            let env', rest = gbs (VEnv.bind env (x, x_name)) kappa bs in
            (env', Bind (x_name, generate_value env v, rest))
-      (** let (x, x_name) = name_binder b in
-          let kbs, kappa, kappas' =
-            match kappas with
-            | Cons (kappa, kappas) ->
-              (fun code -> code), kappa, kappas
-            | Reflect ks ->
-              (fun code ->
-                 Bind ("__k", Call (Var "_lsHead", [ks]),
-                       Bind ("__ks", Call (Var "_lsTail", [ks]), code))),
-              Var "__k", Reflect (Var "__ks") in
-          let (x, x_name) = name_binder b in
-          let env', body = gbs (VEnv.bind env (x, x_name)) (Cons (kappa, Reflect (Var "__ks"))) bs in
-          let kappa' = Fn ([x_name; "__ks"], body) in
-          env', kbs (generate_tail_computation env tc (Cons (kappa', kappas'))) **)
-(*        | `Let (b, (_, tc)) :: bs ->
-          let (x, x_name) = name_binder b in*)
-           (* let kbs, kappa, kappas' = *)
-           (*   match K.inspect kappa with *)
-           (*   | K.Cons (kappa, kappas) -> *)
-           (*      (fun code -> code), kappa, kappas *)
-           (*   | K.Singleton kappa -> *)
-           (*      let k, ks = K.pop kappa in *)
-           (*      (fun code -> *)
-           (*        Bind ("__k", K.reify k, *)
-           (*              Bind ("__ks", K.reify ks, code))), *)
-           (*      (K.reflect (Var "__kappa")), (K.reflect (Var "__ks")) *)
-        (* in *)
         | `Let (b, (_, tc)) :: bs ->
            let (x, x_name) = name_binder b in
            let k, ks = K.pop kappa in
@@ -773,11 +811,6 @@ and generate_special env : Ir.special -> continuation -> code
                  env', Fn ([x_name], body))
            in
            env', generate_tail_computation env tc K.(k' <> ks)
-        (* | `Let (b, (_, tc)) :: bs -> *)
-        (*    let (x, x_name) = name_binder b in *)
-        (*    let env', rest = gbs (VEnv.bind env (x, x_name)) kappa bs in *)
-        (*    let k = K.reflect (Fn ([x_name], rest)) in *)
-        (*    (env', generate_tail_computation env tc k) *)
         | `Fun ((fb, _, _zs, _location) as def) :: bs ->
            let (f, f_name) = name_binder fb in
            let def_header = generate_function env [] def in
@@ -824,7 +857,6 @@ and generate_function env fs :
 and generate_program env : Ir.program -> (venv * code) = fun ((bs, _) as comp) ->
   let (venv, code) = generate_computation env comp (K.reflect (Var "_start")) in
   (venv, GenStubs.bindings bs code)
-
 
 let generate_toplevel_binding : Value.env -> Json.json_state -> venv -> Ir.binding -> Json.json_state * venv * string option * (code -> code) =
   fun valenv state varenv ->
@@ -909,48 +941,6 @@ let make_boiler_page ?(cgi_env=[]) ?(onload="") ?(body="") ?(html="") ?(head="")
   _startTimer();" ^ body ^ ";
   </script>" ^ html ^ "</body>")
 
-(* FIXME: this code should really be merged with the other
-   stub-generation code and we should generate a numbered version of
-   every library function.
-*)
-
-(** stubs for server-only primitives *)
-let wrap_with_server_lib_stubs : code -> code = fun code ->
-  let server_library_funcs =
-    List.rev
-      (Env.Int.fold
-         (fun var _v funcs ->
-            let name = Lib.primitive_name var in
-              if Lib.primitive_location name = `Server then
-                (name, var)::funcs
-              else
-                funcs)
-         (Lib.value_env) []) in
-
-  let rec some_vars = function
-      0 -> []
-    | n -> (some_vars (n-1) @ ["x"^string_of_int n]) in
-
-  let prim_server_calls =
-    concat_map (fun (name, var) ->
-                  match Lib.primitive_arity name with
-                        None -> []
-                    | Some arity ->
-                        let args = some_vars arity in
-                          [(name, args, generate_remote_call var args (Dict[]))])
-      server_library_funcs
-  in
-    List.fold_right
-      (fun (name, args, body) code ->
-         LetFun
-           ((name,
-             args @ ["__kappa"],
-             body,
-             `Server),
-            code))
-      prim_server_calls
-      code
-
 let initialise_envs (nenv, tyenv) =
   let dt = DesugarDatatypes.read ~aliases:tyenv.Types.tycon_env in
 
@@ -985,7 +975,7 @@ let generate_program_page ?(cgi_env=[]) (nenv, tyenv) program  =
   let printed_code = Loader.wpcache "irtojs" (fun () ->
     let _, venv, _ = initialise_envs (nenv, tyenv) in
     let _, code = generate_program venv program in
-    let code = wrap_with_server_lib_stubs code in
+    let code = GenStubs.wrap_with_server_lib_stubs code in
     show code)
   in
   (make_boiler_page
@@ -1027,8 +1017,10 @@ let generate_real_client_page ?(cgi_env=[]) (nenv, tyenv) defs (valenv, v) ws_co
   let printed_code =
     let _venv, code = generate_computation venv ([], `Return (`Extend (StringMap.empty, None))) (K.reflect (Fn ([], Nothing))) in
     let code = f code in
-    let code = GenStubs.bindings defs code in
-    let code = wrap_with_server_lib_stubs code in
+    let code =
+      let open Pervasives in
+      code |> (GenStubs.bindings defs) |> GenStubs.wrap_with_server_lib_stubs
+    in
     show code in
   make_boiler_page
     ~cgi_env:cgi_env
@@ -1040,7 +1032,7 @@ let generate_real_client_page ?(cgi_env=[]) (nenv, tyenv) defs (valenv, v) ws_co
     []
 end
 
-module Compiler = CPS(DefaultContinuation)
+module Compiler = CPS_Compiler(DefaultContinuation)
 
 let generate_program_page = Compiler.generate_program_page
 let generate_real_client_page = Compiler.generate_real_client_page
