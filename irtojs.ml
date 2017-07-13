@@ -354,9 +354,7 @@ let name_binder (x, info) =
   assert (name <> "");
   (x, Js.name_binder (x,info))
 
-let apply_yielding (f, args, k) =
-  Call(Var "_yield", f :: (args @ [k]))
-
+(** Continuation structures *)
 module type CONTINUATION = sig
   (* Invariant: the continuation structure is algebraic. For
      programming purposes it is instructive to think of a continuation
@@ -459,6 +457,9 @@ end
 
 module CPS (K : CONTINUATION) = struct
   type continuation = K.t
+
+  let apply_yielding f args k =
+    Call (Var "_yield", f :: (args @ [K.reify k]))
 
   let rec generate_value env : Ir.value -> code =
     let gv v = generate_value env v in
@@ -657,10 +658,10 @@ let rec generate_tail_computation env : Ir.tail_computation -> continuation -> c
                                 let arg = Call (Var ("_" ^ f_name), List.map gv vs) in
                                 K.apply ~strategy:`Direct kappa arg
                               else
-                                apply_yielding (gv (`Variable f), List.map gv vs, K.reify kappa)
+                                apply_yielding (gv (`Variable f)) (List.map gv vs) kappa
                       end
                 | _ ->
-                    apply_yielding (gv f, List.map gv vs, K.reify kappa)
+                    apply_yielding (gv f) (List.map gv vs) kappa
             end
       | `Special special ->
           generate_special env special kappa
@@ -709,9 +710,7 @@ and generate_special env : Ir.special -> continuation -> code
       | `Delete _ -> Die "Attempt to run a database delete on the client"
       | `CallCC v ->
           K.bind kappa
-            (fun kappa ->
-              let k = K.reify kappa in
-              apply_yielding (gv v, [k], k))
+            (fun kappa -> apply_yielding (gv v) [K.reify kappa] kappa)
       | `Select (l, c) ->
          let arg = Call (Var "_send", [Dict ["_label", strlit l; "_value", Dict []]; gv c]) in
          K.apply ~strategy:`Direct kappa arg
