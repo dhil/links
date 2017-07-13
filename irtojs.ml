@@ -441,7 +441,8 @@ module DefaultContinuation : CONTINUATION = struct
     | _       -> Call (Var "_yieldCont", [reify k; arg])
 
   let primitive_bindings =
-    "var _applyCont = _applyCont_Default; var _yieldCont = _yieldCont_Default;"
+    "var _idy = function(x) { return; };\n" ^
+      "var _applyCont = _applyCont_Default; var _yieldCont = _yieldCont_Default;"
 
   let kify fn =
     match fn Identity with
@@ -451,7 +452,7 @@ end
 
 
 (** Compiler interface *)
-module type COMPILER = sig
+module type WEB_COMPILER = sig
   val generate_program_page : ?cgi_env:(string * string) list ->
     (Var.var Env.String.t * Types.typing_environment) ->
     Ir.program ->  string
@@ -477,7 +478,7 @@ end
 *)
 
 module CPS_Compiler: functor (K : CONTINUATION) -> sig
-  include IR_COMPILER
+  include WEB_COMPILER
 end = functor (K : CONTINUATION) -> struct
   type continuation = K.t
 
