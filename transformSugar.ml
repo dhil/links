@@ -434,12 +434,21 @@ class transform (env : Types.typing_environment) =
       | `Handle { sh_expr; sh_clauses; sh_descr } ->
          let (input_row, input_t, output_row, output_t) = sh_descr.shd_types in
          let (o, expr, _) = o#phrase sh_expr in
-         let (o, cases) =
+         let (o, op_cases) =
+           listu o
+                 (fun o (p, k, e) ->
+                   let (o, p) = optionu o (fun o -> o#pattern) p in
+                   let (o, k) = o#pattern k in
+                   let (o, e, _) = o#phrase e in (o, (p, k, e))
+                 )
+                 (fst sh_clauses)
+         in
+         let (o, val_cases) =
            listu o
               (fun o (p, e) ->
                 let (o, p) = o#pattern p in
                 let (o, e, _) = o#phrase e in (o, (p, e)))
-              sh_clauses
+              (snd sh_clauses)
          in
          let (o, input_row) = o#row input_row in
          let (o, input_t) = o#datatype input_t in
@@ -452,7 +461,7 @@ class transform (env : Types.typing_environment) =
                        shd_raw_row = raw_row;
                      }
          in
-         (o, `Handle { sh_expr = expr; sh_clauses = cases; sh_descr = descr }, output_t)
+         (o, `Handle { sh_expr = expr; sh_clauses = (op_cases, val_cases); sh_descr = descr }, output_t)
       | `Switch (v, cases, Some t) ->
           let (o, v, _) = o#phrase v in
           let (o, cases) =

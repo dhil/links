@@ -812,13 +812,13 @@ struct
 	  | `DoOperation (name, ps, Some t) ->
 	     let vs = evs ps in
 	     I.do_operation (name, vs, t)
-          | `Handle { Sugartypes.sh_expr; Sugartypes.sh_clauses; Sugartypes.sh_descr } ->
+          | `Handle { Sugartypes.sh_expr; Sugartypes.sh_clauses = (_,cases); Sugartypes.sh_descr } ->
               let cases =
                 List.map
                   (fun (p, body) ->
                      let p, penv = CompilePatterns.desugar_pattern `Local p in
                        (p, fun env -> eval (env ++ penv) body))
-                  sh_clauses
+                  cases
               in
               I.handle env (ec sh_expr, cases, sh_descr)
           | `Switch (e, cases, Some t) ->

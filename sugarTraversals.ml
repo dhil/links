@@ -254,16 +254,25 @@ class map =
 	 let t   = o#option (fun o -> o#unknown) t in
 	 `DoOperation (name, ps, t)
       | `Handle { sh_expr; sh_clauses; sh_descr } ->
-          let m = o#phrase sh_expr in
-          let cases =
+         let m = o#phrase sh_expr in
+         let op_cases =
+           o#list
+              (fun o (op, k, body) ->
+                let op = o#option (fun o -> o#pattern) op in
+                let k = o#pattern k in
+                let body = o#phrase body in (op, k, body)
+	      )
+              (fst sh_clauses)
+         in
+          let val_cases =
             o#list
               (fun o (lhs, rhs ) ->
                  let lhs = o#pattern lhs in
                  let rhs = o#phrase rhs in (lhs, rhs)
 	      )
-              sh_clauses
+              (snd sh_clauses)
 	  in
-          `Handle { sh_expr = m; sh_clauses = cases; sh_descr }
+          `Handle { sh_expr = m; sh_clauses = (op_cases,val_cases); sh_descr }
       | `Switch ((_x, _x_i1, _x_i2)) ->
           let _x = o#phrase _x in
           let _x_i1 =
@@ -858,15 +867,24 @@ class fold =
 	 let o = o#option (fun o -> o#unknown) t in
 	 let o = o#list (fun o -> o#phrase) ps in o
       | `Handle { sh_expr; sh_clauses; _ } ->
-          let o = o#phrase sh_expr in
-          let o =
-            o#list
-              (fun o (lhs, rhs) ->
+         let o = o#phrase sh_expr in
+         let o =
+           o#list
+              (fun o (op, k, body) ->
+                let o = o#option (fun o -> o#pattern) op in
+                let o = o#pattern k in
+                let o = o#phrase body in o
+	      )
+              (fst sh_clauses)
+         in
+         let o =
+           o#list
+             (fun o (lhs, rhs) ->
                let o = o#pattern lhs in
 	       let o = o#phrase rhs in o
-	      )
-              sh_clauses
-	  in o
+	     )
+             (snd sh_clauses)
+	 in o
       | `Switch ((_x, _x_i1, _x_i2)) ->
           let o = o#phrase _x in
           let o =
@@ -1476,16 +1494,25 @@ class fold_map =
 	 let (o, ps) = o#list (fun o -> o#phrase) ps in
 	 (o, `DoOperation (name, ps, t))
       | `Handle { sh_expr; sh_clauses; sh_descr } ->
-          let (o, m) = o#phrase sh_expr in
-          let (o, cases) =
+         let (o, m) = o#phrase sh_expr in
+         let (o, op_cases) =
+           o#list
+              (fun o (op, k, body) ->
+                let (o,op) = o#option (fun o -> o#pattern) op in
+                let (o,k) = o#pattern k in
+                let (o,body) = o#phrase body in (o, (op, k, body))
+	      )
+              (fst sh_clauses)
+         in
+          let (o, val_cases) =
             o#list
               (fun o (lhs, rhs) ->
                  let (o, lhs) = o#pattern lhs in
                  let (o, rhs) = o#phrase rhs in (o, (lhs, rhs))
 	      )
-              sh_clauses
+              (snd sh_clauses)
 	  in
-          (o, (`Handle { sh_expr = m; sh_clauses = cases; sh_descr }))
+          (o, (`Handle { sh_expr = m; sh_clauses = (op_cases, val_cases); sh_descr }))
       | `Switch ((_x, _x_i1, _x_i2)) ->
           let (o, _x) = o#phrase _x in
           let (o, _x_i1) =

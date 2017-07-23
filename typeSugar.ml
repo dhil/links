@@ -2989,7 +2989,7 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * usagemap =
               else
                 Gripers.upcast_subtype pos t2 t1
         | `Upcast _ -> assert false
-        | `Handle { sh_expr = m; sh_clauses = cases; sh_descr = descr } ->
+        | `Handle { sh_expr = m; sh_clauses = (_,cases); sh_descr = descr } ->
        (** allow_wild adds wild : () to the given effect row *)
            let allow_wild : Types.row -> Types.row
 	     = fun row ->
@@ -3013,6 +3013,18 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * usagemap =
 	       if has_wild
                then allow_wild row
 	       else row
+           in
+           let partition_cases cases =
+             let (op_cases, val_cases) =
+               List.fold_right
+                 (fun case (ecs,vcs) ->
+                   match case with
+                   | `Variant (name, args),body when name <> "Return" ->
+                      failwith "Not yet implemented."
+                   | _ -> (ecs, case :: vcs))
+                 cases ([],[])
+             in
+             List.rev op_cases, List.rev val_cases
            in
            let m_context = { context with effect_row = Types.make_empty_open_row (`Unl, `Any) } in
            let m = type_check m_context m in (* Type-check the input computation m under current context *)
@@ -3092,7 +3104,7 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * usagemap =
                          shd_types = (input_effect_row, typ m, output_effect_row, body_type);
                          shd_raw_row = effects; }
            in
-           `Handle { sh_expr = erase m; sh_clauses = erase_cases cases; sh_descr = descr }, body_type, merge_usages [usages m; usages_cases cases]
+           `Handle { sh_expr = erase m; sh_clauses = ([],erase_cases cases); sh_descr = descr }, body_type, merge_usages [usages m; usages_cases cases]
         | `DoOperation (opname, args, _) ->
            (* Strategy:
               1. List.map tc args
