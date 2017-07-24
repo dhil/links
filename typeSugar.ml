@@ -3014,13 +3014,26 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * usagemap =
                then allow_wild row
 	       else row
            in
-           let partition_cases cases =
+           let rec check_continuation_pattern : pattern -> pattern
+             = function
+             | (`Variable x,_) as k -> k
+             | (`As (b,kpat'),_) -> check_continuation_pattern kpat'
+             | (`HasType (kpat',_),_) -> check_continuation_pattern kpat'
+             | _ -> failwith "Invalid continuation pattern"
+           in
+           let partition_cases : (pattern * phrase) list -> (pattern option * pattern * phrase) list * (pattern * phrase) list
+             = fun cases ->
              let (op_cases, val_cases) =
                List.fold_right
                  (fun case (ecs,vcs) ->
-                   match case with
+                   match fst case with
                    | `Variant (name, args),body when name <> "Return" ->
-                      failwith "Not yet implemented."
+                      begin match args with
+                      | Some (`Tuple args, pos) ->
+                         failwith "Not yet implemented."
+                      | Some pat -> failwith "Check continuation pattern"
+                      | None -> failwith "No arguments."
+                      end
                    | _ -> (ecs, case :: vcs))
                  cases ([],[])
              in
