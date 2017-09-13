@@ -116,6 +116,7 @@ struct
 
   let hide_database_info = Settings.add_bool("js_hide_database_info", true, `System)
   let backend = Settings.add_string("js_compiler", "cps", `System)
+  let compile = Settings.add_bool("compile_js", false, `System)
 end
 
 module Shredding = struct

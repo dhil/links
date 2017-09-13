@@ -4,6 +4,7 @@ module BS = Basicsettings
 
 let to_evaluate : string list ref = ref []
 let file_list : string list ref = ref []
+let target : string ref = ref "a.js"
 
 let set_web_mode() = (
     (* When forcing web mode using the command-line argument, default
@@ -36,6 +37,8 @@ let options : opt list =
     (noshort, "enable-handlers",     set BS.Handlers.enabled true,     None);
     ('r',     "rlwrap",              set BS.Readline.native_readline false, None);
     (noshort, "session-exceptions",  set BS.Sessions.exceptions_enabled true, None);
+    ('c',     "compile-js",          set BS.Js.compile true,           None);
+    ('o',     "output",              None,                             Some (fun t -> target := t));
     ]
 
 
