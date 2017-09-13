@@ -431,6 +431,28 @@ let to_evaluate : string list ref = ParseSettings.to_evaluate
 let to_precompile : string list ref = ParseSettings.to_precompile
 let file_list : string list ref = ParseSettings.file_list
 
+(* Compiling to JavaScript *)
+let compile_js () =
+  Settings.set_value BS.interacting false;
+  let sources = List.length !file_list in
+  if sources = 0 then exit 0
+  else if sources > 1 then Errors.display_fatal_l (lazy (failwith "The JS compiler expects a single source file."));
+
+  let prelude, ((_valenv, nenv, tyenv) as envs) = load_prelude () in
+  let ast, pos_ctxt = Parse.parse_file Parse.program (List.hd !file_list) in
+  let program, t, tenv = Frontend.Pipeline.program tyenv pos_ctxt ast in
+  let globals, (locals, main), nenv =
+    Sugartoir.desugar_program
+      (nenv,
+       Var.varify_env (nenv, tyenv.Types.var_env),
+       tyenv.Types.effect_row) program
+  in
+  let comp_unit = Jscomp.make_comp_unit ~source:(List.hd !file_list) ~program:(globals @ locals, main) ~tenv ~nenv ~target:!ParseSettings.target () in
+(* (nenv, tenv), (globals, main, t) *)
+  ignore (Jscomp.Compiler.compile comp_unit);
+  exit 0
+
+
 let main () =
   let prelude, ((_valenv, nenv, tyenv) as envs) = measure "prelude" load_prelude () in
 
@@ -509,4 +531,6 @@ let _ =
 
   if Settings.get_value BS.cache_whole_program
   then whole_program_caching_main ()
-  else main()
+  else if Settings.get_value BS.Js.compile
+       then compile_js ()
+       else main()
