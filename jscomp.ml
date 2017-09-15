@@ -124,6 +124,7 @@ end
 
 module CPS = struct
   let __kappa = Js.Ident.of_string "__kappa"
+
   module K: sig
   (* Invariant: the continuation structure is algebraic. For
      programming purposes it is instructive to think of a continuation
