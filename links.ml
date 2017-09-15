@@ -462,6 +462,7 @@ let compile_js () =
      ignore (Jscomp.Compiler.compile comp_unit)
   | _ -> Errors.display_fatal_l (lazy (failwith "The JS compiler expects a single source file."))
 
+
 let main () =
   let prelude, ((_valenv, nenv, tyenv) as envs) = measure "prelude" load_prelude () in
 
