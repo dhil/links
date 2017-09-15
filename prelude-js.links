@@ -1,0 +1,42 @@
+sig assert : (Bool, String) ~> ()
+fun assert(ok, msg) client {
+  if (not(ok)) debug("assertion failed: " ^^ msg) else ();
+}
+
+# Don't use a for comprehension to define concatMap, as
+# for comprehensions are desugared into concatMap!
+sig concatMap : ((a) ~e~> [b], [a]) ~e~> [b]
+fun concatMap(f, l) {
+  switch (l) {
+    case [] -> []
+    case hd::tl -> f(hd) ++ concatMap(f, tl)
+  }
+}
+
+sig map : ((a) ~e~> b, [a]) ~e~> [b]
+fun map(f, l) client {
+  switch (l) {
+    case []     -> []
+    case hd::tl -> f(hd) :: map(f,tl)
+  }
+}
+
+sig filter : ((a) ~e~> Bool, [a]) ~e~> [a]
+fun filter(p, l) client {
+  concatMap (fun (x) {if(p(x)) [x] else []}, l)
+}
+
+sig sortBy : ((a) ~b~> c, [a]) ~b~> [a]
+fun sortBy (f, l) client {
+  switch (l) {
+    case [] -> []
+    case x::xs -> {
+      var lt = filter (fun (y) {f(y) < f(x)}, xs);
+      var ge = filter (fun (y) {f(y) >= f(x)}, xs);
+      sortBy(f, lt) ++ [x] ++ sortBy(f, ge)
+    }
+  }
+}
+
+sig sortByBase : ((a) ~b~> (| _::Base), [a]) ~b~> [a]
+fun sortByBase(f, l) client {sortBy(f, l)}
