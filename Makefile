@@ -134,7 +134,7 @@ SOURCES = $(OPC)                                \
           buildTables.ml                        \
           webif.mli webif.ml                    \
 	  webserver.ml                          \
-	  jscomp.ml                             \
+	  jsEmit.ml jscomp.ml                   \
           links.ml                              \
 
 # TODO: get these working again
