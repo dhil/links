@@ -84,3 +84,69 @@ let var_name_var x = "_" ^ string_of_int x
 (** Generate a JavaScript name from a binder based on the unique
     integer for that binder. *)
 let var_name_binder (x, _) = var_name_var x
+
+(* Compilation unit *)
+type nenv = int Env.String.t
+type tenv = Types.typing_environment
+type envs = {
+  tenv: tenv;
+  nenv: nenv;
+}
+
+type 'a comp_unit =
+  { source: string;
+    target: string;
+    program: 'a;
+    envs: envs }
+
+let make_comp_unit : source:string -> target:string -> program:'a -> nenv:nenv -> tenv:tenv -> unit -> 'a comp_unit
+  = fun ~source ~target ~program ~nenv ~tenv () ->
+    { source; target; program; envs = { tenv; nenv; } }
+
+
+(* JS Binder generation *)
+module Ident = struct
+  type t = string
+  let make : ?prefix:string -> unit -> t
+    = fun ?(prefix="_") () ->
+      Utility.gensym ~prefix ()
+
+  let of_binder : Var.binder -> t
+    = fun b ->
+      Printf.sprintf "%s_%d" (Var.name_of_binder b) (Var.var_of_binder b)
+end
+
+(* Js IR *)
+type label = string
+and arguments = expression list
+and expression =
+  | EVar       of Ident.t
+  | EApply     of expression * arguments (* e(e* ) *)
+  | ESubscript of expression * label     (* e[l] *)
+  | EFun       of fn                     (* function(ident* ) { stmt } *)
+  | EConstant  of constant
+  | EPrim      of primitive
+  | EObj       of (label * expression) list
+and statement =
+  | SIf of expression * statement * statement  (* if (expr) { stmt1 } else { stmt2 } *)
+  | SCase of expression * (constant * statement) * statement option (* switch (expr) { case c1: stmt1 break; ... case cN: stmtN break; [default: stmt] } *)
+  | SReturn of expression (* return e; *)
+  | SSeq of statement * statement (* stmt1; stmt2 *)
+  | SBind of [`Const | `Let | `Var] * Ident.t * expression (* [ const | let | var ] x = e; *)
+  | SFun of fn
+  | SExpr of expression
+and constant =
+  | CBool of bool
+  | CInt of int
+  | CFloat of float
+  | CString of string
+  | CChar of char
+and primitive =
+  | PFun of string
+  | PVar of string
+and program = statement list
+and fn = {
+  kind: [`Named of string | `Anonymous];
+  formal_params: Ident.t list;
+  body: statement;
+}
