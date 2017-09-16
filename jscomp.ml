@@ -43,17 +43,29 @@ end
 
 module Primitives(P : PRIM_DESC) = struct
   let is : string -> bool
-    = fun x -> List.mem x P.builtin_ops
+    = fun x ->
+      try ignore (P.gen ignore x); true with
+      | Not_found -> false
 
-  let gen : (Js.expression * string * Js.expression) -> Js.expression
-    = fun (l, op, r) ->
-      let make op =
+  let gen : op:string -> ?args:Js.expression list -> unit -> Js.expression
+    = fun ~op ?(args=[]) () ->
+      let make_fun op =
         let open Js in
-        EApply (EPrim (PFun op), [l; r])
+        EApply (EPrim (PFun op), args)
       in
       try
-        P.gen make op
-      with Not_found -> failwith (Printf.sprintf "Unknown primitive operation %s" op)
+        P.gen make_fun op
+      with Not_found -> raise Not_found
+
+  let gen_var : op:string -> unit -> Js.expression
+    = fun ~op () ->
+      let make_var op =
+        let open Js in
+        EPrim (PVar op)
+      in
+      try
+        P.gen make_var op
+      with Not_found -> raise Not_found
 end
 
 module Prim_Arithmetic : PRIM_DESC = struct
@@ -90,11 +102,28 @@ module Arithmetic = Primitives(Prim_Arithmetic)
 module Comparison = Primitives(Prim_Comparison)
 
 (* Js compilers *)
+let make_dictionary : (string * Js.expression) list -> Js.expression
+  = fun fields -> Js.EObj fields
+
+let make_array : Js.expression list -> Js.expression
+  = fun elements ->
+    make_dictionary @@ List.mapi (fun i e -> (string_of_int i, e)) elements
+
+let strlit : Ir.name -> Js.expression
+  = fun s -> Js.(EConstant (CString s))
+
+(* strip any top level polymorphism from an expression *)
+let rec strip_poly = function
+  | `TAbs (_, e)
+  | `TApp (e, _) -> strip_poly e
+  | e -> e
+
 module type JS_COMPILER = sig
   val compile : comp_unit -> prog_unit
 end
 
 module CPS = struct
+  let __kappa = Js.Ident.of_string "__kappa"
   module K: sig
   (* Invariant: the continuation structure is algebraic. For
      programming purposes it is instructive to think of a continuation
@@ -130,11 +159,11 @@ module CPS = struct
              | Identity
 
   (* Auxiliary functions for manipulating the continuation stack *)
-      let nil = Js.(EPrim (PVar "lsNil"))
+      let nil = Js.(EPrim (PVar "%nil"))
       let cons x xs = Js.(EApply (EPrim (PFun "%cons"), [x; xs]))
       let head xs = Js.(EApply (EPrim (PFun "%head"), [xs]))
       let tail xs = Js.(EApply (EPrim (PFun "%tail"), [xs]))
-      let toplevel = Js.(Cons (EPrim (PVar "%idk"), Cons (EPrim (PVar "%efferr"), Reflect nil)))
+      let toplevel = Js.(Cons (EPrim (PVar "%identity_continuation"), Cons (EPrim (PVar "%absurd_handler"), Reflect nil)))
 
       let reflect x = Reflect x
       let rec reify = function
@@ -186,7 +215,7 @@ module CPS = struct
         bs (body (ks (reflect seed)))
 
       let apply k arg =
-        Js.(EApply (EPrim (PFun "%applyCont"), [reify k; arg]))
+        Js.(EApply (EPrim (PFun "%apply_continuation"), [reify k; arg]))
 
       let rec pop = function
         | Cons (kappa, kappas) ->
@@ -204,26 +233,113 @@ module CPS = struct
   type continuation = K.t
 
   let rec generate_value : venv -> Ir.value -> Js.expression
-    = fun env -> function
-    | _ -> failwith "Not yet implemented"
+    = fun env ->
+      let open Js in
+      let open Utility in
+      let gv v = generate_value env v in
+      function
+      | `Constant c ->
+         EConstant(
+           match c with
+           | `Int v  -> CInt v
+           | `Float v  -> CFloat v
+           | `Bool v   -> CBool v
+           | `Char v   -> CChar v
+           | `String v -> CString v)
+      | `Variable var ->
+       (* HACK *)
+         let name = VEnv.lookup env var in
+         if Arithmetic.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { kind = `Anonymous;
+                  formal_params = [x; y; __kappa];
+                  body = SExpr (K.apply (K.reflect (EVar __kappa)) (Arithmetic.gen ~op:name ~args:[EVar x; EVar y] ())) }
+         else if StringOp.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { kind = `Anonymous;
+                  formal_params = [x; y; __kappa];
+                  body = SExpr (K.apply (K.reflect (EVar __kappa)) (StringOp.gen ~op:name ~args:[EVar x; EVar y] ())) }
+         else if Comparison.is name then
+           Comparison.gen_var name ()
+         else
+           EVar name
+      | `Extend (field_map, rest) ->
+         let dict =
+           make_dictionary
+             (StringMap.fold
+                (fun name v dict ->
+                  (name, gv v) :: dict)
+                field_map [])
+         in
+         begin
+           match rest with
+           | None -> dict
+           | Some v ->
+              EApply (EPrim (PFun "%union"), [gv v; dict])
+         end
+      | `Project (name, v) ->
+         EApply (EPrim (PFun "%project"), [gv v; strlit name])
+      | `Erase (names, v) ->
+         EApply (EPrim (PFun "%erase"),
+                 [gv v; make_array (List.map strlit (StringSet.elements names))])
+      | `Inject (name, v, _t) ->
+         make_dictionary [("_label", strlit name); ("_value", gv v)]
+    (* erase polymorphism *)
+      | `TAbs (_, v)
+      | `TApp (v, _) -> gv v
+      | `ApplyPure (f, vs) ->
+         let f = strip_poly f in
+         begin
+           match f with
+           | `Variable f ->
+              let f_name = VEnv.lookup env f in
+              begin
+                match vs with
+                | [l; r] when Arithmetic.is f_name ->
+                   Arithmetic.gen ~op:f_name ~args:[gv l; gv r] ()
+                | [l; r] when StringOp.is f_name ->
+                   StringOp.gen ~op:f_name ~args:[gv l; gv r] ()
+                | [l; r] when Comparison.is f_name ->
+                   Comparison.gen ~op:f_name ~args:[gv l; gv r] ()
+                | [v] when f_name = "negate" || f_name = "negatef" ->
+                   EApply (EPrim (PFun (Printf.sprintf "%%%s" f_name)), [gv v])
+                | _ ->
+                   if Lib.is_primitive f_name
+                     && Lib.primitive_location f_name <> `Server
+                   then
+                     failwith (Printf.sprintf "Unsupported primitive: %s.\n" f_name)
+                   else
+                     EApply (gv (`Variable f), List.map gv vs)
+              end
+           | _ ->
+              EApply (gv f, List.map gv vs)
+         end
+      | `Closure (f, v) ->
+         EApply (EPrim (PFun "%partialApply"), [gv (`Variable f); gv v])
+      | `Coerce (v, _) ->
+         gv v
+      | _ -> failwith "Unsupported."
 
   and tail_computation : venv -> continuation -> Ir.tail_computation -> Js.statement
-    = fun env kappa -> function
-    | _ -> failwith "Not yet implemented"
+      = fun env kappa -> function
+      | _ -> failwith "Not yet implemented"
 
   and special : venv -> continuation -> Ir.special -> Js.statement
-    = fun env kappa -> function
-    | _ -> failwith "Not yet implemented"
+      = fun env kappa -> function
+      | _ -> failwith "Not yet implemented"
 
   and computation : venv -> continuation -> Ir.computation -> Js.statement
-    = fun env kappa comp -> failwith "Not yet implemented"
+      = fun env kappa comp -> failwith "Not yet implemented"
 
   let compile : comp_unit -> prog_unit
     = fun u ->
       let open Js in
       let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
       let prog = computation venv K.toplevel u.program in
-      { u with program = [prog] }
+      let runtime = Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) "cps.js" in
+      { u with program = [prog]; includes = runtime :: u.includes }
 end
 
 

@@ -97,11 +97,12 @@ type 'a comp_unit =
   { source: string;
     target: string;
     program: 'a;
-    envs: envs }
+    envs: envs;
+    includes: string list; }
 
-let make_comp_unit : source:string -> target:string -> program:'a -> nenv:nenv -> tenv:tenv -> unit -> 'a comp_unit
-  = fun ~source ~target ~program ~nenv ~tenv () ->
-    { source; target; program; envs = { tenv; nenv; } }
+let make_comp_unit : ?includes:string list -> ?source:string -> ?target:string -> program:'a -> nenv:nenv -> tenv:tenv -> unit -> 'a comp_unit
+  = fun ?(includes=[]) ?(source="dummy.links") ?(target="a.js") ~program ~nenv ~tenv () ->
+    { source; target; program; envs = { tenv; nenv; }; includes }
 
 
 (* JS Binder generation *)
@@ -114,6 +115,9 @@ module Ident = struct
   let of_binder : Var.binder -> t
     = fun b ->
       Printf.sprintf "%s_%d" (Var.name_of_binder b) (Var.var_of_binder b)
+
+  let of_string : string -> t
+    = fun s -> s
 end
 
 (* Js IR *)
