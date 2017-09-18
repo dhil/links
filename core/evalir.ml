@@ -287,7 +287,9 @@ struct
                 apply_cont cont env (`Pid (`ClientPid (client_id, new_pid)))
               | `SpawnLocation (`ServerSpawnLoc) ->
                 let var = Var.dummy_var in
-                let frame = K.Frame.make `Local var Value.Env.empty ([], Apply (Variable var, [])) in
+                let frame =
+                  K.Frame.make `Local var Value.Env.empty ([], Apply (Variable var, []))
+                in
                 Proc.create_process false
                   (fun () -> apply_cont K.(frame &> empty) env func) >>= fun new_pid ->
                 apply_cont cont env (`Pid (`ServerPid new_pid))
@@ -305,7 +307,9 @@ struct
                 apply_cont cont env (`Pid (`ClientPid (client_id, new_pid)))
               | `SpawnLocation (`ServerSpawnLoc) ->
                 let var = Var.dummy_var in
-                let frame = K.Frame.make `Local var Value.Env.empty ([], Apply (Variable var, [])) in
+                let frame =
+                  K.Frame.make `Local var Value.Env.empty ([], Apply (Variable var, []))
+                in
                 Proc.create_process true
                   (fun () -> apply_cont K.(frame &> empty) env func) >>= fun new_pid ->
                 apply_cont cont env (`Pid (`ServerPid new_pid))
