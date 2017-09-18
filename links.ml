@@ -462,7 +462,7 @@ let compile_js () =
   | [src] ->
      let prelude, (_valenv, nenv, tyenv) = load_prelude () in
      let ast, pos_ctxt = Parse.parse_file Parse.program src in
-     let program, _t, tenv = Frontend.Pipeline.program tyenv pos_ctxt ast in
+     let (program, _t, tenv), _alien = Frontend.Pipeline.program tyenv pos_ctxt ast in
      let globals, (locals, main), nenv =
        Sugartoir.desugar_program
          (nenv,
