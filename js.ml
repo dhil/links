@@ -1,3 +1,4 @@
+(*pp deriving *)
 open Utility
 
 (** {0 Code generation} *)
@@ -100,6 +101,14 @@ type 'a comp_unit =
     envs: envs;
     includes: string list; }
 
+type 'a prelude_unit =
+  { pprogram: 'a;
+    penvs: envs }
+
+let make_prelude_unit : program:'a -> nenv:nenv -> tenv:tenv -> unit -> 'a prelude_unit
+  = fun ~program ~nenv ~tenv () ->
+    { pprogram = program; penvs = { nenv; tenv } }
+
 let make_comp_unit : ?includes:string list -> ?source:string -> ?target:string -> program:'a -> nenv:nenv -> tenv:tenv -> unit -> 'a comp_unit
   = fun ?(includes=[]) ?(source="dummy.links") ?(target="a.js") ~program ~nenv ~tenv () ->
     { source; target; program; envs = { tenv; nenv; }; includes }
@@ -120,36 +129,71 @@ module Ident = struct
 end
 
 (* Js IR *)
+type literal =
+  | LBool of bool
+  | LInt of int
+  | LFloat of float
+  | LString of string
+  | LChar of char
+      deriving (Show)
+
+module LitMap = Map.Make(struct
+  type t = literal
+  let compare a b =
+    let cmp = Pervasives.compare in
+    match a, b with
+    | LBool x, LBool y -> cmp x y
+    | LInt x, LInt y -> cmp x y
+    | LFloat x, LFloat y -> cmp x y
+    | LString x, LString y -> cmp x y
+    | LChar x, LChar y -> cmp x y
+    | LBool _, _   -> 1 | _, LBool _   -> (-1)
+    | LChar _, _   -> 1 | _, LChar _   -> (-1)
+    | LInt _, _    -> 1 | _, LInt _    -> (-1)
+    | LFloat _, _  -> 1 | _, LFloat _  -> (-1)
+    (* | LString _, _ -> 1 | _, LString _ -> (-1) *)
+
+  module Show_t = Show_literal
+end)
+
+type 'a litmap = 'a LitMap.t
+
 type label = string
 and arguments = expression list
 and expression =
   | EVar       of Ident.t
   | EApply     of expression * arguments (* e(e* ) *)
-  | ESubscript of expression * label     (* e[l] *)
+  | EAccess    of expression * label     (* e[l] *)
   | EFun       of fn                     (* function(ident* ) { stmt } *)
-  | EConstant  of constant
-  | EPrim      of primitive
+  | ELit       of literal
+  | EPrim      of string
   | EObj       of (label * expression) list
 and statement =
-  | SIf of expression * statement * statement  (* if (expr) { stmt1 } else { stmt2 } *)
-  | SCase of expression * (constant * statement) * statement option (* switch (expr) { case c1: stmt1 break; ... case cN: stmtN break; [default: stmt] } *)
+  | SIf of expression * program * program  (* if (expr) { stmt1 } else { stmt2 } *)
+  | SCase of expression * (Ident.t * program) litmap * (Ident.t * program) option (* switch (expr) { case c1: stmt1 break; ... case cN: stmtN break; [default: stmt] } *)
   | SReturn of expression (* return e; *)
   | SSeq of statement * statement (* stmt1; stmt2 *)
-  | SBind of [`Const | `Let | `Var] * Ident.t * expression (* [ const | let | var ] x = e; *)
-  | SFun of fn
+  | SProg of program
+  (* | SBind of [`Const | `Let | `Var] * Ident.t * expression (\* [ const | let | var ] x = e; *\) *)
+  (* | SFun of fn *)
   | SExpr of expression
-and constant =
-  | CBool of bool
-  | CInt of int
-  | CFloat of float
-  | CString of string
-  | CChar of char
-and primitive =
-  | PFun of string
-  | PVar of string
-and program = statement list
+  | SDie of string
+and decl =
+  | DLet of binding
+  | DFun of fn
+and program = (decl list * statement)
 and fn = {
-  kind: [`Named of string | `Anonymous];
+  fkind: [`Named of string | `Anonymous];
   formal_params: Ident.t list;
-  body: statement;
+  body: program;
 }
+and binding = {
+  bkind: [`Const | `Let | `Var];
+  binder: Ident.t;
+  expr: expression;
+}
+
+let rec sequence : statement list -> statement = function
+  | [stmt] -> stmt
+  | stmt :: stmts -> SSeq (stmt, sequence stmts)
+  | [] -> failwith "Sequence empty list."

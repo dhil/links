@@ -460,18 +460,21 @@ let compile_js () =
   match !file_list with
   | [] -> ()
   | [src] ->
-     let prelude, (_valenv, nenv, tyenv) = load_prelude () in
+     let prelude, (_valenv, nenv, tenv) = load_prelude () in
+     let prelude = Js.make_prelude_unit ~program:prelude ~tenv ~nenv () in
+     let prelude = Jscomp.Compiler.compile_prelude prelude in
      let ast, pos_ctxt = Parse.parse_file Parse.program src in
-     let (program, _t, tenv), _alien = Frontend.Pipeline.program tyenv pos_ctxt ast in
+     let (program, _t, tenv), _alien = Frontend.Pipeline.program tenv pos_ctxt ast in
      let globals, (locals, main), nenv =
        Sugartoir.desugar_program
          (nenv,
-          Var.varify_env (nenv, tyenv.Types.var_env),
-          tyenv.Types.effect_row) program
+          Var.varify_env (nenv, tenv.Types.var_env),
+          tenv.Types.effect_row) program
      in
-     let comp_unit = Js.make_comp_unit ~source:(List.hd !file_list) ~program:(prelude @ globals @ locals, main) ~tenv ~nenv ~target:!ParseSettings.target () in
+     let program = Js.make_comp_unit ~source:(List.hd !file_list) ~program:(globals @ locals, main) ~tenv ~nenv ~target:!ParseSettings.target () in
      (* (nenv, tenv), (globals, main, t) *)
-     ignore (Jscomp.Compiler.compile comp_unit)
+     let program = Jscomp.Compiler.compile program in
+     JsEmit.emit ~prelude ~program ()
   | _ -> Errors.display_fatal_l (lazy (failwith "The JS compiler expects a single source file."))
 
 
