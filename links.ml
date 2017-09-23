@@ -504,8 +504,8 @@ let whole_program_caching_main () =
   (* caching_main assumes exactly one source file *)
   let file_list = ref [] in
   Errors.display_fatal_l (lazy
-			    (parse_cmdline ParseSettings.options
-			       (fun i -> push_back i file_list)));
+			    (ParseSettings.CmdlineArg.parse ParseSettings.options
+			       (fun i -> push_back i file_list) ""));
   if(length (!file_list) <> 1)
   then failwith "Whole program caching mode expects exactly one source file";
 
