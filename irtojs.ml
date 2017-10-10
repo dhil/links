@@ -8,7 +8,15 @@ let js_pretty_print = Basicsettings.Js.pp
 
 let js_hide_database_info = Basicsettings.Js.hide_database_info
 
-let get_js_lib_url () = Settings.get_value js_lib_url
+let get_js_lib_url () =
+  let open Pervasives in
+  let base_url = Settings.get_value Basicsettings.Appserver.external_base_url |> strip_slashes in
+  let base_url = Utility.strip_slashes base_url in
+  let js_url = Settings.get_value js_lib_url |> strip_slashes in
+  if base_url = "" then
+    "/" ^ js_url ^ "/"
+  else
+    "/" ^ base_url ^ "/" ^ js_url ^ "/"
 
 (* strip any top level polymorphism from an expression *)
 let rec strip_poly =
@@ -902,7 +910,10 @@ end = functor (K : CONTINUATION) -> struct
                let (c, cname) = name_binder cb in
                cname, Bind (cname, channel, snd (generate_computation (VEnv.bind env (c, cname)) b kappa)) in
              let branches = StringMap.map generate_branch bs in
-             Call (Var "receive", [gv c; Fn ([result], (Bind (received, scrutinee, (Case (received, branches, None)))))]))
+             let recv_cont_name = "__recv_cont" in
+             Bind (recv_cont_name,
+              Call (Var "_makeCont", [Fn ([result], (Bind (received, scrutinee, (Case (received, branches, None)))))]),
+              Call (Var "receive", [gv c; Var recv_cont_name])))
       | `DoOperation (name, args, _) ->
          let box vs =
            Dict (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
@@ -1103,7 +1114,7 @@ end = functor (K : CONTINUATION) -> struct
          state, venv, xs, f -<- g
 
   let script_tag body =
-    "<script type='text/javascript'><!--\n" ^ body ^ "\n--> </script>\n"
+    "<script type='text/javascript'><!--\n'use strict';\n" ^ body ^ "\n--> </script>\n"
 
   let make_boiler_page ?(cgi_env=[]) ?(onload="") ?(body="") ?(html="") ?(head="") ?(external_files=[]) defs =
     let in_tag tag str = "<" ^ tag ^ ">\n" ^ str ^ "\n</" ^ tag ^ ">" in
@@ -1112,13 +1123,11 @@ end = functor (K : CONTINUATION) -> struct
     let debug_flag onoff = "\n    <script type='text/javascript'>var DEBUGGING=" ^
       string_of_bool onoff ^ ";</script>"
     in
-    let extLibs = ext_script_tag "regex.js"^"
-  "            ^ext_script_tag "yahoo/yahoo.js"^"
-  "            ^ext_script_tag "yahoo/event.js" in
+    let extLibs = ext_script_tag "regex.js" in
     let db_config_script =
       if Settings.get_value js_hide_database_info then
         script_tag("    function _getDatabaseConfig() {
-      return {}
+     return {}
     }
     var getDatabaseConfig = LINKS.kify(_getDatabaseConfig);\n")
       else
@@ -1143,6 +1152,7 @@ end = functor (K : CONTINUATION) -> struct
                      )
                    ^ "<body onload=\'" ^ onload ^ "\'>
   <script type='text/javascript'>
+  'use strict';
   _debug(\"Continuation: \" + _cont_kind);
   _startTimer();" ^ body ^ ";
   </script>" ^ html ^ "</body>")

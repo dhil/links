@@ -81,7 +81,7 @@ let config_file_path = match Utility.getenv "LINKS_CONFIG" with
             None
 
 (** The banner *)
-let version = "0.7 (Dalry)"
+let version = "0.7.2 (Dalry)"
 let welcome_note = Settings.add_string ("welcome_note",
 " _     _ __   _ _  __  ___\n\
  / |   | |  \\ | | |/ / / ._\\\n\
@@ -118,6 +118,8 @@ end
 module Appserver = struct
   let hostname = Settings.add_string ("host", "0.0.0.0", `User)
   let port = Settings.add_int ("port", 8080, `User)
+  let external_base_url = Settings.add_string("external_base_url", "", `User)
+  let internal_base_url = Settings.add_string("internal_base_url", "", `User)
 end
 
 (** Caveat: don't [Open basicsettings] because the above module
