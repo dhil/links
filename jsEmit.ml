@@ -17,5 +17,5 @@ module JsEmitter = struct
   let gen u = pure u
 end
 
-let emit : prelude:Js.decl list Js.prelude_unit -> program:Js.program Js.comp_unit -> unit -> unit
-  = fun ~prelude ~program () -> ()
+let emit : program:Js.program Js.comp_unit -> unit -> unit
+  = fun ~program () -> ()

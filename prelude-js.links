@@ -1,7 +1,4 @@
-sig assert : (Bool, String) ~> ()
-fun assert(ok, msg) client {
-  if (not(ok)) debug("assertion failed: " ^^ msg) else ();
-}
+# Required
 
 # Don't use a for comprehension to define concatMap, as
 # for comprehensions are desugared into concatMap!
@@ -40,3 +37,6 @@ fun sortBy (f, l) client {
 
 sig sortByBase : ((a) ~b~> (| _::Base), [a]) ~b~> [a]
 fun sortByBase(f, l) client {sortBy(f, l)}
+
+# Standard functions
+fun id(x) {x}

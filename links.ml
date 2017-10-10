@@ -201,11 +201,12 @@ let rec directives
                 let source =
                   Loader.load_file (nenv, tyenv) filename
                 in
-                  let open Loader in
-                  let (nenv, tyenv) = source.envs in
-                  let (globals, (locals, main), t) = source.program in
-                  let external_files = source.external_dependencies in
-                  ((globals @ locals, main), t), (nenv, tyenv), external_files in
+                let open Loader in
+                let (nenv, tyenv) = source.envs in
+                let (globals, (locals, main), t) = source.program in
+                let external_files = source.external_dependencies in
+                ((globals @ locals, main), t), (nenv, tyenv), external_files
+              in
               let envs, _ = evaluate parse_and_desugar envs filename in
                 envs
           | _ -> prerr_endline "syntax: @load \"filename\""; envs),
@@ -461,20 +462,42 @@ let compile_js () =
   | [] -> ()
   | [src] ->
      let prelude, (_valenv, nenv, tenv) = load_prelude () in
-     let prelude = Js.make_prelude_unit ~program:prelude ~tenv ~nenv () in
-     let prelude = Jscomp.Compiler.compile_prelude prelude in
-     let ast, pos_ctxt = Parse.parse_file Parse.program src in
-     let (program, _t, tenv), _alien = Frontend.Pipeline.program tenv pos_ctxt ast in
-     let globals, (locals, main), nenv =
-       Sugartoir.desugar_program
-         (nenv,
-          Var.varify_env (nenv, tenv.Types.var_env),
-          tenv.Types.effect_row) program
+     (* let prelude = Js.make_prelude_unit ~program:prelude ~tenv ~nenv () in *)
+     (* let prelude = Jscomp.Compiler.compile_prelude prelude in *)
+
+     let parse_and_desugar (nenv, tyenv) filename =
+       let source =
+         Errors.display_fatal (Loader.load_file (nenv, tyenv)) filename
+       in
+       let open Loader in
+       let (nenv', tyenv') = source.envs in
+       let nenv = Env.String.extend nenv nenv' in
+       let tyenv = Types.extend_typing_environment tyenv tyenv' in
+       let (globals, (locals, main), t) = source.program in
+       let external_files = source.external_dependencies in
+       ((prelude @ globals @ locals, main), t), (nenv, tyenv), external_files
      in
-     let program = Js.make_comp_unit ~source:(List.hd !file_list) ~program:(globals @ locals, main) ~tenv ~nenv ~target:!ParseSettings.target () in
-     (* (nenv, tenv), (globals, main, t) *)
+     (* Printf.printf "Size: %d\n" (Env.String.fold (fun _ _ acc -> acc + 1) nenv 0); *)
+     let (program, _t), (nenv, tenv), _alien = parse_and_desugar (nenv, tenv) src in
+     let program = Js.make_comp_unit ~source:src ~program ~tenv ~nenv ~target:!ParseSettings.target () in
      let program = Jscomp.Compiler.compile program in
-     JsEmit.emit ~prelude ~program ()
+     JsEmit.emit ~program ()
+
+    (* let prelude, (_valenv, nenv, tenv) = load_prelude () in *)
+    (* let prelude = Js.make_prelude_unit ~program:prelude ~tenv ~nenv () in *)
+    (* let prelude = Jscomp.Compiler.compile_prelude prelude in *)
+    (* let ast, pos_ctxt = Parse.parse_file Parse.program src in *)
+    (* let (program, _t, tenv), _alien = Frontend.Pipeline.program tenv pos_ctxt ast in *)
+    (* let globals, (locals, main), nenv = *)
+    (*   Sugartoir.desugar_program *)
+    (*     (nenv, *)
+    (*      Var.varify_env (nenv, tenv.Types.var_env), *)
+    (*      tenv.Types.effect_row) program *)
+    (* in *)
+    (* let program = Js.make_comp_unit ~source:(List.hd !file_list) ~program:(globals @ locals, main) ~tenv ~nenv ~target:!ParseSettings.target () in *)
+    (*  (\* (nenv, tenv), (globals, main, t) *\) *)
+    (* let program = Jscomp.Compiler.compile program in *)
+    (* JsEmit.emit ~prelude ~program () *)
   | _ -> Errors.display_fatal_l (lazy (failwith "The JS compiler expects a single source file."))
 
 
