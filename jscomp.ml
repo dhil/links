@@ -5,6 +5,24 @@ type prog_unit = Js.program Js.comp_unit
 module VEnv = Env.Int
 type venv = string VEnv.t
 
+let string_of_venv (env : venv) =
+  let strings =
+    Env.Int.fold
+      (fun k v acc ->
+        (Printf.sprintf "%d -> %s" k v) :: acc)
+      env []
+  in
+  List.fold_left (fun acc str -> Printf.sprintf "%s%s\n" acc str) "" strings
+
+let string_of_nenv (env : int Env.String.t) =
+  let strings =
+    Env.String.fold
+      (fun k v acc ->
+        (Printf.sprintf "%s -> %d" k v) :: acc)
+      env []
+  in
+  List.fold_left (fun acc str -> Printf.sprintf "%s%s\n" acc str) "" strings
+
 let initialise_envs (nenv, tyenv) =
   let dt = DesugarDatatypes.read ~aliases:tyenv.Types.tycon_env in
 
@@ -90,6 +108,8 @@ module Prim_Functions : PRIM_DESC = struct
     | "not"   -> "%negation"
     | "Cons"  -> "%cons" | "tl"    -> "%tail"  | "hd"    -> "%head"
     | "Concat" -> "%concat"
+    | "error"  -> "%error"
+    | "print"  -> "%print"
     | _ -> raise Not_found
 end
 
@@ -670,6 +690,8 @@ module CPS = struct
     = fun u ->
       let open Js in
       let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
+      Printf.printf "nenv:\n%s\n%!" (string_of_nenv u.envs.nenv);
+      Printf.printf "venv:\n%s\n%!" (string_of_venv venv);
       let (_,prog) = generate_computation venv u.program K.toplevel in
       let runtime = Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) "cps.js" in
       { u with program = prog; includes = runtime :: u.includes }
