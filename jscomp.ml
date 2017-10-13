@@ -147,7 +147,7 @@ let safe_name_binder (x, info) =
 
 module type JS_COMPILER = sig
   val compile : comp_unit -> prog_unit
-  val compile_prelude : Ir.binding list Js.prelude_unit -> Js.decl list Js.prelude_unit
+  (* val compile_prelude : Ir.binding list Js.prelude_unit -> Js.decl list Js.prelude_unit *)
 end
 
 module CPS = struct
@@ -401,7 +401,7 @@ module CPS = struct
                        Functions.gen ~op:f_name ~args:(List.map gv vs) ()
                      with Not_found -> failwith (Printf.sprintf "Unsupported primitive: %s.\n" f_name)
                    else
-                     EApply (gv (`Variable f), List.map gv vs)
+                     EApply (gv (`Variable f), (List.map gv vs))
               end
            | _ ->
               EApply (gv f, List.map gv vs)
@@ -448,9 +448,12 @@ module CPS = struct
                      in
                      [], SReturn expr
                    else
-                     [], SReturn (EApply (gv (`Variable f), List.map gv vs))
+                     let k = K.reify kappa in
+                     [], SReturn (EApply (gv (`Variable f), (List.map gv vs) @ [k]))
               end
-           | _ -> [], SReturn (EApply (gv f, List.map gv vs))
+           | _ ->
+              let k = K.reify kappa in
+              [], SReturn (EApply (gv f, (List.map gv vs) @ [k]))
          end
       | `Special special ->
          generate_special env special kappa
@@ -491,7 +494,7 @@ module CPS = struct
       let open Js in
       let gv v = generate_value env v in
       match sp with
-      | `Wrong _ -> [], SDie "Internal Error: Pattern matching failed"
+      | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
       | `DoOperation (name, args, _) ->
          let box vs =
            make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
@@ -655,6 +658,13 @@ module CPS = struct
       in
       gbs env kappa bs
 
+  and generate_program : venv -> Ir.program -> continuation -> venv * Js.program
+    = fun env comp kappa ->
+      let venv,(decls,stmt) = generate_computation env comp kappa in
+      match stmt with
+      | SReturn e -> venv,(decls, Js.SExpr e)
+      | s -> venv, (decls, s)
+
   and generate_toplevel_bindings : venv -> Ir.binding list -> continuation -> Js.decl list
     = fun env bs kappa ->
       let _,(decls,_) = generate_computation env (bs, `Special (`Wrong `Not_typed)) kappa in
@@ -692,15 +702,9 @@ module CPS = struct
       let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
       Printf.printf "nenv:\n%s\n%!" (string_of_nenv u.envs.nenv);
       Printf.printf "venv:\n%s\n%!" (string_of_venv venv);
-      let (_,prog) = generate_computation venv u.program K.toplevel in
+      let (_,prog) = generate_program venv u.program K.toplevel in
       let runtime = Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) "cps.js" in
       { u with program = prog; includes = runtime :: u.includes }
-
-  let compile_prelude : Ir.binding list Js.prelude_unit -> Js.decl list Js.prelude_unit
-    = fun u ->
-      let open Js in
-      let (_nenv, venv, _tenv) = initialise_envs (u.penvs.nenv, u.penvs.tenv) in
-      { u with pprogram = generate_toplevel_bindings venv u.pprogram K.toplevel }
 end
 
 
