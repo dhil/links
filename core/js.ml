@@ -101,14 +101,6 @@ type 'a comp_unit =
     envs: envs;
     includes: string list; }
 
-type 'a prelude_unit =
-  { pprogram: 'a;
-    penvs: envs }
-
-let make_prelude_unit : program:'a -> nenv:nenv -> tenv:tenv -> unit -> 'a prelude_unit
-  = fun ~program ~nenv ~tenv () ->
-    { pprogram = program; penvs = { nenv; tenv } }
-
 let make_comp_unit : ?includes:string list -> ?source:string -> ?target:string -> program:'a -> nenv:nenv -> tenv:tenv -> unit -> 'a comp_unit
   = fun ?(includes=[]) ?(source="dummy.links") ?(target="a.js") ~program ~nenv ~tenv () ->
     { source; target; program; envs = { tenv; nenv; }; includes }
