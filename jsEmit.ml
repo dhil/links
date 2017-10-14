@@ -277,6 +277,26 @@ and literal : Js.literal -> CodeGen.js = let open CodeGen.Prim in function
   | LChar c   -> name (Printf.sprintf "'%c'" c)
 
 
+let fun' =
+  let open Prettier in
+  (hgrp
+     (text "function")
+     $ (text "()")
+     $ break
+     $ (text "{")
+     $ (vgrp
+          (nest 2
+             (break
+                $ (vgrp
+                     ((text "const i = 2;")
+                         $ break
+                         $ (text "const j = 3;")
+                         $ break
+                         $ (text "return 42;")
+                     )))))
+          $ vgrp (break $ (text "}")))
+
+
 let emit : program:comp_unit -> unit -> unit
   = fun ~program () ->
     let open CodeGen in
