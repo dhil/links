@@ -38,7 +38,7 @@ TRASH=*.tmp *.output *.cache
 
 # Other people's code.
 OPC = unionfind.ml unionfind.mli \
-      getopt.ml getopt.mli PP.ml
+      getopt.ml getopt.mli PP.ml prettier.ml
 
 SOURCES = $(OPC)                                \
           multipart.ml                          \
