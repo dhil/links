@@ -104,12 +104,12 @@ end
 
 module Prim_Functions : PRIM_DESC = struct
   let prim_name = function
-    | "debug" -> "%debug"
+    | "debug" -> "%IO.debug"
     | "not"   -> "%negation"
-    | "Cons"  -> "%cons" | "tl"    -> "%tail"  | "hd"    -> "%head"
+    | "Cons"  -> "%List.cons" | "tl"    -> "%List.tail"  | "hd"    -> "%List.head"
     | "Concat" -> "%concat"
-    | "error"  -> "%error"
-    | "print"  -> "%print"
+    | "error"  -> "%IO.error"
+    | "print"  -> "%IO.print"
     | _ -> raise Not_found
 end
 
@@ -197,11 +197,11 @@ module CPS = struct
              | Identity
 
   (* Auxiliary functions for manipulating the continuation stack *)
-      let nil = Js.(EPrim "%_nil")
-      let cons x xs = Js.(EApply (EPrim "%_cons", [x; xs]))
-      let head xs = Js.(EApply (EPrim "%_head", [xs]))
-      let tail xs = Js.(EApply (EPrim "%_tail", [xs]))
-      let toplevel = Js.(Cons (EPrim "%identity_continuation", Cons (EPrim "%absurd_handler", Reflect nil)))
+      let nil = Js.(EPrim "%K._nil")
+      let cons x xs = Js.(EApply (EPrim "%List._cons", [x; xs]))
+      let head xs = Js.(EApply (EPrim "%List._head", [xs]))
+      let tail xs = Js.(EApply (EPrim "%List._tail", [xs]))
+      let toplevel = Js.(Cons (EPrim "%K.pure", Cons (EPrim "%K.absurd", Reflect nil)))
 
       let reflect x = Reflect x
       let rec reify = function
@@ -281,7 +281,7 @@ module CPS = struct
         (* bs (body (ks (reflect seed))) *)
 
       let apply k arg =
-        Js.(EApply (EPrim "%apply_continuation", [reify k; arg]))
+        Js.(EApply (EPrim "%K.apply", [reify k; arg]))
 
       let rec pop = function
         | Cons (kappa, kappas) ->
@@ -353,7 +353,7 @@ module CPS = struct
            EPrim (Comparison.prim_name ~op:name ())
          else
            begin match name with
-           | "Nil" -> EPrim "%nil"
+           | "Nil" -> EPrim "%List.nil"
            |  _ -> EVar name
            end
       | `Extend (field_map, rest) ->
@@ -410,7 +410,7 @@ module CPS = struct
               EApply (gv f, List.map gv vs)
          end
       | `Closure (f, v) ->
-         EApply (EPrim "%partial_apply", [gv (`Variable f); gv v])
+         EApply (EPrim "%Closure.apply", [gv (`Variable f); gv v])
       | `Coerce (v, _) ->
          gv v
       | _ -> failwith "Unsupported value."
@@ -444,9 +444,11 @@ module CPS = struct
                    if Lib.is_primitive f_name
                      && Lib.primitive_location f_name <> `Server
                    then
+                     let k = K.reify kappa in
                      let expr =
                        try
-                         Functions.gen ~op:f_name ~args:(List.map gv vs) ()
+                         let args = (List.map gv vs) @ [k] in
+                         Functions.gen ~op:f_name ~args ()
                        with Not_found -> failwith (Printf.sprintf "Unsupported primitive: %s.\n" f_name)
                      in
                      [], SReturn expr
@@ -504,9 +506,9 @@ module CPS = struct
            make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
          in
          let cons k ks =
-           EApply (EPrim "%_cons", [k;ks])
+           EApply (EPrim "%List._cons", [k;ks])
          in
-         let nil = EPrim "%_nil" in
+         let nil = EPrim "%List._nil" in
          K.bind kappa
            (fun kappas ->
              let bind_skappa, skappa, kappas = K.pop kappas in
@@ -538,7 +540,7 @@ module CPS = struct
          in
          let operations =
            (* Generate clause *)
-           let gc env (ct, xb, body) kappas =
+           let gc env (ct, xb, body) kappas _z =
              let x_name = snd @@ safe_name_binder xb in
              let env', r_name =
                match ct with
@@ -550,28 +552,35 @@ module CPS = struct
                   let dummy = safe_name_binder dummy_binder in
                   VEnv.bind env dummy, snd dummy
              in
-             let p = EAccess (EVar x_name, "p") in
-             let s = EAccess (EVar x_name, "s") in
-             let r = EApply  (EPrim "%make_fun", [s]) in
+             let v_name, v = Ident.make ~prefix:"_v" (), EAccess (EVar _z, "_value") in
+             let p = EAccess (EVar v_name, "p") in
+             let s = EAccess (EVar v_name, "s") in
+             let r = EApply  (EPrim "%K.makeFun", [s]) in
              let clause_body =
+               let v_binding =
+                 DLet {
+                   bkind = `Const;
+                   binder = v_name;
+                   expr = v; }
+               in
                let r_binding =
                  DLet {
                    bkind = `Const;
                    binder = r_name;
                    expr = r; }
                in
-               let x_binding =
+               let p_binding =
                  DLet {
                    bkind = `Const;
                    binder = x_name;
                    expr = p; }
                in
                let (decls, stmt) = gb env' xb body kappas in
-               r_binding :: x_binding :: decls, stmt
+               v_binding :: r_binding :: p_binding :: decls, stmt
              in
              clause_body
            in
-           let clauses kappas = StringMap.map (fun clause -> gc env clause kappas) operation_clauses in
+           let clauses kappas _z = StringMap.map (fun clause -> gc env clause kappas _z) operation_clauses in
            let forward ks _z =
              K.bind ks
                (fun ks ->
@@ -585,15 +594,15 @@ module CPS = struct
                      DLet {
                        bkind = `Const;
                        binder = _x;
-                       expr = EApply (EPrim "%_cons", [K.reify k'; EVar s]); }
+                       expr = EApply (EPrim "%List._cons", [K.reify k'; EVar s]); }
                    in
                    EFun {
                      fkind = `Anonymous;
                      formal_params = [s];
-                     body = [_x_binding], SReturn (EApply (EPrim "%_cons", [K.reify h'; EVar _x]));
+                     body = [_x_binding], SReturn (EApply (EPrim "%List._cons", [K.reify h'; EVar _x]));
                    }
                  in
-                 let vmap = EApply (EPrim "%vmap", [resumption; EVar _z]) in
+                 let vmap = EApply (EPrim "%K.vmap", [resumption; EVar _z]) in
                  bind (SReturn K.(apply (h' <> ks') vmap)))
            in
            let _z = Ident.of_string "_z" in
@@ -602,8 +611,8 @@ module CPS = struct
                EFun {
                  fkind = `Anonymous;
                  formal_params = [_z];
-                 body = [], SCase (EVar _z,
-                                   clauses ks,
+                 body = [], SCase (EAccess (EVar _z, "_label"),
+                                   clauses ks _z,
                                    Some (forward ks _z)); })
          in
          let kappa = K.(return <> operations <> kappa) in
@@ -709,8 +718,8 @@ module CPS = struct
     = fun u ->
       let open Js in
       let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
-      Printf.printf "nenv:\n%s\n%!" (string_of_nenv u.envs.nenv);
-      Printf.printf "venv:\n%s\n%!" (string_of_venv venv);
+      (* Printf.printf "nenv:\n%s\n%!" (string_of_nenv u.envs.nenv); *)
+      (* Printf.printf "venv:\n%s\n%!" (string_of_venv venv); *)
       let (_,prog) = generate_program venv u.program K.toplevel in
       let runtime = Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) "cps.js" in
       { u with program = prog; includes = runtime :: u.includes }

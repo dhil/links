@@ -1,5 +1,7 @@
 # Required
 
+typename Comp(e::Row, a) = () ~e~> a;
+
 # Don't use a for comprehension to define concatMap, as
 # for comprehensions are desugared into concatMap!
 sig concatMap : ((a) ~e~> [b], [a]) ~e~> [b]
@@ -40,3 +42,6 @@ fun sortByBase(f, l) client {sortBy(f, l)}
 
 # Standard functions
 fun id(x) {x}
+
+sig ignore : (a) -> ()
+fun ignore(_) { () }
