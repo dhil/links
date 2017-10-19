@@ -121,7 +121,7 @@ let list ~sep ~f xs =
     in
     loop empty xs
 
-let commalist ~f = list ~sep:(text "," $ break_null) ~f
+let commalist ~f = list ~sep:(text "," $ break) ~f
 
 let ($/) x y   = x $ break $ y
 let ($//) x y = x $ break_null $ y

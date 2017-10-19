@@ -197,10 +197,10 @@ module CPS = struct
              | Identity
 
   (* Auxiliary functions for manipulating the continuation stack *)
-      let nil = Js.(EPrim "%nil")
-      let cons x xs = Js.(EApply (EPrim "%cons", [x; xs]))
-      let head xs = Js.(EApply (EPrim "%head", [xs]))
-      let tail xs = Js.(EApply (EPrim "%tail", [xs]))
+      let nil = Js.(EPrim "%_nil")
+      let cons x xs = Js.(EApply (EPrim "%_cons", [x; xs]))
+      let head xs = Js.(EApply (EPrim "%_head", [xs]))
+      let tail xs = Js.(EApply (EPrim "%_tail", [xs]))
       let toplevel = Js.(Cons (EPrim "%identity_continuation", Cons (EPrim "%absurd_handler", Reflect nil)))
 
       let reflect x = Reflect x
@@ -352,7 +352,10 @@ module CPS = struct
          else if Comparison.is name then
            EPrim (Comparison.prim_name ~op:name ())
          else
-           EVar name
+           begin match name with
+           | "Nil" -> EPrim "%nil"
+           |  _ -> EVar name
+           end
       | `Extend (field_map, rest) ->
          let dict =
            make_dictionary
@@ -470,18 +473,19 @@ module CPS = struct
          let (decls, prog) =
            K.bind kappa
              (fun kappa ->
-               let gen_cont (xb, c) =
+               let translate_case (xb, c) =
                  let (x, x_name) = safe_name_binder xb in
-                 Ident.of_string x_name, (snd (generate_computation (VEnv.bind env (x, x_name)) c kappa))
+                 let value_binding =
+                   DLet { bkind = `Const;
+                          binder = Ident.of_string x_name;
+                          expr = EAccess (EVar scrutineeb, "_value"); }
+                 in
+                 let (_, (decls, stmt)) = generate_computation (VEnv.bind env (x, x_name)) c kappa in
+                 value_binding :: decls, stmt
                in
-               let cases =
-                 StringMap.fold
-                   (fun label case cases ->
-                     LitMap.add (LString label) (gen_cont case) cases)
-                   cases LitMap.empty
-               in
-               let default = opt_map gen_cont default in
-               [], SCase (EVar scrutineeb, cases, default))
+               let cases = StringMap.map translate_case cases in
+               let default = opt_map translate_case default in
+               [], SCase (EAccess (EVar scrutineeb, "_label"), cases, default))
          in
          decls @ [bind_scrutinee v], prog
       | `If (v, c1, c2) ->
@@ -500,9 +504,9 @@ module CPS = struct
            make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
          in
          let cons k ks =
-           EApply (EPrim "%cons", [k;ks])
+           EApply (EPrim "%_cons", [k;ks])
          in
-         let nil = EPrim "%nil" in
+         let nil = EPrim "%_nil" in
          K.bind kappa
            (fun kappas ->
              let bind_skappa, skappa, kappas = K.pop kappas in
@@ -565,14 +569,9 @@ module CPS = struct
                let (decls, stmt) = gb env' xb body kappas in
                r_binding :: x_binding :: decls, stmt
              in
-             Ident.of_string x_name, clause_body
+             clause_body
            in
-           let clauses kappas =
-             StringMap.fold
-               (fun label clause clauses ->
-                 LitMap.add (LString label) (gc env clause kappas) clauses)
-               operation_clauses LitMap.empty
-           in
+           let clauses kappas = StringMap.map (fun clause -> gc env clause kappas) operation_clauses in
            let forward ks _z =
              K.bind ks
                (fun ks ->
@@ -586,12 +585,12 @@ module CPS = struct
                      DLet {
                        bkind = `Const;
                        binder = _x;
-                       expr = EApply (EPrim "%cons", [K.reify k'; EVar s]); }
+                       expr = EApply (EPrim "%_cons", [K.reify k'; EVar s]); }
                    in
                    EFun {
                      fkind = `Anonymous;
                      formal_params = [s];
-                     body = [_x_binding], SReturn (EApply (EPrim "%cons", [K.reify h'; EVar _x]));
+                     body = [_x_binding], SReturn (EApply (EPrim "%_cons", [K.reify h'; EVar _x]));
                    }
                  in
                  let vmap = EApply (EPrim "%vmap", [resumption; EVar _z]) in
@@ -605,7 +604,7 @@ module CPS = struct
                  formal_params = [_z];
                  body = [], SCase (EVar _z,
                                    clauses ks,
-                                   Some (_z, forward ks _z)); })
+                                   Some (forward ks _z)); })
          in
          let kappa = K.(return <> operations <> kappa) in
          let _, comp = generate_computation env comp kappa in
@@ -660,10 +659,20 @@ module CPS = struct
 
   and generate_program : venv -> Ir.program -> continuation -> venv * Js.program
     = fun env comp kappa ->
+      let open Js in
       let venv,(decls,stmt) = generate_computation env comp kappa in
-      match stmt with
-      | SReturn e -> venv,(decls, Js.SExpr e)
-      | s -> venv, (decls, s)
+      let prog =
+        match stmt with
+        | SReturn e -> (decls, Js.SExpr e)
+        | s -> (decls, s)
+      in
+      venv, prog
+      (* let main = Ident.make ~prefix:"_main" () in *)
+      (* let mainf = DFun { fkind = `Named main; *)
+      (*                   formal_params = []; *)
+      (*                   body = prog } *)
+      (* in *)
+      (* venv, ([mainf], SExpr (EApply (EVar main, []))) *)
 
   and generate_toplevel_bindings : venv -> Ir.binding list -> continuation -> Js.decl list
     = fun env bs kappa ->
