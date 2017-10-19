@@ -148,7 +148,7 @@ module LitMap = Map.Make(struct
   module Show_t = Show_literal
 end)
 
-type 'a litmap = 'a LitMap.t
+type 'a litmap = 'a StringMap.t
 
 type label = string
 and arguments = expression list
@@ -162,14 +162,12 @@ and expression =
   | EObj       of (label * expression) list
 and statement =
   | SIf of expression * program * program  (* if (expr) { stmt1 } else { stmt2 } *)
-  | SCase of expression * (Ident.t * program) litmap * (Ident.t * program) option (* switch (expr) { case c1: stmt1 break; ... case cN: stmtN break; [default: stmt] } *)
+  | SCase of expression * program litmap * program option (* switch (expr) { case c1: stmt1 break; ... case cN: stmtN break; [default: stmt] } *)
   | SReturn of expression (* return e; *)
   | SSeq of statement * statement (* stmt1; stmt2 *)
-  | SProg of program
   (* | SBind of [`Const | `Let | `Var] * Ident.t * expression (\* [ const | let | var ] x = e; *\) *)
   (* | SFun of fn *)
   | SExpr of expression
-  | SDie of string
 and decl =
   | DLet of binding
   | DFun of fn

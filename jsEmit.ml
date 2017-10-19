@@ -1,5 +1,7 @@
 type comp_unit = Js.program Js.comp_unit
 
+module PP = Prettier
+
 module type STATE = sig
   type ('s, 'a) t
 
@@ -34,10 +36,13 @@ module type CODEGEN = sig
   type 'a t
   type js
   type ident = Js.Ident.t
+  type program = js list * js
+  type label = string
 
   val pure : 'a -> 'a t
   val (>>=) : 'a t -> ('a -> 'b t) -> 'b t
   val emit : js -> unit -> unit t
+  val emit_runtime : unit -> unit t
   val persist : 'a t -> 'a t
 
   val gen : comp_unit -> unit t -> unit
@@ -53,19 +58,22 @@ module type CODEGEN = sig
 
   module Decl: sig
     val let_binding : [`Const | `Let | `Var] -> ident -> js -> js
-    val fun_binding : ident -> ident list -> (js list * js) -> js
+    val fun_binding : ident -> ident list -> program -> js
   end
 
   module Expr: sig
     val var : ident -> js
     val apply : js -> js list -> js
     val anon_fun : ident list -> (js list * js) -> js
+    val access : js -> label -> js
+    val object' : (label * js) list -> js
   end
 
   module Stmt: sig
     val return : js -> js
     val expr : js -> js
-    val ifthenelse : js -> (js list * js) -> (js list * js) -> js
+    val ifthenelse : js -> program -> program -> js
+    val case : js -> (label * program) list -> program -> js
   end
 
   module Prim: sig
@@ -75,9 +83,11 @@ module type CODEGEN = sig
 end
 
 module CodeGen : CODEGEN = struct
-  type js = PP.doc
+  type js = PP.t
   type 'a t = (comp_unit * js, 'a) State.t
   type ident = Js.Ident.t
+  type label = string
+  type program = js list * js
 
   module S = State
   let pure x = S.pure x
@@ -86,27 +96,64 @@ module CodeGen : CODEGEN = struct
   let emit js' () =
     let open PP in
     S.get >>= fun (cu, js) ->
-    S.put (cu, js ^^ js')
+    S.put (cu, js $ js')
+
+  let emit_runtime () =
+    let input_line_opt ic =
+      try Some (input_line ic)
+      with End_of_file -> None
+    in
+    let read_lines ic =
+      let rec aux acc =
+        match input_line_opt ic with
+        | Some line -> aux (line::acc)
+        | None -> (List.rev acc)
+      in
+      aux []
+    in
+    let lines_of_file filename =
+      let ic = open_in filename in
+      let lines = read_lines ic in
+      close_in ic; lines
+    in
+    let open Js in
+    let open PP in
+    S.get >>= fun (cu, js) ->
+    let runtime =
+      List.fold_left
+        (fun acc file ->
+          let js =
+            text (String.concat "\n" (lines_of_file file))
+          in
+          acc
+            $/ (vgrp
+                  ((hgrp
+                      (text (Printf.sprintf "/* [Begin] Include %s */" file)))
+                      $/ js
+                      $/ (hgrp (text (Printf.sprintf "/* [End] Include %s */" file))))))
+        empty cu.includes
+    in
+    S.put (cu, js $ runtime)
 
   let persist _ = assert false
 
   let gen cu code =
     let (_, st) = State.run ~init:(cu, PP.empty) code in
-    Printf.printf "%s\n%!" (PP.pretty 144 (snd st));
+    Printf.printf "%s\n%!" (PP.to_string ~width:144 (PP.vgrp (snd st)));
     ()
 
-  let sequence : (js -> js) -> js list -> js
-    = fun sep xs ->
-      List.fold_left
-        (fun acc x -> PP.(acc ^| (sep x)))
-        PP.empty xs
+  let rec sequence : (js -> js) -> js list -> js
+    = fun sep ->
+      function
+      | [] -> PP.empty
+      | [x] -> sep x
+      | x :: xs -> PP.((sep x) $/ (sequence sep xs))
 
   module Aux = struct
-    let newline = PP.(breakWith nl)
-
+    let newline = PP.break
     let comment txt =
       let open PP in
-      (text "/*") ^+^ (text txt) ^+^ (text "*/")
+      hgrp ((text "/*") $/ (text txt) $/ (text "*/"))
 
     let strict_mode = PP.(text "'use strict';")
   end
@@ -114,13 +161,16 @@ module CodeGen : CODEGEN = struct
   let layout_program : (js list * js) -> js
     = fun (decls, stmt) ->
       let open PP in
-      let decls' = sequence (fun d -> d) decls in
-      (group (nest 2 (decls' ^| stmt)))
+      match decls with
+      | [] -> vgrp (nest 2 stmt)
+      | _ ->
+         let decls' = sequence (fun d -> d) decls in
+         vgrp (decls' $/ stmt)
 
   module Decl = struct
     let semi : js -> js
       = fun stmt ->
-        PP.(stmt ^^ (text ";"))
+        PP.(stmt $ (text ";"))
 
     let let_binding kind binder expr =
       let kind =
@@ -131,37 +181,123 @@ module CodeGen : CODEGEN = struct
         | _      -> assert false
       in
       let open PP in
-      semi @@ (text kind) ^+^ (text binder) ^+^ (text "=") ^+^ expr
+      semi
+        (hgrp
+           ((text kind) $/ (text binder) $/ (text "=") $/ expr))
 
     let fun_binding binder params prog =
       let open PP in
-      (text "function") ^+^ (text binder) ^^ (formal_list params)
-      ^+^ (text "{" ^| (group (nest 2 ((layout_program prog)))) ^^ (text "\b\b}")) (* HACK *)
+      hgrp
+         ((text "function")
+             $/ (text binder)
+             $  (text "(")
+             $  (commalist ~f:(fun x -> text x) params)
+             $  (text ")")
+             $/ (text "{")
+             $ (vgrp
+                  (nest 2
+                     (break
+                        $ (layout_program prog))))
+             $ vgrp (break $ (text "}") $ break))
   end
 
   module Expr = struct
     let var ident = PP.text ident
     let anon_fun params prog =
       let open PP in
-      group
-        (nest 2
-           (group (nest 2 (text "function" ^^ (formal_list params) ^+^ (text "{"))))
-         ^| (group (nest 2 (layout_program prog))))
-          ^| (text "\b\b}")
-    let apply f args = PP.(f ^^ (arglist args))
+      hgrp
+        ((text "function")
+            $  (text "(")
+            $  (commalist ~f:(fun x -> text x) params)
+            $  (text ")")
+            $/ (text "{")
+            $ (vgrp
+                 (nest 2
+                    (break
+                       $ (layout_program prog))))
+            $ vgrp (break $ (text "}")))
+
+    let apply f args =
+      let open PP in
+      hgrp
+        (f $ ((text "(") $ (commalist ~f:(fun x -> x) args) $ (text ")")))
+
+    let access obj label =
+      let open PP in
+      hgrp (obj $ ((text (Printf.sprintf "['%s']" label))))
+
+    let object' fields =
+      let open PP in
+      match fields with
+      | [] -> text "{}"
+      | _ ->
+         hgrp
+           ((text "{")
+               $/ (commalist ~f:(fun (label,expr) -> (text (Printf.sprintf "'%s':" label)) $/ expr) fields)
+               $/ text "}")
   end
 
   module Stmt = struct
-    let return e = Decl.semi (PP.(text "return" ^+^ (parens e)))
+    let return e =
+      let open PP in
+      hgrp
+        (Decl.semi ((text "return") $/ e))
+
     let expr e   = Decl.semi e
     let ifthenelse cond tt ff =
       let open PP in
-      group (nest 2 (
-        (group (nest 2 (text "if" ^| (parens cond) ^+^ (text "{")))
-         ^| group (nest 2 (layout_program tt))
-           ^| group (nest 2 (text "\b\b} else {"))
-             ^| group (nest 2 (layout_program ff))
-                 ^| (text "\b\b}"))))
+      hgrp
+        ((text "if")
+            $/ (text "(")
+            $ cond
+            $ (text ")")
+            $/ (text "{")
+            $ (vgrp
+                 (nest 0
+                    (vgrp
+                       (nest 2
+                          (break
+                             $ (layout_program tt))))
+                    $/ (text "}"))
+                 $/ (text "else")
+                 $/ (text "{")
+                 $ (vgrp
+                      (nest 0
+                         (vgrp
+                            (nest 2
+                               (break
+                                  $ (layout_program ff))))
+                         $/ (text "}")))))
+
+    let case scrutinee cases default =
+      let open PP in
+      let cases =
+        List.fold_left
+          (fun acc (label, prog) ->
+            (acc
+               $/ (hgrp
+                     ((text "case") $/ (text (Printf.sprintf "'%s': {" label))
+                         $ (vgrp
+                              (nest 2 (break $ (layout_program prog)))))))
+              $/ (text "}")
+          )
+          PP.empty cases
+      in
+      let default =
+        hgrp ((text "default: {")
+                 $/ (vgrp
+                       (nest 2
+                          (break $ (layout_program default)))))
+          $/ (text "}")
+      in
+      hgrp
+        ((text "switch")
+            $/ (text "(")
+            $ scrutinee
+            $ (text ")")
+            $/ (text "{")
+            $ (vgrp (nest 2 (cases $/ default))))
+        $/ (text "}")
   end
 
   module Prim = struct
@@ -169,7 +305,7 @@ module CodeGen : CODEGEN = struct
 
     let apply_binop op (x,y) =
       let open PP in
-      x ^+^ (text op) ^+^ y
+      hgrp (x $/ (text op) $/ y)
   end
 
   (* let (<+>) l r = PP.(l ^^ r) *)
@@ -190,7 +326,7 @@ module CodeGen : CODEGEN = struct
     | [] -> PP.empty
     | [x] -> x
     | x :: xs ->
-       PP.(x ^^ (sequence (fun x -> Aux.newline ^^ x)) xs)
+       PP.(x $ (sequence (fun x -> x)) xs)
 end
 
 let is_primitive : string -> bool
@@ -198,23 +334,26 @@ let is_primitive : string -> bool
 
 let rec program' : Js.program -> (CodeGen.js list * CodeGen.js)
   = fun (decls, stmt) ->
-    let open CodeGen in
     let decls = List.map (fun decl -> declaration decl) decls in
     decls, statement stmt
 
 and declaration : Js.decl -> CodeGen.js
-  = function
+  = let open Js in
+    function
     | DLet { bkind; binder; expr } ->
        CodeGen.Decl.let_binding bkind binder (expression expr)
     | DFun { fkind = `Named binder; formal_params; body } ->
        CodeGen.Decl.fun_binding binder formal_params (program' body)
     | _ -> assert false
 
-and expression : Js.expression -> CodeGen.js = function
+and expression : Js.expression -> CodeGen.js
+  = let open Js in
+  function
   | EVar name -> CodeGen.Expr.var name
   | EFun { fkind = `Anonymous; formal_params; body } ->
      let open CodeGen in
      Expr.anon_fun formal_params (program' body)
+  | EFun _ -> assert false
   | EApply (EPrim p, args) ->
      let open CodeGen.Prim in
      let open CodeGen.Expr in
@@ -241,34 +380,44 @@ and expression : Js.expression -> CodeGen.js = function
   | EApply (f, args) ->
      let open CodeGen in
      Expr.apply (expression f) (List.map expression args)
-  | EObj _ -> assert false
+  | EObj fields ->
+     CodeGen.Expr.object' (List.map (fun (label, expr) -> label, expression expr) fields)
   | ELit l -> literal l
-  | EFun _ -> assert false
-  | EAccess _ -> assert false
+  | EAccess (obj, label) ->
+     CodeGen.Expr.access (expression obj) label
   | EPrim p -> primitive p
 
-and statement : Js.statement -> CodeGen.js = function
+and statement : Js.statement -> CodeGen.js
+  = let open Js in
+  function
   | SReturn e -> CodeGen.Stmt.return (expression e)
   | SSeq _ -> assert false
   | SExpr e -> CodeGen.Stmt.expr (expression e)
-  | SDie s -> assert false
-  | SProg _ -> assert false
-  | SCase _ -> assert false
+  | SCase (scrutinee, cases, default) ->
+     let cases =
+       List.map
+         (fun (label, prog) ->
+           (label, program' prog))
+         (Utility.StringMap.to_alist cases)
+     in
+     let default =
+       match default with
+       | None -> program' ([], SReturn (EApply (EPrim "%error", [ELit (LString "Match failure.")])))
+       | Some prog -> program' prog
+     in
+     CodeGen.Stmt.case (expression scrutinee) cases default
   | SIf (cond,tt,ff) ->
      CodeGen.Stmt.ifthenelse (expression cond) (program' tt) (program' ff)
-  | _ -> assert false
-
-and statement_toplevel : Js.statement -> CodeGen.js = function
-  | SReturn e -> statement (SExpr e)
-  | stmt -> statement stmt
 
 and primitive : string -> CodeGen.js
   = fun p ->
-  let open CodeGen.Prim in
   let ident = Printf.sprintf "_%s" (String.sub p 1 (String.length p - 1)) in
   CodeGen.Prim.name ident
 
-and literal : Js.literal -> CodeGen.js = let open CodeGen.Prim in function
+and literal : Js.literal -> CodeGen.js =
+  let open CodeGen.Prim in
+  let open Js in
+  function
   | LBool true -> name "true"
   | LBool false -> name "false"
   | LInt n -> name (string_of_int n)
@@ -277,28 +426,9 @@ and literal : Js.literal -> CodeGen.js = let open CodeGen.Prim in function
   | LChar c   -> name (Printf.sprintf "'%c'" c)
 
 
-let fun' =
-  let open Prettier in
-  (hgrp
-     (text "function")
-     $ (text "()")
-     $ break
-     $ (text "{")
-     $ (vgrp
-          (nest 2
-             (break
-                $ (vgrp
-                     ((text "const i = 2;")
-                         $ break
-                         $ (text "const j = 3;")
-                         $ break
-                         $ (text "return 42;")
-                     )))))
-          $ vgrp (break $ (text "}")))
-
-
 let emit : program:comp_unit -> unit -> unit
   = fun ~program () ->
+    let open Js in
     let open CodeGen in
     let (decls, stmt) = program' program.program in
     let prog =
@@ -308,6 +438,9 @@ let emit : program:comp_unit -> unit -> unit
         emit (Aux.strict_mode) >>=
         emit (Aux.newline) >>=
         emit (Aux.newline) >>=
+        emit_runtime >>=
+        emit (Aux.newline) >>=
+        emit (Aux.newline) >>=
         emit (Aux.comment "[Begin] Bindings") >>=
         emit (Aux.newline) >>=
         emit (sequence decls) >>=
@@ -315,6 +448,10 @@ let emit : program:comp_unit -> unit -> unit
         emit (Aux.comment "[End] Bindings") >>=
         emit (Aux.newline) >>=
         emit (Aux.newline) >>=
-        emit stmt
+        emit (Aux.comment "[Begin] Main computation") >>=
+        emit (Aux.newline) >>=
+        emit stmt >>=
+        emit (Aux.newline) >>=
+        emit (Aux.comment "[End] Main computation")
     in
     gen program prog
