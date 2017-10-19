@@ -221,6 +221,17 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
   "^.", float_op ( ** ) PURE;
   "^^", string_op ( ^ ) PURE;
 
+  (* References *)
+  ":=", (p2 (fun _ _ -> assert false),
+         datatype "(Ref(a),a) ~> ()",
+         IMPURE);
+  "ref", (p1 (fun _ -> assert false),
+          datatype "(a) ~> Ref(a)",
+          IMPURE);
+  "deref", (p1 (fun _ -> assert false),
+            datatype "Ref(a) ~> a",
+            IMPURE);
+
   (* Comparisons *)
   "==",
   (p2 (fun v1 v2 -> Value.box_bool (equal v1 v2)),
