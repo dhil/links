@@ -173,7 +173,8 @@ and decl =
   | DFun of fn
 and program = (decl list * statement)
 and fn = {
-  fkind: [`Named of string | `Anonymous];
+  fname: [`Named of string | `Anonymous];
+  fkind: [`Regular | `Generator];
   formal_params: Ident.t list;
   body: program;
 }

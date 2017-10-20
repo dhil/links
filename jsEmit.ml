@@ -38,6 +38,7 @@ module type CODEGEN = sig
   type ident = Js.Ident.t
   type program = js list * js
   type label = string
+  type fnkind = [`Regular | `Generator]
 
   val pure : 'a -> 'a t
   val (>>=) : 'a t -> ('a -> 'b t) -> 'b t
@@ -58,13 +59,13 @@ module type CODEGEN = sig
 
   module Decl: sig
     val let_binding : [`Const | `Let | `Var] -> ident -> js -> js
-    val fun_binding : ident -> ident list -> program -> js
+    val fun_binding : fnkind -> ident -> ident list -> program -> js
   end
 
   module Expr: sig
     val var : ident -> js
     val apply : js -> js list -> js
-    val anon_fun : ident list -> (js list * js) -> js
+    val anon_fun : fnkind -> ident list -> (js list * js) -> js
     val access : js -> label -> js
     val object' : (label * js) list -> js
   end
@@ -90,6 +91,7 @@ module CodeGen : CODEGEN = struct
   type ident = Js.Ident.t
   type label = string
   type program = js list * js
+  type fnkind = [`Regular | `Generator]
 
   module S = State
   let pure x = S.pure x
@@ -169,6 +171,32 @@ module CodeGen : CODEGEN = struct
          let decls' = sequence (fun d -> d) decls in
          vgrp (decls' $/ stmt)
 
+  let layout_function : fnkind -> ident option -> ident list -> program -> js
+    = fun kind binder params body ->
+      let open PP in
+      let fun_keyword =
+        match kind with
+        | `Regular -> "function"
+        | `Generator -> "function*"
+      in
+      let optional_break, optional_name =
+        match binder with
+        | Some name -> break, (break $ (text name))
+        | _ -> empty, empty
+      in
+      hgrp
+         ((text fun_keyword)
+             $  optional_name
+             $  (text "(")
+             $  (commalist ~f:(fun x -> text x) params)
+             $  (text ")")
+             $/ (text "{")
+             $ (vgrp
+                  (nest 2
+                     (break
+                        $ (layout_program body))))
+             $ vgrp (break $ (text "}") $ optional_break))
+
   module Decl = struct
     let semi : js -> js
       = fun stmt ->
@@ -187,37 +215,39 @@ module CodeGen : CODEGEN = struct
         (hgrp
            ((text kind) $/ (text binder) $/ (text "=") $/ expr))
 
-    let fun_binding binder params prog =
-      let open PP in
-      hgrp
-         ((text "function")
-             $/ (text binder)
-             $  (text "(")
-             $  (commalist ~f:(fun x -> text x) params)
-             $  (text ")")
-             $/ (text "{")
-             $ (vgrp
-                  (nest 2
-                     (break
-                        $ (layout_program prog))))
-             $ vgrp (break $ (text "}") $ break))
+    let fun_binding kind binder params prog =
+      layout_function kind (Some binder) params prog
+      (* let open PP in *)
+      (* hgrp *)
+      (*    ((text "function") *)
+      (*        $/ (text binder) *)
+      (*        $  (text "(") *)
+      (*        $  (commalist ~f:(fun x -> text x) params) *)
+      (*        $  (text ")") *)
+      (*        $/ (text "{") *)
+      (*        $ (vgrp *)
+      (*             (nest 2 *)
+      (*                (break *)
+      (*                   $ (layout_program prog)))) *)
+      (*        $ vgrp (break $ (text "}") $ break)) *)
   end
 
   module Expr = struct
     let var ident = PP.text ident
-    let anon_fun params prog =
-      let open PP in
-      hgrp
-        ((text "function")
-            $  (text "(")
-            $  (commalist ~f:(fun x -> text x) params)
-            $  (text ")")
-            $/ (text "{")
-            $ (vgrp
-                 (nest 2
-                    (break
-                       $ (layout_program prog))))
-            $ vgrp (break $ (text "}")))
+    let anon_fun kind params prog =
+      layout_function kind None params prog
+      (* let open PP in *)
+      (* hgrp *)
+      (*   ((text "function") *)
+      (*       $  (text "(") *)
+      (*       $  (commalist ~f:(fun x -> text x) params) *)
+      (*       $  (text ")") *)
+      (*       $/ (text "{") *)
+      (*       $ (vgrp *)
+      (*            (nest 2 *)
+      (*               (break *)
+      (*                  $ (layout_program prog)))) *)
+      (*       $ vgrp (break $ (text "}"))) *)
 
     let apply f args =
       let open PP in
@@ -350,17 +380,17 @@ and declaration : Js.decl -> CodeGen.js
     function
     | DLet { bkind; binder; expr } ->
        CodeGen.Decl.let_binding bkind binder (expression expr)
-    | DFun { fkind = `Named binder; formal_params; body } ->
-       CodeGen.Decl.fun_binding binder formal_params (program' body)
+    | DFun { fname = `Named binder; fkind; formal_params; body } ->
+       CodeGen.Decl.fun_binding fkind binder formal_params (program' body)
     | _ -> assert false
 
 and expression : Js.expression -> CodeGen.js
   = let open Js in
   function
   | EVar name -> CodeGen.Expr.var name
-  | EFun { fkind = `Anonymous; formal_params; body } ->
+  | EFun { fname = `Anonymous; fkind; formal_params; body } ->
      let open CodeGen in
-     Expr.anon_fun formal_params (program' body)
+     Expr.anon_fun fkind formal_params (program' body)
   | EFun _ -> assert false
   | EApply (EPrim p, args) ->
      let open CodeGen.Prim in
@@ -384,6 +414,7 @@ and expression : Js.expression -> CodeGen.js
      | "%int_sub" | "%float_sub" -> apply_binop "-" (pop2 args')
      | "%assign" -> apply_binop "=" (pop2 args')
      | "%negation" -> apply_unary "!" (pop1 args')
+     | "%noop" -> pop1 args'
 
      | p when String.length p > 0 ->
         let ident = Printf.sprintf "_%s" (String.sub p 1 (String.length p - 1)) in

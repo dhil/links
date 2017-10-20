@@ -55,63 +55,70 @@ let initialise_envs (nenv, tyenv) =
 
 (* Primitive operations *)
 module type PRIM_DESC = sig
-  val prim_name : string -> string
+  val prim_desc : string -> string * int
 end
 
 module Primitives(P : PRIM_DESC) = struct
   let is : string -> bool
     = fun x ->
-      try ignore (P.prim_name x); true with
+      try ignore (P.prim_desc x); true with
       | Not_found -> false
 
   let gen : op:string -> ?args:Js.expression list -> unit -> Js.expression
     = fun ~op ?(args=[]) () ->
       try
         let open Js in
-        EApply (EPrim (P.prim_name op), args)
+        EApply (EPrim (fst @@ P.prim_desc op), args)
       with Not_found -> raise Not_found
 
   let prim_name : op:string -> unit -> string
     = fun ~op () ->
       try
-        P.prim_name op
+        fst (P.prim_desc op)
+      with Not_found -> raise Not_found
+
+  let arity : op:string -> unit -> int
+    = fun ~op () ->
+      try
+        snd (P.prim_desc op)
       with Not_found -> raise Not_found
 end
 
 module Prim_Arithmetic : PRIM_DESC = struct
-  let prim_name = function
-    | "+" -> "%int_add"  | "+." -> "%float_add"
-    | "-"  -> "%int_sub" | "-." -> "%float_sub"
-    | "/" -> "%int_div"  | "/." -> "%float_div"
-    | "^" -> "%int_pow"  | "^." -> "%float_pow"
-    | "mod" -> "%mod"
+  let prim_desc = function
+    | "+" -> "%int_add",2  | "+." -> "%float_add",2
+    | "-"  -> "%int_sub",2 | "-." -> "%float_sub",2
+    | "/" -> "%int_div",2  | "/." -> "%float_div",2
+    | "^" -> "%int_pow",2  | "^." -> "%float_pow",2
+    | "mod" -> "%mod",2
     | _ -> raise Not_found
 end
 
 module Prim_String : PRIM_DESC = struct
-  let prim_name = function
-    | "^^" -> "%String.concat"
+  let prim_desc = function
+    | "^^" -> "%String.concat",2
     | _ -> raise Not_found
 end
 
 module Prim_Comparison : PRIM_DESC = struct
-  let prim_name = function
-    | "==" -> "%eq" | "<>" -> "%neq"
-    | "<"  -> "%lt" | ">"  -> "%gt"
-    | "<=" -> "%le" | ">=" -> "%ge"
+  let prim_desc = function
+    | "==" -> "%eq",2 | "<>" -> "%neq",2
+    | "<"  -> "%lt",2 | ">"  -> "%gt",2
+    | "<=" -> "%le",2 | ">=" -> "%ge",2
     | _ -> raise Not_found
 end
 
 module Prim_Functions : PRIM_DESC = struct
-  let prim_name = function
-    | "debug" -> "%IO.debug"
-    | "not"   -> "%negation"
-    | "Cons"  -> "%List.cons" | "tl"    -> "%List.tail"  | "hd"    -> "%List.head"
-    | "Concat" -> "%concat"
-    | "error"  -> "%IO.error"
-    | "print"  -> "%IO.print"
-    | "now"    -> "%now"
-    | "intToString" | "floatToString" -> "%String.ofNumber"
+  let prim_desc = function
+    | "debug" -> "%IO.debug",1
+    | "not"   -> "%negation",1
+    | "Cons"  -> "%List.cons",2 | "tl"    -> "%List.tail",1  | "hd"    -> "%List.head",1
+    | "Concat" -> "%concat",2
+    | "error"  -> "%IO.error",1
+    | "print"  -> "%IO.print",1
+    | "now"    -> "%now",0
+    | "intToString" | "floatToString" -> "%String.ofNumber",1
+    | "floatToInt" -> "%Number.toInt",1 | "intToFloat" -> "%Number.toFloat",1
     | _ -> raise Not_found
 end
 
@@ -342,17 +349,32 @@ module CPS = struct
          if Arithmetic.is name then
            let x = Ident.of_string "x" in
            let y = Ident.of_string "y" in
-           EFun { fkind = `Anonymous;
+           EFun { fname = `Anonymous;
+                  fkind = `Regular;
                   formal_params = [x; y; __kappa];
                   body = [], SReturn (K.apply (K.reflect (EVar __kappa)) (Arithmetic.gen ~op:name ~args:[EVar x; EVar y] ())) }
          else if StringOp.is name then
            let x = Ident.of_string "x" in
            let y = Ident.of_string "y" in
-           EFun { fkind = `Anonymous;
+           EFun { fname = `Anonymous;
+                  fkind = `Regular;
                   formal_params = [x; y; __kappa];
                   body = [], SReturn (K.apply (K.reflect (EVar __kappa)) (StringOp.gen ~op:name ~args:[EVar x; EVar y] ())) }
          else if Comparison.is name then
            EPrim (Comparison.prim_name ~op:name ())
+         else if Functions.is name then
+           let rec replicate x = function
+             | 0 -> []
+             | n -> x :: (replicate x (n - 1))
+           in
+           let arity = Functions.arity ~op:name () in
+           let formal_params = List.map (fun _ -> Ident.make ()) (replicate () arity) in
+           let formal_params' = formal_params @ [__kappa] in
+           let actual_params = List.map (fun i -> EVar i) formal_params in
+           EFun { fname = `Anonymous;
+                  fkind = `Regular;
+                  formal_params = formal_params';
+                  body = [], SReturn (K.apply (K.reflect (EVar __kappa)) (Functions.gen ~op:name ~args:actual_params ())) }
          else
            begin match name with
            | "Nil" -> EPrim "%List.nil"
@@ -547,7 +569,8 @@ module CPS = struct
            contify (fun kappa ->
              let bind, _, kappa = K.pop kappa in
              EFun {
-               fkind = `Anonymous;
+               fname = `Anonymous;
+               fkind = `Regular;
                formal_params = [x_name];
                body = bind @@ gb env xb body kappa; })
          in
@@ -610,7 +633,8 @@ module CPS = struct
                        expr = EApply (EPrim "%List._cons", [K.reify k'; EVar s]); }
                    in
                    EFun {
-                     fkind = `Anonymous;
+                     fname = `Anonymous;
+                     fkind = `Regular;
                      formal_params = [s];
                      body = [_x_binding], SReturn (EApply (EPrim "%List._cons", [K.reify h'; EVar _x]));
                    }
@@ -622,7 +646,8 @@ module CPS = struct
            contify
              (fun ks ->
                EFun {
-                 fkind = `Anonymous;
+                 fname = `Anonymous;
+                 fkind = `Regular;
                  formal_params = [_z];
                  body = [], SCase (EAccess (EVar _z, "_label"),
                                    clauses ks _z,
@@ -658,7 +683,8 @@ module CPS = struct
                  (fun kappas ->
                    let env', body = gbs (VEnv.bind env (x, x_name)) K.(skappa <> kappas) bs in
                    env', EFun {
-                     fkind = `Anonymous;
+                     fname = `Anonymous;
+                     fkind = `Regular;
                      formal_params = [x_name];
                      body; })
              in
@@ -690,7 +716,7 @@ module CPS = struct
       in
       venv, prog
       (* let main = Ident.make ~prefix:"_main" () in *)
-      (* let mainf = DFun { fkind = `Named main; *)
+      (* let mainf = DFun { fname = `Named main; *)
       (*                   formal_params = []; *)
       (*                   body = prog } *)
       (* in *)
@@ -723,7 +749,8 @@ module CPS = struct
         | _ -> failwith "Only client side calls are supported."
       in
       DFun {
-        fkind = `Named (Ident.of_string f_name);
+        fname = `Named (Ident.of_string f_name);
+        fkind = `Regular;
         formal_params = (List.map Ident.of_string xs_names) @ [__kappa];
         body; }
 
