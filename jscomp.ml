@@ -90,7 +90,7 @@ end
 
 module Prim_String : PRIM_DESC = struct
   let prim_name = function
-    | "^^" -> "%string_concat"
+    | "^^" -> "%String.concat"
     | _ -> raise Not_found
 end
 
@@ -110,6 +110,8 @@ module Prim_Functions : PRIM_DESC = struct
     | "Concat" -> "%concat"
     | "error"  -> "%IO.error"
     | "print"  -> "%IO.print"
+    | "now"    -> "%now"
+    | "intToString" | "floatToString" -> "%String.ofNumber"
     | _ -> raise Not_found
 end
 
@@ -444,14 +446,25 @@ module CPS = struct
                    if Lib.is_primitive f_name
                      && Lib.primitive_location f_name <> `Server
                    then
-                     let k = K.reify kappa in
-                     let expr =
-                       try
-                         let args = (List.map gv vs) @ [k] in
-                         Functions.gen ~op:f_name ~args ()
-                       with Not_found -> failwith (Printf.sprintf "Unsupported primitive: %s.\n" f_name)
-                     in
-                     [], SReturn expr
+                     match f_name, vs with
+                     | "deref", [v] ->
+                        [], SReturn (K.apply kappa (EAccess (gv v, "_contents")))
+                     | "ref", [v] ->
+                        [], SReturn (K.apply kappa (EObj [("_contents", gv v)]))
+                     | ":=", [r; v] ->
+                        let destructive_update =
+                          EApply (EPrim "%assign", [EAccess (gv r, "_contents"); gv v])
+                        in
+                        [], SSeq (SExpr destructive_update, SReturn (K.apply kappa (EObj [])))
+                     | _ ->
+                        let k = K.reify kappa in
+                        let expr =
+                          try
+                            let args = (List.map gv vs) @ [k] in
+                            Functions.gen ~op:f_name ~args ()
+                          with Not_found -> failwith (Printf.sprintf "Unsupported primitive: %s.\n" f_name)
+                        in
+                        [], SReturn expr
                    else
                      let k = K.reify kappa in
                      [], SReturn (EApply (gv (`Variable f), (List.map gv vs) @ [k]))
@@ -721,8 +734,8 @@ module CPS = struct
       (* Printf.printf "nenv:\n%s\n%!" (string_of_nenv u.envs.nenv); *)
       (* Printf.printf "venv:\n%s\n%!" (string_of_venv venv); *)
       let (_,prog) = generate_program venv u.program K.toplevel in
-      let runtime = Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) "cps.js" in
-      { u with program = prog; includes = runtime :: u.includes }
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "cps.js"] in
+      { u with program = prog; includes = dependencies @ u.includes }
 end
 
 
