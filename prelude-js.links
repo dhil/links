@@ -1,6 +1,15 @@
 # Required
 
+# Standard type aliases
+typename Maybe(a) = [|Just:a|Nothing|];
 typename Comp(e::Row, a) = () ~e~> a;
+
+sig assert : ((a,a) ~e~> Bool, (a) ~e~> String, a, a) ~e~> ()
+fun assert(eq, toString, expected, actual) {
+  ignore(
+    not(eq(expected, actual)) && error("Assertion error: " ^^ toString(expected) ^^ " != " ^^ toString(actual))
+  )
+}
 
 # Don't use a for comprehension to define concatMap, as
 # for comprehensions are desugared into concatMap!
@@ -12,21 +21,35 @@ fun concatMap(f, l) {
   }
 }
 
+sig reverse : ([a]) ~> [a]
+fun reverse(xs) {
+   fun rev_aux(xs, acc) {
+      switch (xs) {
+         case [] -> acc
+         case x :: xs -> rev_aux(xs, x :: acc)
+      }
+   }
+   rev_aux(xs, [])
+}
+
 sig map : ((a) ~e~> b, [a]) ~e~> [b]
-fun map(f, l) client {
-  switch (l) {
-    case []     -> []
-    case hd::tl -> f(hd) :: map(f,tl)
+fun map(f, l) {
+  fun map_aux(f, xs, acc) {
+    switch (xs) {
+      case []    -> acc
+      case x::xs -> map_aux(f, xs, f(x) :: acc)
+    }
   }
+  reverse(map_aux(f, l, []))
 }
 
 sig filter : ((a) ~e~> Bool, [a]) ~e~> [a]
-fun filter(p, l) client {
+fun filter(p, l) {
   concatMap (fun (x) {if(p(x)) [x] else []}, l)
 }
 
 sig sortBy : ((a) ~b~> c, [a]) ~b~> [a]
-fun sortBy (f, l) client {
+fun sortBy (f, l) {
   switch (l) {
     case [] -> []
     case x::xs -> {
@@ -38,7 +61,7 @@ fun sortBy (f, l) client {
 }
 
 sig sortByBase : ((a) ~b~> (| _::Base), [a]) ~b~> [a]
-fun sortByBase(f, l) client {sortBy(f, l)}
+fun sortByBase(f, l) {sortBy(f, l)}
 
 # Standard functions
 fun id(x) {x}
