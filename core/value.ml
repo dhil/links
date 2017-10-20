@@ -799,6 +799,7 @@ type t = [
 | `SessionChannel of chan
 | `Socket of in_channel * out_channel
 | `SpawnLocation of spawn_location
+| `Ref of t ref
 ]
 and continuation = t Continuation.t
 and resumption = t Continuation.resumption
@@ -828,6 +829,7 @@ and compressed_t = [
 | `ClientFunction of string
 | `Continuation of compressed_continuation
 | `Resumption of compressed_resumption ]
+]
 and compressed_env = compressed_t Env.compressed_t
   [@@deriving yojson]
 
@@ -867,6 +869,7 @@ and compress_val (v : t) : compressed_t =
       | `SessionChannel _ -> assert false (* mmmmm *)
       | `AccessPointID _ -> assert false (* mmmmm *)
       | `SpawnLocation _sl -> assert false (* wheeee! *)
+      | `Ref _ -> assert false
 
 let uncompress_primitive_value : compressed_primitive_value -> [> primitive_value] =
   function
@@ -967,6 +970,7 @@ let rec p_value (ppf : formatter) : t -> 'a = function
      fprintf ppf "Server access point %s" (AccessPointID.to_string apid)
   | `Pid (`ServerPid i) -> fprintf ppf "Pid Server (%s)" (ProcessID.to_string i)
   | `Pid (`ClientPid (cid, i)) -> fprintf ppf "Pid Client num %s, process %s" (ClientID.to_string cid) (ProcessID.to_string i)
+  | `Ref _ -> fprintf ppf "Ref"
 and p_record_fields ppf = function
   | [] -> fprintf ppf ""
   | [(l, v)] -> fprintf ppf "@[@{<recordlabel>%a@} = %a@]"

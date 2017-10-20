@@ -222,15 +222,24 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
   "^^", string_op ( ^ ) PURE;
 
   (* References *)
-  ":=", (p2 (fun _ _ -> assert false),
-         datatype "(Ref(a),a) ~> ()",
+  ":=", (p2 (fun r v ->
+    match r, v with
+    | `Ref r, v -> r := v; Value.box_unit ()
+    | _ -> assert false),
+         datatype "(Ref(a), a) ~> ()",
          IMPURE);
-  "ref", (p1 (fun _ -> assert false),
+  "ref", (p1 (fun v -> `Ref (ref v)),
           datatype "(a) ~> Ref(a)",
           IMPURE);
-  "deref", (p1 (fun _ -> assert false),
-            datatype "Ref(a) ~> a",
+  "deref", (p1 (function `Ref r -> !r | _ -> assert false),
+            datatype "(Ref(a)) ~> a",
             IMPURE);
+
+  (* High resolution clock (JS only) *)
+  "now",
+  (p1 (fun _ -> assert false),
+   datatype "() -> Float",
+   PURE); (* Somewhat a hack to make this a pure function *)
 
   (* Comparisons *)
   "==",

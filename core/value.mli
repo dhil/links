@@ -213,6 +213,7 @@ type t = [
 | `SessionChannel of chan
 | `Socket of in_channel * out_channel
 | `SpawnLocation of spawn_location
+| `Ref of t ref
 ]
 and continuation = t Continuation.t
 and resumption = t Continuation.resumption
