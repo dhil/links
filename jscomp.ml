@@ -199,7 +199,7 @@ module CPS = struct
              | Identity
 
   (* Auxiliary functions for manipulating the continuation stack *)
-      let nil = Js.(EPrim "%K._nil")
+      let nil = Js.(EPrim "%List._nil")
       let cons x xs = Js.(EApply (EPrim "%List._cons", [x; xs]))
       let head xs = Js.(EApply (EPrim "%List._head", [xs]))
       let tail xs = Js.(EApply (EPrim "%List._tail", [xs]))
