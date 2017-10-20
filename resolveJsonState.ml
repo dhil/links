@@ -9,7 +9,7 @@ let empty_state = IntSet.empty
 let rec event_handlers_from_value : Value.t -> handler_id_set =
   function
   (* Can't-dos *)
-  | `PrimitiveFunction _ | `Socket _
+  | `PrimitiveFunction _ | `Socket _ | `Ref _
   | `ReifiedContinuation _ | `Continuation _ as r ->
       failwith ("Can't create json state for " ^ Value.string_of_value r);
 
