@@ -38,6 +38,7 @@ let options : opt list =
     ('r',     "rlwrap",              set BS.Readline.native_readline false, None);
     (noshort, "session-exceptions",  set BS.Sessions.exceptions_enabled true, None);
     ('c',     "compile-js",          set BS.Js.compile true,           None);
+    (noshort, "compiler",            None,                             Some (fun b -> Settings.set_value BS.Js.backend b));
     ('o',     "output",              None,                             Some (fun t -> target := t));
     ]
 

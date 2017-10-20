@@ -159,6 +159,7 @@ module type JS_COMPILER = sig
   (* val compile_prelude : Ir.binding list Js.prelude_unit -> Js.decl list Js.prelude_unit *)
 end
 
+(* Higher-order CPS compiler *)
 module CPS = struct
   let __kappa = Js.Ident.of_string "__kappa"
   let join_scopes : (Js.program -> Js.program) -> (Js.program -> Js.program) -> (Js.statement -> Js.program)
@@ -765,11 +766,36 @@ module CPS = struct
       { u with program = prog; includes = dependencies @ u.includes }
 end
 
+(** Generator / Iterator compiler **)
+module GenIter = struct
 
+  let rec generate_program : venv -> Ir.program -> venv * Js.program
+    = fun venv prog -> assert false
+  and generate_computation : venv -> Ir.computation -> venv * Js.program
+    = fun venv comp -> assert false
+  and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
+    = fun venv tc -> assert false
+  and generate_special : venv -> Ir.special -> Js.program
+    = fun venv special -> assert false
+  and generate_value : venv -> Ir.value -> Js.expression
+    = fun venv value -> assert false
+    
+  let compile : comp_unit -> prog_unit
+    = fun u ->
+      let open Js in
+      let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
+      let (_,prog) = generate_program venv u.program in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "geniter.js"] in
+      { u with program = prog; includes = dependencies @ u.includes }
+end
+
+(* Compiler selection *)
 module Compiler =
   (val
       (match Settings.get_value Basicsettings.Js.backend with
       | "cps" ->
          (module CPS : JS_COMPILER)
+      | "geniter" ->
+         (module GenIter : JS_COMPILER)
       (* TODO: better error handling *)
       | _ -> failwith "Unrecognised JS backend.") : JS_COMPILER)
