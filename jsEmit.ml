@@ -74,11 +74,13 @@ module type CODEGEN = sig
     val expr : js -> js
     val ifthenelse : js -> program -> program -> js
     val case : js -> (label * program) list -> program -> js
+    val sequence : js -> js -> js
   end
 
   module Prim: sig
     val name : string -> js
     val apply_binop : string -> js * js -> js
+    val apply_unary : string -> js -> js
   end
 end
 
@@ -139,7 +141,7 @@ module CodeGen : CODEGEN = struct
 
   let gen cu code =
     let (_, st) = State.run ~init:(cu, PP.empty) code in
-    Printf.printf "%s\n%!" (PP.to_string ~width:144 (PP.vgrp (snd st)));
+    Printf.printf "%s\n%!" (PP.to_string ~width:256 (PP.vgrp (snd st)));
     ()
 
   let rec sequence : (js -> js) -> js list -> js
@@ -220,7 +222,7 @@ module CodeGen : CODEGEN = struct
     let apply f args =
       let open PP in
       hgrp
-        (f $ ((text "(") $ (commalist ~f:(fun x -> x) args) $ (text ")")))
+        (f $ (text "(") $ (commalist ~f:(fun x -> x) args) $ (text ")"))
 
     let access obj label =
       let open PP in
@@ -298,6 +300,8 @@ module CodeGen : CODEGEN = struct
             $/ (text "{")
             $ (vgrp (nest 2 (cases $/ default))))
         $/ (text "}")
+
+    let sequence s1 s2 = PP.(vgrp (s1 $/ s2))
   end
 
   module Prim = struct
@@ -306,6 +310,10 @@ module CodeGen : CODEGEN = struct
     let apply_binop op (x,y) =
       let open PP in
       hgrp (x $/ (text op) $/ y)
+
+    let apply_unary op x =
+      let open PP in
+      hgrp ((text op) $ x)
   end
 
   (* let (<+>) l r = PP.(l ^^ r) *)
@@ -357,8 +365,11 @@ and expression : Js.expression -> CodeGen.js
   | EApply (EPrim p, args) ->
      let open CodeGen.Prim in
      let open CodeGen.Expr in
+     let pop1 : CodeGen.js list -> CodeGen.js
+       = fun args -> List.hd args
+     in
      let pop2 : CodeGen.js list -> CodeGen.js * CodeGen.js
-       = fun args -> List.nth args 0, List.nth args 1
+       = fun args -> List.hd args, List.nth args 1
      in
      let args' = List.map expression args in
      begin match p with
@@ -371,6 +382,8 @@ and expression : Js.expression -> CodeGen.js
 
      | "%int_add" | "%float_add" -> apply_binop "+" (pop2 args')
      | "%int_sub" | "%float_sub" -> apply_binop "-" (pop2 args')
+     | "%assign" -> apply_binop "=" (pop2 args')
+     | "%negation" -> apply_unary "!" (pop1 args')
 
      | p when String.length p > 0 ->
         let ident = Printf.sprintf "_%s" (String.sub p 1 (String.length p - 1)) in
@@ -391,7 +404,7 @@ and statement : Js.statement -> CodeGen.js
   = let open Js in
   function
   | SReturn e -> CodeGen.Stmt.return (expression e)
-  | SSeq _ -> assert false
+  | SSeq (s1,s2) -> CodeGen.Stmt.sequence (statement s1) (statement s2)
   | SExpr e -> CodeGen.Stmt.expr (expression e)
   | SCase (scrutinee, cases, default) ->
      let cases =
