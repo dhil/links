@@ -1,0 +1,38 @@
+# Stateful counting
+# Microbenchmark adapted from Kammar et al. (2013).
+
+sig get : () {Get:s|_}-> s
+fun get() {do Get}
+
+sig put : (s) {Put:(s) {}-> ()|_}-> ()
+fun put(st) {do Put(st)}
+
+sig count : (Comp({Get:Int,Put:(Int) {}-> () |_}, Int))
+fun count() {
+  var n = get();
+  if (n == 0) 0
+  else { put(n-1); count() }
+}
+
+sig evalState : (Comp({Get:s ,Put:(s) {}-> () |e}, a)) -> # Abstract stateful computation
+                (s)                                    -> # Initial state
+                 Comp({Get{_},Put{_}          |e}, a)     # Instantiated computation
+fun evalState(m)(st)() {
+  var st = ref(st);
+  handle(m()) {
+    case Return(x)     -> x
+    case Get(resume)   -> resume(deref(st))
+    case Put(p,resume) -> st := p; resume(())
+  }
+}
+
+fun main(mode, input, expected) {
+    var start = now();
+    var result = evalState(count)(input)();
+    var elapsed = now() -. start;
+    print("DONE " ^^ intToString(result) ^^ ", " ^^ floatToString(elapsed));
+    # verify("Count", mode, input, expected, start)
+    ()
+}
+
+main("cps", 10, 0)
