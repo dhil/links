@@ -42,6 +42,7 @@ let options : opt list =
     (noshort, "enable-handlers",     set BS.Handlers.enabled true,     None);
     ('r',     "rlwrap",              set BS.Readline.native_readline false,     None);
     ('c',     "compile-js",          set BS.Js.compile true,           None);
+    (noshort, "compiler",            None,                             Some (fun b -> Settings.set_value BS.Js.backend b));
     ('o',     "output",              None,                             Some (fun t -> target := t));
     ]
 

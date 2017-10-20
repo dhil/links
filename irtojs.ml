@@ -1259,10 +1259,8 @@ module Continuation =
       (match Settings.get_value Basicsettings.Js.backend with
       | "cps" when Settings.get_value Basicsettings.Handlers.enabled ->
          (module Higher_Order_Continuation : CONTINUATION)
-      | "cps" ->
-         (module Default_Continuation : CONTINUATION)
-      (** TODO: better error handling *)
-      | _ -> failwith "Unrecognised JS backend.") : CONTINUATION)
+      | _ ->
+         (module Default_Continuation : CONTINUATION)) : CONTINUATION)
 
 module Compiler = CPS_Compiler(Continuation)
 
