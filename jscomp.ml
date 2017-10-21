@@ -363,7 +363,12 @@ module CPS = struct
                   formal_params = [x; y; __kappa];
                   body = [], SReturn (K.apply (K.reflect (EVar __kappa)) (StringOp.gen ~op:name ~args:[EVar x; EVar y] ())) }
          else if Comparison.is name then
-           EPrim (Comparison.prim_name ~op:name ())
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Regular;
+                  formal_params = [x; y; __kappa];
+                  body = [], SReturn (K.apply (K.reflect (EVar __kappa)) (Comparison.gen ~op:name ~args:[EVar x; EVar y] ())) }
          else if Functions.is name then
            let rec replicate x = function
              | 0 -> []
@@ -779,7 +784,118 @@ module GenIter = struct
   and generate_special : venv -> Ir.special -> Js.program
     = fun venv special -> assert false
   and generate_value : venv -> Ir.value -> Js.expression
-    = fun venv value -> assert false
+    = fun env ->
+      let open Js in
+      let open Utility in
+      let gv v = generate_value env v in
+      function
+      | `Constant c ->
+         ELit (
+           match c with
+           | `Int v  -> LInt v
+           | `Float v  -> LFloat v
+           | `Bool v   -> LBool v
+           | `Char v   -> LChar v
+           | `String v -> LString v)
+      | `Variable var ->
+       (* HACK *)
+         let name = VEnv.lookup env var in
+         if Arithmetic.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Generator;
+                  formal_params = [x; y];
+                  body = [], SReturn (Arithmetic.gen ~op:name ~args:[EVar x; EVar y] ()) }
+         else if StringOp.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Generator;
+                  formal_params = [x; y];
+                  body = [], SReturn (StringOp.gen ~op:name ~args:[EVar x; EVar y] ()) }
+         else if Comparison.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Generator;
+                  formal_params = [x; y];
+                  body = [], SReturn (Comparison.gen ~op:name ~args:[EVar x; EVar y] ()) }
+         else if Functions.is name then
+           let rec replicate x = function
+             | 0 -> []
+             | n -> x :: (replicate x (n - 1))
+           in
+           let arity = Functions.arity ~op:name () in
+           let formal_params = List.map (fun _ -> Ident.make ()) (replicate () arity) in
+           let actual_params = List.map (fun i -> EVar i) formal_params in
+           EFun { fname = `Anonymous;
+                  fkind = `Generator;
+                  formal_params = formal_params;
+                  body = [], SReturn (Functions.gen ~op:name ~args:actual_params ()) }
+         else
+           begin match name with
+           | "Nil" -> EPrim "%List.nil"
+           |  _ -> EVar name
+           end
+      | `Extend (field_map, rest) ->
+         let dict =
+           make_dictionary
+             (StringMap.fold
+                (fun name v dict ->
+                  (name, gv v) :: dict)
+                field_map [])
+         in
+         begin
+           match rest with
+           | None -> dict
+           | Some v ->
+              EApply (EPrim "%union", [gv v; dict])
+         end
+      | `Project (name, v) ->
+         EAccess (gv v, name)
+      | `Erase (names, v) ->
+         EApply (EPrim "%erase",
+                 [gv v; make_array (List.map strlit (StringSet.elements names))])
+      | `Inject (name, v, _t) ->
+         make_dictionary [("_label", strlit name); ("_value", gv v)]
+    (* erase polymorphism *)
+      | `TAbs (_, v)
+      | `TApp (v, _) -> gv v
+      | `ApplyPure (f, vs) ->
+         let f = strip_poly f in
+         begin
+           match f with
+           | `Variable f ->
+              let f_name = VEnv.lookup env f in
+              begin
+                match vs with
+                | [l; r] when Arithmetic.is f_name ->
+                   Arithmetic.gen ~op:f_name ~args:[gv l; gv r] ()
+                | [l; r] when StringOp.is f_name ->
+                   StringOp.gen ~op:f_name ~args:[gv l; gv r] ()
+                | [l; r] when Comparison.is f_name ->
+                   Comparison.gen ~op:f_name ~args:[gv l; gv r] ()
+                | [v] when f_name = "negate" || f_name = "negatef" ->
+                   EApply (EPrim (Printf.sprintf "%%%s" f_name), [gv v])
+                | _ ->
+                   if Lib.is_primitive f_name
+                     && Lib.primitive_location f_name <> `Server
+                   then
+                     try
+                       Functions.gen ~op:f_name ~args:(List.map gv vs) ()
+                     with Not_found -> failwith (Printf.sprintf "Unsupported primitive (val): %s.\n" f_name)
+                   else
+                     EApply (gv (`Variable f), (List.map gv vs))
+              end
+           | _ ->
+              EApply (gv f, List.map gv vs)
+         end
+      | `Closure (f, v) ->
+         EApply (EPrim "%Closure.apply", [gv (`Variable f); gv v]) (* The closure needs to be generator? *)
+      | `Coerce (v, _) ->
+         gv v
+      | _ -> failwith "Unsupported value."
 
   let compile : comp_unit -> prog_unit
     = fun u ->
