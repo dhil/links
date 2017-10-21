@@ -114,8 +114,8 @@ struct
 
        fun req_data name cont args ->
          if not(Settings.get_value Basicsettings.web_mode) then
-           Debug.print("Making client call to " ^ name);
            failwith "Can't make client call outside web mode.";
+         Debug.print("Making client call to " ^ name);
          (*if not(Proc.singlethreaded()) then
            failwith "Remaining procs on server at client call!"; *)
   (*        Debug.print("Call package: "^serialize_call_to_client (cont, name, args)); *)
