@@ -112,8 +112,9 @@ module Prim_Functions : PRIM_DESC = struct
   let prim_desc = function
     | "debug" -> "%IO.debug",1
     | "not"   -> "%negation",1
-    | "Cons"  -> "%List.cons",2 | "tl"    -> "%List.tail",1  | "hd"    -> "%List.head",1
-    | "Concat" -> "%concat",2
+    | "Cons"  -> "%List.cons",2 | "tl" -> "%List.tail",1  | "hd" -> "%List.head",1
+    | "length" -> "%List.length", 1
+    | "Concat" -> "%List.concat",2
     | "error"  -> "%IO.error",1
     | "print"  -> "%IO.print",1
     | "now"    -> "%now",0
@@ -207,10 +208,10 @@ module CPS = struct
              | Identity
 
   (* Auxiliary functions for manipulating the continuation stack *)
-      let nil = Js.(EPrim "%List._nil")
-      let cons x xs = Js.(EApply (EPrim "%List._cons", [x; xs]))
-      let head xs = Js.(EApply (EPrim "%List._head", [xs]))
-      let tail xs = Js.(EApply (EPrim "%List._tail", [xs]))
+      let nil = Js.(EPrim "%List.nil")
+      let cons x xs = Js.(EApply (EPrim "%List.cons", [x; xs]))
+      let head xs = Js.(EApply (EPrim "%List.head", [xs]))
+      let tail xs = Js.(EApply (EPrim "%List.tail", [xs]))
       let toplevel = Js.(Cons (EPrim "%K.pure", Cons (EPrim "%K.absurd", Reflect nil)))
 
       let reflect x = Reflect x
@@ -427,7 +428,7 @@ module CPS = struct
                    then
                      try
                        Functions.gen ~op:f_name ~args:(List.map gv vs) ()
-                     with Not_found -> failwith (Printf.sprintf "Unsupported primitive: %s.\n" f_name)
+                     with Not_found -> failwith (Printf.sprintf "Unsupported primitive (val): %s.\n" f_name)
                    else
                      EApply (gv (`Variable f), (List.map gv vs))
               end
@@ -485,7 +486,7 @@ module CPS = struct
                           try
                             let args = (List.map gv vs) @ [k] in
                             Functions.gen ~op:f_name ~args ()
-                          with Not_found -> failwith (Printf.sprintf "Unsupported primitive: %s.\n" f_name)
+                          with Not_found -> failwith (Printf.sprintf "Unsupported primitive (tc): %s.\n" f_name)
                         in
                         [], SReturn expr
                    else
@@ -542,9 +543,9 @@ module CPS = struct
            make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
          in
          let cons k ks =
-           EApply (EPrim "%List._cons", [k;ks])
+           EApply (EPrim "%List.cons", [k;ks])
          in
-         let nil = EPrim "%List._nil" in
+         let nil = EPrim "%List.nil" in
          K.bind kappa
            (fun kappas ->
              let bind_skappa, skappa, kappas = K.pop kappas in
@@ -631,13 +632,13 @@ module CPS = struct
                      DLet {
                        bkind = `Const;
                        binder = _x;
-                       expr = EApply (EPrim "%List._cons", [K.reify k'; EVar s]); }
+                       expr = EApply (EPrim "%List.cons", [K.reify k'; EVar s]); }
                    in
                    EFun {
                      fname = `Anonymous;
                      fkind = `Regular;
                      formal_params = [s];
-                     body = [_x_binding], SReturn (EApply (EPrim "%List._cons", [K.reify h'; EVar _x]));
+                     body = [_x_binding], SReturn (EApply (EPrim "%List.cons", [K.reify h'; EVar _x]));
                    }
                  in
                  let vmap = EApply (EPrim "%K.vmap", [resumption; EVar _z]) in
@@ -779,7 +780,7 @@ module GenIter = struct
     = fun venv special -> assert false
   and generate_value : venv -> Ir.value -> Js.expression
     = fun venv value -> assert false
-    
+
   let compile : comp_unit -> prog_unit
     = fun u ->
       let open Js in
