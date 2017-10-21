@@ -68,6 +68,7 @@ module type CODEGEN = sig
     val anon_fun : fnkind -> ident list -> (js list * js) -> js
     val access : js -> label -> js
     val object' : (label * js) list -> js
+    val yield : [`Regular | `Star] -> js -> js
   end
 
   module Stmt: sig
@@ -267,6 +268,15 @@ module CodeGen : CODEGEN = struct
            ((text "{")
                $/ (commalist ~f:(fun (label,expr) -> (text (Printf.sprintf "'%s':" label)) $/ expr) fields)
                $/ text "}")
+
+    let yield kind expr =
+      let open PP in
+      let yield =
+        match kind with
+        | `Star -> "yield*"
+        | `Regular -> "yield"
+      in
+      hgrp ((text yield) $/ expr)
   end
 
   module Stmt = struct
@@ -430,6 +440,8 @@ and expression : Js.expression -> CodeGen.js
   | EAccess (obj, label) ->
      CodeGen.Expr.access (expression obj) label
   | EPrim p -> primitive p
+  | EYield { ykind; yexpr } ->
+     CodeGen.Expr.yield ykind (expression yexpr)
 
 and statement : Js.statement -> CodeGen.js
   = let open Js in

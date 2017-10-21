@@ -160,6 +160,7 @@ and expression =
   | ELit       of literal
   | EPrim      of string
   | EObj       of (label * expression) list
+  | EYield     of yield
 and statement =
   | SIf of expression * program * program  (* if (expr) { stmt1 } else { stmt2 } *)
   | SCase of expression * program litmap * program option (* switch (expr) { case c1: stmt1 break; ... case cN: stmtN break; [default: stmt] } *)
@@ -182,6 +183,10 @@ and binding = {
   bkind: [`Const | `Let | `Var];
   binder: Ident.t;
   expr: expression;
+}
+and yield = {
+  ykind: [`Star | `Regular];
+  yexpr: expression;
 }
 
 let rec sequence : statement list -> statement = function
