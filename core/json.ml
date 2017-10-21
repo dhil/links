@@ -78,6 +78,7 @@ let rec jsonize_value' : Value.t -> json_string =
   | `PrimitiveFunction _
   | `Resumption _
   | `Continuation _
+  | `Ref _
   | `Socket _
       as r ->
       failwith ("Can't jsonize " ^ Value.string_of_value r);
