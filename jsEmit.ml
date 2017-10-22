@@ -423,7 +423,8 @@ and expression : Js.expression -> CodeGen.js
      | "%int_add" | "%float_add" -> apply_binop "+" (pop2 args')
      | "%int_sub" | "%float_sub" -> apply_binop "-" (pop2 args')
      | "%assign" -> apply_binop "=" (pop2 args')
-     | "%negation" -> apply_unary "!" (pop1 args')
+     | "%not" -> apply_unary "!" (pop1 args')
+     | "%negate" -> apply_unary "-" (pop1 args')
      | "%noop" -> pop1 args'
 
      | p when String.length p > 0 ->

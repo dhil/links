@@ -111,7 +111,8 @@ end
 module Prim_Functions : PRIM_DESC = struct
   let prim_desc = function
     | "debug" -> "%IO.debug",1
-    | "not"   -> "%negation",1
+    | "not"   -> "%not",1
+    | "negatef" | "negate" -> "%negate",1
     | "Cons"  -> "%List.cons",2 | "tl" -> "%List.tail",1  | "hd" -> "%List.head",1
     | "length" -> "%List.length", 1
     | "Concat" -> "%List.concat",2
@@ -399,12 +400,12 @@ module CPS = struct
            match rest with
            | None -> dict
            | Some v ->
-              EApply (EPrim "%union", [gv v; dict])
+              EApply (EPrim "%Record.union", [gv v; dict])
          end
       | `Project (name, v) ->
          EAccess (gv v, name)
       | `Erase (names, v) ->
-         EApply (EPrim "%erase",
+         EApply (EPrim "%Record.erase",
                  [gv v; make_array (List.map strlit (StringSet.elements names))])
       | `Inject (name, v, _t) ->
          make_dictionary [("_label", strlit name); ("_value", gv v)]
@@ -425,8 +426,6 @@ module CPS = struct
                    StringOp.gen ~op:f_name ~args:[gv l; gv r] ()
                 | [l; r] when Comparison.is f_name ->
                    Comparison.gen ~op:f_name ~args:[gv l; gv r] ()
-                | [v] when f_name = "negate" || f_name = "negatef" ->
-                   EApply (EPrim (Printf.sprintf "%%%s" f_name), [gv v])
                 | _ ->
                    if Lib.is_primitive f_name
                      && Lib.primitive_location f_name <> `Server
@@ -468,9 +467,6 @@ module CPS = struct
                    [], SReturn (K.apply kappa (StringOp.gen ~op:f_name ~args:[gv l; gv r] ()))
                 | [l; r] when Comparison.is f_name ->
                    [], SReturn (K.apply kappa (Comparison.gen ~op:f_name ~args:[gv l; gv r] ()))
-                | [v] when f_name = "negate" || f_name = "negatef" ->
-                   let negate_v = (EApply (EPrim (Printf.sprintf "%%%s" f_name), [gv v])) in
-                     [], SReturn (K.apply kappa negate_v)
                 | _ ->
                    if Lib.is_primitive f_name
                      && Lib.primitive_location f_name <> `Server
@@ -850,12 +846,12 @@ module GenIter = struct
            match rest with
            | None -> dict
            | Some v ->
-              EApply (EPrim "%union", [gv v; dict])
+              EApply (EPrim "%Record.union", [gv v; dict])
          end
       | `Project (name, v) ->
          EAccess (gv v, name)
       | `Erase (names, v) ->
-         EApply (EPrim "%erase",
+         EApply (EPrim "%Record.erase",
                  [gv v; make_array (List.map strlit (StringSet.elements names))])
       | `Inject (name, v, _t) ->
          make_dictionary [("_label", strlit name); ("_value", gv v)]
@@ -876,8 +872,6 @@ module GenIter = struct
                    StringOp.gen ~op:f_name ~args:[gv l; gv r] ()
                 | [l; r] when Comparison.is f_name ->
                    Comparison.gen ~op:f_name ~args:[gv l; gv r] ()
-                | [v] when f_name = "negate" || f_name = "negatef" ->
-                   EApply (EPrim (Printf.sprintf "%%%s" f_name), [gv v])
                 | _ ->
                    if Lib.is_primitive f_name
                      && Lib.primitive_location f_name <> `Server
@@ -896,6 +890,34 @@ module GenIter = struct
       | `Coerce (v, _) ->
          gv v
       | _ -> failwith "Unsupported value."
+
+  and generate_function : venv -> (Var.var * string) list -> Ir.fun_def -> Js.decl =
+    fun env fs (fb, (_, xsb, body), zb, location) ->
+      let open Js in
+      let (_f, f_name) = safe_name_binder fb in
+      assert (f_name <> "");
+      (* prerr_endline ("f_name: "^f_name); *)
+      (* optionally add an additional closure environment argument *)
+      let xsb =
+        match zb with
+        | None -> xsb
+        | Some zb -> zb :: xsb
+      in
+      let bs = List.map safe_name_binder xsb in
+      let _xs, xs_names = List.split bs in
+      let body_env = List.fold_left VEnv.bind env (fs @ bs) in
+      let body =
+        match location with
+        | `Client | `Unknown ->
+           snd (generate_computation body_env body)
+        | _ -> failwith "Only client side calls are supported."
+      in
+      DFun {
+        fname = `Named (Ident.of_string f_name);
+        fkind = `Generator;
+        formal_params = (List.map Ident.of_string xs_names);
+        body; }
+
 
   let compile : comp_unit -> prog_unit
     = fun u ->
