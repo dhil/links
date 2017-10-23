@@ -77,6 +77,8 @@ module type CODEGEN = sig
     val ifthenelse : js -> program -> program -> js
     val case : js -> (label * program) list -> program -> js
     val sequence : js -> js -> js
+    val break : unit -> js
+    val whileloop : js -> program -> js
   end
 
   module Prim: sig
@@ -342,6 +344,23 @@ module CodeGen : CODEGEN = struct
         $/ (text "}")
 
     let sequence s1 s2 = PP.(vgrp (s1 $/ s2))
+
+    let break () = PP.(text "break;")
+
+    let whileloop cond body =
+      let open PP in
+      hgrp
+        ((text "while")
+            $/ (text "(")
+            $ cond
+            $ (text ")")
+            $/ (text "{")
+            $ (vgrp
+                 (nest 0
+                    (vgrp
+                       (nest 2
+                          (break $ (layout_program body))))
+                    $/ (text "}"))))
   end
 
   module Prim = struct
@@ -465,6 +484,10 @@ and statement : Js.statement -> CodeGen.js
      CodeGen.Stmt.case (expression scrutinee) cases default
   | SIf (cond,tt,ff) ->
      CodeGen.Stmt.ifthenelse (expression cond) (program' tt) (program' ff)
+  | SBreak ->
+     CodeGen.Stmt.break ()
+  | SWhile (cond, body) ->
+     CodeGen.Stmt.whileloop (expression cond) (program' body)
 
 and primitive : string -> CodeGen.js
   = fun p ->
