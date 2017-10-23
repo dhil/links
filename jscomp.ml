@@ -772,13 +772,222 @@ end
 module GenIter = struct
 
   let rec generate_program : venv -> Ir.program -> venv * Js.program
-    = fun venv prog -> assert false
+    = fun env (bs,tc) ->
+      let open Js in
+      let env', decls = generate_bindings env bs in
+      let env'', prog = generate_computation env' ([], tc) in
+      let toplevel =
+        SExpr (
+          EApply
+            (EPrim "%Toplevel.run",
+             [EFun {
+               fname = `Anonymous;
+               fkind = `Generator;
+               formal_params = [];
+               body = prog; }]))
+      in
+      env'', (decls, toplevel)
   and generate_computation : venv -> Ir.computation -> venv * Js.program
-    = fun venv comp -> assert false
+    = fun env (bs, tc) ->
+      let open Js in
+      let rec gbs : venv -> Ir.binding list -> venv * Js.program =
+        fun env ->
+          function
+          | `Module _ :: bs
+          | `Alien _ :: bs -> gbs env bs
+          | b :: bs ->
+             let env', decls = generate_binding env b in
+             let (env'', (decls', stmt)) = gbs env' bs in
+             env'', (decls @ decls', stmt)
+          | [] -> (env, generate_tail_computation env tc)
+      in
+      gbs env bs
+
+  and generate_bindings : venv -> Ir.binding list -> venv * Js.decl list
+    = fun env ->
+      let open Js in
+      let gbs env bs = generate_bindings env bs in
+      function
+      | `Module _ :: bs
+      | `Alien _ :: bs -> gbs env bs
+      | b :: bs ->
+         let env', decls = generate_binding env b in
+         let (env'', decls') = gbs env' bs in
+         env'', decls @ decls'
+      | [] -> env, []
+
+  and generate_binding : venv -> Ir.binding -> venv * Js.decl list
+    = fun env ->
+      let open Js in
+      let gv v = generate_value env v in
+      function
+      | `Let (b, (_, `Return v)) ->
+         let (x, x_name) = safe_name_binder b in
+         VEnv.bind env (x, x_name),
+         [DLet {
+           bkind = `Const;
+           binder = Ident.of_string x_name;
+           expr = generate_value env v; }]
+      (* | `Let (b, (_, `Apply (f, args))) -> *)
+      (*    let (x, x_name) = safe_name_binder b in *)
+      (*    VEnv.bind env (x, x_name), *)
+      (*    [DLet { *)
+      (*      bkind = `Const; *)
+      (*      binder = Ident.of_string x_name; *)
+      (*      expr = EYield { ykind = `Star; *)
+      (*                      yexpr = EApply (gv (strip_poly f), List.map gv args); }; }] *)
+      | `Let (b, (_, tc)) ->
+         let (x, x_name) = safe_name_binder b in
+         VEnv.bind env (x, x_name),
+         begin match generate_tail_computation env tc with
+         | [], SReturn expr
+         | [], SExpr expr ->
+            [DLet {
+              bkind = `Const;
+              binder = Ident.of_string x_name;
+              expr }]
+         | body ->
+            [DLet {
+              bkind = `Const;
+              binder = Ident.of_string x_name;
+              expr =
+                EYield ({ ykind = `Star;
+                          yexpr = EApply (EFun {
+                            fname = `Anonymous;
+                            fkind = `Generator;
+                            formal_params = [];
+                            body;
+                          }, []); }) }]
+         end
+         | `Fun ((fb, _, _zs, _location) as def) ->
+            let (f, f_name) = safe_name_binder fb in
+             VEnv.bind env (f, f_name),
+             [generate_function env [] def]
+      | `Rec defs ->
+         let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) defs in
+         let env' = List.fold_left VEnv.bind env fs in
+         let defs = List.map (generate_function env fs) defs in
+         env', defs
+      | `Module _ | `Alien _ -> failwith "Module and Alien are unsupported."
+
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
-    = fun venv tc -> assert false
+    = fun env tc ->
+      let open Js in
+      let gv v = generate_value env v in
+      let gc c = snd (generate_computation env c) in
+      match tc with
+      | `Return v ->
+         [], SReturn (gv v)
+      | `Apply (f, vs) ->
+         let f = strip_poly f in
+         begin
+           match f with
+           | `Variable f ->
+              let f_name = VEnv.lookup env f in
+              begin
+                match vs with
+                | [l; r] when Arithmetic.is f_name ->
+                   [], SReturn (Arithmetic.gen ~op:f_name ~args:[gv l; gv r] ())
+                | [l; r] when StringOp.is f_name ->
+                   [], SReturn (StringOp.gen ~op:f_name ~args:[gv l; gv r] ())
+                | [l; r] when Comparison.is f_name ->
+                   [], SReturn (Comparison.gen ~op:f_name ~args:[gv l; gv r] ())
+                | _ ->
+                   if Lib.is_primitive f_name
+                     && Lib.primitive_location f_name <> `Server
+                   then
+                     match f_name, vs with
+                     | "deref", [v] ->
+                        [], SReturn (EAccess (gv v, "_contents"))
+                     | "ref", [v] ->
+                        [], SReturn (EObj [("_contents", gv v)])
+                     | ":=", [r; v] ->
+                        let destructive_update =
+                          EApply (EPrim "%assign", [EAccess (gv r, "_contents"); gv v])
+                        in
+                        [], SSeq (SExpr destructive_update, SReturn (EObj []))
+                     | _ ->
+                        let expr =
+                          try
+                            let args = List.map gv vs in
+                            Functions.gen ~op:f_name ~args ()
+                          with Not_found -> failwith (Printf.sprintf "Unsupported primitive (tc): %s.\n" f_name)
+                        in
+                        [], SReturn expr (* SExpr (EYield { ykind = `Star; yexpr = expr; }) *)
+                   else
+                     let x_name = Ident.make ~prefix:"_x" () in
+                     let x_binding =
+                       DLet {
+                         bkind = `Const;
+                         binder = x_name;
+                         expr = EYield { ykind = `Star; yexpr = EApply (gv (`Variable f), List.map gv vs) };
+                       }
+                     in
+                     [], SReturn (EYield { ykind = `Star; yexpr = EApply (gv (`Variable f), List.map gv vs) })
+                     (* [x_binding], SReturn (EVar x_name) *)
+              end
+           | _ ->
+              [], SReturn (EApply (gv f, List.map gv vs))
+         end
+      | `Special special ->
+         generate_special env special
+      | `Case (v, cases, default) ->
+         let v = gv v in
+         let scrutineeb = Ident.make ~prefix:"_scrutinee" () in
+         let bind_scrutinee scrutinee =
+           DLet {
+             bkind = `Const;
+             binder = scrutineeb;
+             expr = scrutinee; }
+         in
+         let open Utility in
+         let (decls, prog) =
+           let translate_case (xb, c) =
+             let (x, x_name) = safe_name_binder xb in
+             let value_binding =
+               DLet { bkind = `Const;
+                      binder = Ident.of_string x_name;
+                      expr = EAccess (EVar scrutineeb, "_value"); }
+             in
+             let (_, (decls, stmt)) = generate_computation (VEnv.bind env (x, x_name)) c in
+             value_binding :: decls, stmt
+           in
+           let cases = StringMap.map translate_case cases in
+           let default = opt_map translate_case default in
+           [], SCase (EAccess (EVar scrutineeb, "_label"), cases, default)
+         in
+         decls @ [bind_scrutinee v], prog
+      | `If (v, c1, c2) ->
+         [], SIf (gv v, gc c1, gc c2)
   and generate_special : venv -> Ir.special -> Js.program
-    = fun venv special -> assert false
+    = fun env sp ->
+      let open Ir in
+      let open Js in
+      let gv v = generate_value env v in
+      match sp with
+      | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
+      | `DoOperation (name, args, _) ->
+         let box vs =
+           make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
+         in
+         let op =
+           make_dictionary [ ("_label", strlit name)
+                           ; ("_value", make_dictionary [("p", box args)]) ]
+         in
+         [], SExpr (EYield { ykind = `Regular; yexpr = op })
+      | `Handle { ih_comp; ih_clauses; _ } ->
+         let make_resumption iterator =
+           let x = Ident.of_string "x" in
+           EFun {
+             fname = `Anonymous;
+             fkind = `Generator;
+             formal_params = [x];
+             body = [], SReturn (EApply (EAccess ((EVar iterator), "next"), [EVar x]));
+           }
+         in
+         failwith "Not yet implemented."
+      | _ -> failwith "Unsupported special."
+
   and generate_value : venv -> Ir.value -> Js.expression
     = fun env ->
       let open Js in

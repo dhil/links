@@ -169,6 +169,8 @@ and statement =
   (* | SBind of [`Const | `Let | `Var] * Ident.t * expression (\* [ const | let | var ] x = e; *\) *)
   (* | SFun of fn *)
   | SExpr of expression
+  | SBreak
+  | SWhile of expression * program
 and decl =
   | DLet of binding
   | DFun of fn
