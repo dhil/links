@@ -306,7 +306,7 @@ function* main_357() {
 }
 
 function* evalState(f) {
-    const m = f();
+    const m = yield* f();
 
     function* handle(result) {
         if (result.done === true) {
@@ -336,7 +336,7 @@ function* evalState(f) {
             }
             default: {
                 var x = yield result.value;
-                return yield* handle(comp.next(x));
+                return yield* handle(m.next(x));
             }
             }
         }
