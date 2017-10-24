@@ -774,8 +774,8 @@ module GenIter = struct
   let rec generate_program : venv -> Ir.program -> venv * Js.program
     = fun env (bs,tc) ->
       let open Js in
-      let env', decls = generate_bindings env bs in
-      let env'', prog = generate_computation env' ([], tc) in
+      let env', decls = generate_bindings ~toplevel:true env bs in
+      let env'',body = generate_computation env' ([], tc) in
       let toplevel =
         SExpr (
           EApply
@@ -784,42 +784,43 @@ module GenIter = struct
                fname = `Anonymous;
                fkind = `Generator;
                formal_params = [];
-               body = prog; }]))
+               body; }]))
       in
       env'', (decls, toplevel)
+
   and generate_computation : venv -> Ir.computation -> venv * Js.program
     = fun env (bs, tc) ->
-      let open Js in
+      (* let open Js in *)
       let rec gbs : venv -> Ir.binding list -> venv * Js.program =
         fun env ->
           function
           | `Module _ :: bs
           | `Alien _ :: bs -> gbs env bs
           | b :: bs ->
-             let env', decls = generate_binding env b in
+             let env', decls = generate_binding ~toplevel:false env b in
              let (env'', (decls', stmt)) = gbs env' bs in
              env'', (decls @ decls', stmt)
           | [] -> (env, generate_tail_computation env tc)
       in
       gbs env bs
 
-  and generate_bindings : venv -> Ir.binding list -> venv * Js.decl list
-    = fun env ->
-      let open Js in
-      let gbs env bs = generate_bindings env bs in
+  and generate_bindings : ?toplevel:bool -> venv -> Ir.binding list -> venv * Js.decl list
+    = fun ?(toplevel=false) env ->
+      (* let open Js in *)
+      let gbs env bs = generate_bindings ~toplevel env bs in
       function
       | `Module _ :: bs
       | `Alien _ :: bs -> gbs env bs
       | b :: bs ->
-         let env', decls = generate_binding env b in
+         let env', decls = generate_binding ~toplevel env b in
          let (env'', decls') = gbs env' bs in
          env'', decls @ decls'
       | [] -> env, []
 
-  and generate_binding : venv -> Ir.binding -> venv * Js.decl list
-    = fun env ->
+  and generate_binding : ?toplevel:bool -> venv -> Ir.binding -> venv * Js.decl list
+    = fun ?(toplevel=false) env ->
       let open Js in
-      let gv v = generate_value env v in
+      (* let gv v = generate_value env v in *)
       function
       | `Let (b, (_, `Return v)) ->
          let (x, x_name) = safe_name_binder b in
@@ -836,7 +837,7 @@ module GenIter = struct
       (*      binder = Ident.of_string x_name; *)
       (*      expr = EYield { ykind = `Star; *)
       (*                      yexpr = EApply (gv (strip_poly f), List.map gv args); }; }] *)
-      | `Let (b, (_, tc)) ->
+      | `Let (b, (_, tc)) when toplevel = false ->
          let (x, x_name) = safe_name_binder b in
          VEnv.bind env (x, x_name),
          begin match generate_tail_computation env tc with
@@ -859,10 +860,27 @@ module GenIter = struct
                             body;
                           }, []); }) }]
          end
-         | `Fun ((fb, _, _zs, _location) as def) ->
-            let (f, f_name) = safe_name_binder fb in
-             VEnv.bind env (f, f_name),
-             [generate_function env [] def]
+      | `Let (b, (_, tc)) ->
+         let (x, x_name) = safe_name_binder b in
+         let toplevel =
+           DLet {
+             bkind = `Const;
+             binder = x_name;
+             expr =
+               EApply
+                 (EPrim "%Toplevel.run",
+                  [EFun {
+                    fname = `Anonymous;
+                    fkind = `Generator;
+                    formal_params = [];
+                    body = generate_tail_computation env tc; }]); }
+         in
+         VEnv.bind env (x, x_name),
+         [toplevel]
+      | `Fun ((fb, _, _zs, _location) as def) ->
+         let (f, f_name) = safe_name_binder fb in
+         VEnv.bind env (f, f_name),
+         [generate_function env [] def]
       | `Rec defs ->
          let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) defs in
          let env' = List.fold_left VEnv.bind env fs in
@@ -915,14 +933,14 @@ module GenIter = struct
                         in
                         [], SReturn expr (* SExpr (EYield { ykind = `Star; yexpr = expr; }) *)
                    else
-                     let x_name = Ident.make ~prefix:"_x" () in
-                     let x_binding =
-                       DLet {
-                         bkind = `Const;
-                         binder = x_name;
-                         expr = EYield { ykind = `Star; yexpr = EApply (gv (`Variable f), List.map gv vs) };
-                       }
-                     in
+                     (* let x_name = Ident.make ~prefix:"_x" () in *)
+                     (* let x_binding = *)
+                     (*   DLet { *)
+                     (*     bkind = `Const; *)
+                     (*     binder = x_name; *)
+                     (*     expr = EYield { ykind = `Star; yexpr = EApply (gv (`Variable f), List.map gv vs) }; *)
+                     (*   } *)
+                     (* in *)
                      [], SReturn (EYield { ykind = `Star; yexpr = EApply (gv (`Variable f), List.map gv vs) })
                      (* [x_binding], SReturn (EVar x_name) *)
               end
@@ -976,16 +994,126 @@ module GenIter = struct
          in
          [], SExpr (EYield { ykind = `Regular; yexpr = op })
       | `Handle { ih_comp; ih_clauses; _ } ->
-         let make_resumption iterator =
+         let open Utility in
+         let handle_next handle iterator arg =
+           let next =
+             match arg with
+             | Some arg -> EApply (EAccess (iterator, "next"), [arg])
+             | None -> EApply (EAccess (iterator, "next"), [])
+           in
+           EApply (handle, [next])
+         in
+         let make_deep_resumption handle_name iterator =
            let x = Ident.of_string "x" in
+           let yexpr = handle_next handle_name iterator (Some (EVar x)) in
            EFun {
              fname = `Anonymous;
              fkind = `Generator;
              formal_params = [x];
-             body = [], SReturn (EApply (EAccess ((EVar iterator), "next"), [EVar x]));
+             body = [], SReturn (EYield { ykind = `Star; yexpr; });
            }
          in
-         failwith "Not yet implemented."
+         let handle iterator =
+           let (===) a b =
+             EApply (EPrim "%eq", [a; b])
+           in
+           let op_or_value = Ident.make ~prefix:"_op_or_value" () in
+           let handle_name = Ident.make ~prefix:"_handle" () in
+           let return_clause, operation_clauses = StringMap.pop "Return" ih_clauses in
+           (* Generate the return clause *)
+           let return_clause =
+             let (_, xb, body) = return_clause in
+             let (x_binder, x_name) = safe_name_binder xb in
+             let return_value_binding =
+               DLet {
+                 bkind = `Const;
+                 binder = x_name;
+                 expr = EAccess (EVar op_or_value, "value");
+               }
+             in
+             let (_,(decls, stmt)) = generate_computation (VEnv.bind env (x_binder, x_name)) body in
+             return_value_binding :: decls, stmt
+           in
+           (* Generate the operation clauses *)
+           let operation_clauses =
+             let gc env (resumeb, xb, body) =
+               (* Generate arguments and resumption binders *)
+               let (_, x_name) as xb = safe_name_binder xb in
+               let p_binding =
+                 DLet {
+                   bkind = `Const;
+                   binder = x_name;
+                   expr = EAccess (EAccess (EAccess (EVar op_or_value, "value"), "_value"), "p");
+                 }
+               in
+               let env', bindings =
+                 match resumeb with
+                 | `ResumptionBinder rb ->
+                    let (_,r_name) as rb = safe_name_binder rb in
+                    let r_binding =
+                      DLet {
+                        bkind = `Const;
+                        binder = r_name;
+                        expr = make_deep_resumption (EVar handle_name) (EVar iterator);
+                      }
+                    in
+                    VEnv.bind (VEnv.bind env xb) rb, r_binding :: p_binding :: []
+                 | _ ->
+                    VEnv.bind env xb, p_binding :: []
+               in
+               (* Generate the body *)
+               let _, (decls, prog) = generate_computation env' body in
+               bindings @ decls, prog
+             in
+             (* Generate forwarding clause *)
+             let forward =
+               let x_name = Ident.make ~prefix:"_x" () in
+               let x_binding =
+                 DLet {
+                   bkind = `Const;
+                   binder = x_name;
+                   expr = EYield { ykind = `Regular; yexpr = EAccess (EVar iterator, "value") };
+                 }
+               in
+               [x_binding], SReturn (EYield { ykind = `Star; yexpr = handle_next (EVar handle_name) (EVar iterator) (Some (EVar x_name)) })
+             in
+             let scrutinee =
+               EAccess (EAccess (EVar op_or_value, "value"), "_label")
+             in
+             [], SCase (scrutinee, StringMap.map (gc env) operation_clauses, Some forward)
+           in
+           (* Generate the handle *)
+           handle_name, DFun {
+             fkind = `Generator;
+             fname = `Named handle_name;
+             formal_params = [op_or_value];
+             body =
+               [], SIf ( (EAccess (EVar op_or_value, "done")) === (ELit (LBool false)),
+                         operation_clauses,
+                         return_clause);
+           }
+         in
+         (* Generate the iterator *)
+         let iterator_name = Ident.make ~prefix:"_m" () in
+         let wrapped_computation =
+           let (_,body) = generate_computation env ih_comp in
+           EApply
+             (EFun {
+               fkind = `Generator;
+               fname = `Anonymous;
+               formal_params = [];
+               body; }, [])
+         in
+         let iterator_binding =
+           DLet {
+             bkind = `Const;
+             binder = iterator_name;
+             expr = wrapped_computation;
+           }
+         in
+         let handle_name, handle_fn = handle iterator_name in
+         let init = handle_next (EVar handle_name) (EVar iterator_name) None in
+         [iterator_binding; handle_fn], SReturn (EYield { ykind = `Star; yexpr = init })
       | _ -> failwith "Unsupported special."
 
   and generate_value : venv -> Ir.value -> Js.expression
