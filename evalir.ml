@@ -510,13 +510,13 @@ struct
            in
            tail_computation env cont' tc
           (* function definitions are stored in the global fun map *)
-          | `Fun _ ->
+        | `Fun _ ->
             computation env cont (bs, tailcomp)
-          | `Rec _ ->
-            computation env cont (bs, tailcomp)
-          | `Alien _ ->
-            computation env cont (bs, tailcomp)
-          | `Module _ -> failwith "Not implemented interpretation of modules yet"
+        | `Rec _ ->
+           computation env cont (bs, tailcomp)
+        | `Alien _ ->
+           computation env cont (bs, tailcomp)
+        | `Module _ -> failwith "Not implemented interpretation of modules yet"
   and tail_computation env (cont : continuation) : Ir.tail_computation -> result = function
     | `Return v      -> apply_cont cont env (value env v)
     | `Apply (f, ps) -> apply cont env (value env f, List.map (value env) ps)
