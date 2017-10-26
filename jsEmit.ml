@@ -329,9 +329,9 @@ module CodeGen : CODEGEN = struct
       in
       let default =
         hgrp ((text "default: {")
-                 $/ (vgrp
-                       (nest 2
-                          (break $ (layout_program default)))))
+                 $ (vgrp
+                      (nest 2
+                         (break $ (layout_program default)))))
           $/ (text "}")
       in
       hgrp

@@ -124,6 +124,39 @@ module Prim_Functions : PRIM_DESC = struct
     | _ -> raise Not_found
 end
 
+module CPSFunctions = struct
+  let prim_desc p =
+    let name, arity = Prim_Functions.prim_desc p in
+    match String.split_on_char '.' name with
+    | ["%List"; "head"] -> "%ListCPS.head", arity
+    | ["%List"; "tail"] -> "%ListCPS.tail", arity
+    | _ -> name, arity
+
+  let is : string -> bool
+    = fun x ->
+      try ignore (prim_desc x); true with
+      | Not_found -> false
+
+  let gen : string -> Js.expression list -> Js.expression -> Js.expression
+    = fun op args kappa ->
+      try
+        let open Js in
+        EApply (EPrim (fst @@ prim_desc op), args @ [kappa])
+      with Not_found -> raise Not_found
+
+  let prim_name : string -> string
+    = fun op ->
+      try
+        fst (prim_desc op)
+      with Not_found -> raise Not_found
+
+  let arity : string -> int
+    = fun op ->
+      try
+        snd (prim_desc op)
+      with Not_found -> raise Not_found
+end
+
 module StringOp = Primitives(Prim_String)
 module Arithmetic = Primitives(Prim_Arithmetic)
 module Comparison = Primitives(Prim_Comparison)
@@ -485,8 +518,8 @@ module CPS = struct
                         let k = K.reify kappa in
                         let expr =
                           try
-                            let args = (List.map gv vs) @ [k] in
-                            Functions.gen ~op:f_name ~args ()
+                            let args = List.map gv vs in
+                            CPSFunctions.gen f_name args k
                           with Not_found -> failwith (Printf.sprintf "Unsupported primitive (tc): %s.\n" f_name)
                         in
                         [], SReturn expr
