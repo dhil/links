@@ -1443,23 +1443,54 @@ module CEK = struct
       env', (fun_decls @ [funs; program; result], toplevel)
 
   and generate_toplevel_bindings : venv -> Ir.binding list -> venv * (Js.label * Js.expression) list * Js.decl list
-    = fun env bs -> failwith "N/A"
+    = fun env bs ->
+    let open Js in
+    let rec gbs env fenv = function
+    | `Module _ :: bs | `Alien _ :: bs -> gbs env fenv bs
+    | `Let _ :: bs -> assert false
+    | `Fun ((b,_,_,_) as fundef) :: bs ->
+       let (fb, f_name) = safe_name_binder b in
+       let f = generate_function env [] fundef in
+       let decl =
+         DLet {
+             bkind = `Const;
+             binder = f_name;
+             expr = f;
+           }
+       in
+       let env' = VEnv.bind env (fb, f_name) in
+       let env'', fenv', decls = gbs env' ((f_name, EVar f_name) :: fenv) bs in
+       env'', fenv', decl :: decls
+    | _ -> assert false
+    in
+    gbs env [] bs
 
   and generate_computation : venv -> Ir.computation -> venv * Js.expression
-    = fun env (bs, tc) -> failwith "N/A"
+    = fun env (bs, tc) ->
+    let env', bindings = generate_bindings env bs in
+    let tail_comp = generate_tail_computation env' tc in
+    env', Make.computation bindings tail_comp
 
-  (* and generate_bindings : ?toplevel:bool -> venv -> Ir.binding list -> venv * Js.decl list *)
-  (*   = fun ?(toplevel=false) env -> *)
-  (*     (\* let open Js in *\) *)
-  (*     let gbs env bs = generate_bindings ~toplevel env bs in *)
-  (*     function *)
-  (*     | `Module _ :: bs *)
-  (*     | `Alien _ :: bs -> gbs env bs *)
-  (*     | b :: bs -> *)
-  (*        let env', decls = generate_binding ~toplevel env b in *)
-  (*        let (env'', decls') = gbs env' bs in *)
-  (*        env'', decls @ decls' *)
-  (*     | [] -> env, [] *)
+  and generate_bindings : venv -> Ir.binding list -> venv * Js.expression list
+    = fun env ->
+      let open Js in
+      let gbs env bs = generate_bindings env bs in
+      function
+      | `Module _ :: bs | `Alien _ :: bs -> gbs env bs
+      | b :: bs ->
+         let env', expr = generate_binding env b in
+         let (env'', expr') = gbs env' bs in
+         env'', expr :: expr'
+      | [] -> env, []
+
+  and generate_binding : venv -> Ir.binding -> venv * Js.expression
+    = fun env ->
+    function
+    | `Let (b, (_, tc)) ->
+       let (b', bname) = safe_name_binder b in
+       let env' = VEnv.bind env (b', bname) in
+       env', Make.binding bname (generate_tail_computation env tc)
+    | _ -> assert false
 
   (* and generate_binding : ?toplevel:bool -> venv -> Ir.binding -> venv * Js.decl list *)
   (*   = fun ?(toplevel=false) env -> *)
@@ -1597,8 +1628,6 @@ module CEK = struct
 
   and generate_value : venv -> Ir.value -> Js.expression
     = fun env ->
-      let open Js in
-      let open Utility in
       let gv v = generate_value env v in
       function
       | `Constant c ->
@@ -1629,13 +1658,13 @@ module CEK = struct
          Make.extend fields (opt_map gv rest)
       | `Project (name, v) ->
          Make.project (gv v) name
-      | `Erase (names, v) ->
+      | `Erase (_names, _v) ->
          failwith "Record erasure is unsupported."
       | `Inject (name, v, _t) ->
          Make.inject name (gv v)
     (* erase polymorphism *)
       | `TAbs (_, v)
-      | `TApp (v, _) -> gv v
+        | `TApp (v, _) -> gv v
       | `ApplyPure (f, vs) ->
          generate_tail_computation env (`Apply (f, vs))
       | `Closure (f, v) ->
@@ -1645,34 +1674,30 @@ module CEK = struct
          gv v
       | _ -> failwith "Unsupported value."
 
-  and generate_function : venv -> (Var.var * string) list -> Ir.fun_def -> Js.decl =
+  and generate_function : venv -> (Var.var * string) list -> Ir.fun_def -> Js.expression =
     fun env fs (fb, (_, xsb, body), zb, location) ->
-      let open Js in
-      (* let (_f, f_name) = safe_name_binder fb in *)
-      (* assert (f_name <> ""); *)
-      (* (\* prerr_endline ("f_name: "^f_name); *\) *)
-      (* (\* optionally add an additional closure environment argument *\) *)
-      (* let xsb = *)
-      (*   match zb with *)
-      (*   | None -> xsb *)
-      (*   | Some zb -> zb :: xsb *)
-      (* in *)
-      (* let bs = List.map safe_name_binder xsb in *)
-      (* let _xs, xs_names = List.split bs in *)
-      (* let body_env = List.fold_left VEnv.bind env (fs @ bs) in *)
-      (* let body = *)
-      (*   match location with *)
-      (*   | `Client | `Unknown -> *)
-      (*      snd (generate_computation body_env body) *)
-      (*   | _ -> failwith "Only client side calls are supported." *)
-      (* in *)
-      (* DFun { *)
-      (*   fname = `Named (Ident.of_string f_name); *)
-      (*   fkind = `Generator; *)
-      (*   formal_params = (List.map Ident.of_string xs_names); *)
-  (*   body; } *)
-      failwith "N/A"
-
+      let (_f, f_name) = safe_name_binder fb in
+      assert (f_name <> "");
+      (* prerr_endline ("f_name: "^f_name); *)
+      (* optionally add an additional closure environment argument *)
+      let body_env =
+        let xsb =
+          match zb with
+          | None -> xsb
+          | Some zb -> zb :: xsb
+        in
+        let bs = List.map safe_name_binder xsb in
+        List.fold_left VEnv.bind env (fs @ bs)
+      in
+      let body =
+        match location with
+        | `Client | `Unknown ->
+           snd (generate_computation body_env body)
+        | _ -> failwith "Only client side calls are supported."
+      in
+      let xsb = List.map (fun x -> snd @@ safe_name_binder x) xsb in
+      let zb = Utility.opt_map (fun x -> snd @@ safe_name_binder x) zb in
+      Make.fn f_name xsb zb body
 
   let compile : comp_unit -> prog_unit
     = fun u ->
