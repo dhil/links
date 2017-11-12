@@ -160,6 +160,7 @@ and expression =
   | ELit       of literal
   | EPrim      of string
   | EObj       of (label * expression) list
+  | EArray     of expression array
   | EYield     of yield
 and statement =
   | SIf of expression * program * program  (* if (expr) { stmt1 } else { stmt2 } *)

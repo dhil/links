@@ -68,6 +68,7 @@ module type CODEGEN = sig
     val anon_fun : fnkind -> ident list -> (js list * js) -> js
     val access : js -> label -> js
     val object' : (label * js) list -> js
+    val array : js array -> js
     val yield : [`Regular | `Star] -> js -> js
   end
 
@@ -259,7 +260,23 @@ module CodeGen : CODEGEN = struct
 
     let access obj label =
       let open PP in
-      hgrp (obj $ ((text (Printf.sprintf "['%s']" label))))
+      let is_numeric label =
+        try
+          ignore @@ float_of_string label; true
+        with _ -> false
+      in
+      let is_reserved label =
+        List.mem
+          label
+          ["return";
+           "default"]
+      in
+      if is_numeric label then (* use subscript notation *)
+        hgrp (obj $ ((text (Printf.sprintf "[%s]" label))))
+      else if  is_reserved label then (* use subscript notation *)
+        hgrp (obj $ ((text (Printf.sprintf "['%s']" label))))
+      else (* otherwise use dot notation *)
+        hgrp (obj $ text "." $ (text label))
 
     let object' fields =
       let open PP in
@@ -268,8 +285,18 @@ module CodeGen : CODEGEN = struct
       | _ ->
          hgrp
            ((text "{")
-               $/ (commalist ~f:(fun (label,expr) -> (text (Printf.sprintf "'%s':" label)) $/ expr) fields)
+               $/ (commalist ~f:(fun (label,expr) -> (text (Printf.sprintf "\"%s\":" label)) $/ expr) fields)
                $/ text "}")
+
+    let array elements =
+      let open PP in
+      match elements with
+      | [||] -> text "[]"
+      | _ ->
+         hgrp
+           ((text "[")
+               $/ (commalist ~f:(fun expr -> expr) (Array.to_list elements))
+               $/ text "]")
 
     let yield kind expr =
       let open PP in
@@ -462,6 +489,8 @@ and expression : Js.expression -> CodeGen.js
   | EPrim p -> primitive p
   | EYield { ykind; yexpr } ->
      CodeGen.Expr.yield ykind (expression yexpr)
+  | EArray arr ->
+     CodeGen.Expr.array (Array.map expression arr)
 
 and statement : Js.statement -> CodeGen.js
   = let open Js in
