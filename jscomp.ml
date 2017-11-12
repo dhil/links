@@ -1298,6 +1298,391 @@ module GenIter = struct
       { u with program = prog; includes = dependencies @ u.includes }
 end
 
+(** CEK compiler **)
+module CEK = struct
+
+  module Make = struct
+    type expr = Js.expression
+    open Js
+
+    let undefined = EVar "undefined"
+
+    let ir_tag e =
+      let label =
+        match e with
+        | `Shallow -> "SHALLOW"
+        | `Deep -> "DEEP"
+      in
+      EAccess(EVar "IR", label)
+
+    let ir : string -> expr list -> expr
+      = fun fn_name -> function
+      | [] -> EVar (Printf.sprintf "IR.Make.%s" fn_name) (* constant *)
+      | args  ->  EApply (EVar (Printf.sprintf "IR.Make.%s" fn_name), args) (* function *)
+
+    let computation : expr list -> expr -> expr
+      = fun bindings tail_comp ->
+        ir "computation" [EArray (Array.of_list bindings); tail_comp]
+
+    let binding : string -> expr -> expr
+      = fun name tail_comp ->
+        ir "binding" [ELit (LString name); tail_comp]
+
+    let variable : string -> expr
+      = fun name ->
+        ir "variable" [ELit (LString name)]
+
+    let apply : expr -> expr list -> expr
+      = fun f args ->
+        ir "apply" [f; EArray (Array.of_list args)]
+
+    let ifthenelse : expr -> expr -> expr -> expr
+      = fun cond tt ff ->
+        ir "ifthenelse" [cond; tt; ff]
+
+    let casesplit : expr -> (string * expr) list -> expr option -> expr
+      = fun scrutinee clauses default ->
+        let open Utility in
+        ir "casesplit" [scrutinee; EObj clauses; from_option undefined default]
+
+    let clause : string -> expr -> expr =
+      fun binder body ->
+        ir "clause" [ELit (LString binder); body]
+
+    let opclause : string -> string -> expr -> expr
+      = fun parambinder resumebinder body ->
+        ir "opclause" [ELit (LString parambinder); ELit (LString resumebinder); body]
+
+    let handle : expr -> expr -> expr -> [`Deep | `Shallow] -> expr
+      = fun comp ret ops depth ->
+        ir "handle" [comp; ret; ops; ir_tag depth]
+
+    let do_operation : string -> expr -> expr
+      = fun label args ->
+        ir "doOperation" [ELit (LString label); args]
+
+    let constant : Constant.constant -> expr = function
+      | `Int n    -> ir "constant" [ELit (LInt n)]
+      | `Float f  -> ir "constant" [ELit (LFloat f)]
+      | `Char c   -> ir "constant" [ELit (LChar c)]
+      | `Bool b   -> ir "constant" [ELit (LBool b)]
+      | `String s -> ir "constant" [ELit (LString s)]
+
+    let return : expr -> expr
+      = fun expr ->
+        ir "ret" [expr]
+
+    let fn : string -> string list -> string option -> expr -> expr
+      = fun name params venv body ->
+        let venv =
+          match venv with
+          | None -> undefined
+          | Some z -> ELit (LString z)
+        in
+        let params = List.map (fun p -> ELit (LString p)) params in
+        ir "fn" [ELit (LString name); EArray (Array.of_list params); venv; body]
+
+    let inject : string -> expr -> expr
+      = fun label args ->
+        ir "inject" [ELit (LString label); args]
+
+    let extend : (string * expr) list -> expr option -> expr
+      = fun fields record ->
+        let open Utility in
+        ir "extend" [EObj fields; from_option undefined record]
+
+    let project : expr -> string -> expr
+      = fun record label ->
+        ir "project" [record; ELit (LString label)]
+
+    let closure : string -> expr -> expr
+      = fun fn_name fvs ->
+        ir "closure" [ELit (LString fn_name); fvs]
+  end
+
+  let rec generate_program : venv -> Ir.program -> venv * Js.program
+    = fun env (bs,tc) ->
+      let open Js in
+      let env', fenv, fun_decls = generate_toplevel_bindings env bs in
+      let main = generate_tail_computation env' tc in
+      let funsb = Ident.of_string "funs" in
+      let env_of = Ident.of_string "Env.of" in
+      let funs =
+        DLet {
+          bkind = `Const;
+          binder = funsb;
+          expr =
+            EApply(EVar env_of, [EObj fenv]);
+        }
+      in
+      let programb = Ident.of_string "program" in
+      let program =
+        DLet {
+          bkind = `Const;
+          binder = programb;
+          expr = main;
+        }
+      in
+      let resultb = Ident.of_string "result" in
+      let value_to_string = Ident.of_string "Value.toString" in
+      let cek_run = Ident.of_string "CEK.run" in
+      let result =
+        DLet {
+          bkind = `Const;
+          binder = resultb;
+          expr =
+            EApply (EVar value_to_string,
+                    [EApply (EVar cek_run, [EVar funsb; EVar programb])]);
+
+        }
+      in
+      let toplevel =
+        SExpr (
+          EApply (EPrim "%IO.print", [EVar resultb]))
+      in
+      env', (fun_decls @ [funs; program; result], toplevel)
+
+  and generate_toplevel_bindings : venv -> Ir.binding list -> venv * (Js.label * Js.expression) list * Js.decl list
+    = fun env bs -> failwith "N/A"
+
+  and generate_computation : venv -> Ir.computation -> venv * Js.expression
+    = fun env (bs, tc) -> failwith "N/A"
+
+  (* and generate_bindings : ?toplevel:bool -> venv -> Ir.binding list -> venv * Js.decl list *)
+  (*   = fun ?(toplevel=false) env -> *)
+  (*     (\* let open Js in *\) *)
+  (*     let gbs env bs = generate_bindings ~toplevel env bs in *)
+  (*     function *)
+  (*     | `Module _ :: bs *)
+  (*     | `Alien _ :: bs -> gbs env bs *)
+  (*     | b :: bs -> *)
+  (*        let env', decls = generate_binding ~toplevel env b in *)
+  (*        let (env'', decls') = gbs env' bs in *)
+  (*        env'', decls @ decls' *)
+  (*     | [] -> env, [] *)
+
+  (* and generate_binding : ?toplevel:bool -> venv -> Ir.binding -> venv * Js.decl list *)
+  (*   = fun ?(toplevel=false) env -> *)
+  (*     let open Js in *)
+  (*     (\* let gv v = generate_value env v in *\) *)
+  (*     function *)
+  (*     | `Let (b, (_, `Return v)) -> *)
+  (*        let (x, x_name) = safe_name_binder b in *)
+  (*        VEnv.bind env (x, x_name), *)
+  (*        [DLet { *)
+  (*          bkind = `Const; *)
+  (*          binder = Ident.of_string x_name; *)
+  (*          expr = generate_value env v; }] *)
+  (*     (\* | `Let (b, (_, `Apply (f, args))) -> *\) *)
+  (*     (\*    let (x, x_name) = safe_name_binder b in *\) *)
+  (*     (\*    VEnv.bind env (x, x_name), *\) *)
+  (*     (\*    [DLet { *\) *)
+  (*     (\*      bkind = `Const; *\) *)
+  (*     (\*      binder = Ident.of_string x_name; *\) *)
+  (*     (\*      expr = EYield { ykind = `Star; *\) *)
+  (*     (\*                      yexpr = EApply (gv (strip_poly f), List.map gv args); }; }] *\) *)
+  (*     | `Let (b, (_, tc)) when toplevel = false -> *)
+  (*        let (x, x_name) = safe_name_binder b in *)
+  (*        VEnv.bind env (x, x_name), *)
+  (*        begin match generate_tail_computation env tc with *)
+  (*        | [], SReturn expr *)
+  (*        | [], SExpr expr -> *)
+  (*           [DLet { *)
+  (*             bkind = `Const; *)
+  (*             binder = Ident.of_string x_name; *)
+  (*             expr }] *)
+  (*        | body -> *)
+  (*           [DLet { *)
+  (*             bkind = `Const; *)
+  (*             binder = Ident.of_string x_name; *)
+  (*             expr = *)
+  (*               EYield ({ ykind = `Star; *)
+  (*                         yexpr = EApply (EFun { *)
+  (*                           fname = `Anonymous; *)
+  (*                           fkind = `Generator; *)
+  (*                           formal_params = []; *)
+  (*                           body; *)
+  (*                         }, []); }) }] *)
+  (*        end *)
+  (*     | `Let (b, (_, tc)) -> *)
+  (*        let (x, x_name) = safe_name_binder b in *)
+  (*        let toplevel = *)
+  (*          DLet { *)
+  (*            bkind = `Const; *)
+  (*            binder = x_name; *)
+  (*            expr = *)
+  (*              EApply *)
+  (*                (EPrim "%Toplevel.run", *)
+  (*                 [EFun { *)
+  (*                   fname = `Anonymous; *)
+  (*                   fkind = `Generator; *)
+  (*                   formal_params = []; *)
+  (*                   body = generate_tail_computation env tc; }]); } *)
+  (*        in *)
+  (*        VEnv.bind env (x, x_name), *)
+  (*        [toplevel] *)
+  (*     | `Fun ((fb, _, _zs, _location) as def) -> *)
+  (*        let (f, f_name) = safe_name_binder fb in *)
+  (*        VEnv.bind env (f, f_name), *)
+  (*        [generate_function env [] def] *)
+  (*     | `Rec defs -> *)
+  (*        let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) defs in *)
+  (*        let env' = List.fold_left VEnv.bind env fs in *)
+  (*        let defs = List.map (generate_function env fs) defs in *)
+  (*        env', defs *)
+  (*     | `Module _ | `Alien _ -> failwith "Module and Alien are unsupported." *)
+
+  and generate_tail_computation : venv -> Ir.tail_computation -> Js.expression
+    = fun env tc ->
+      let open Js in
+      let gv v = generate_value env v in
+      let gc c = snd (generate_computation env c) in
+      match tc with
+      | `Return v ->
+         Make.return (gv v)
+      | `Apply (f, vs) ->
+         let f = strip_poly f in
+         begin
+           match f with
+           | `Variable f ->
+              let f_name = VEnv.lookup env f in
+              let f =
+                if Arithmetic.is f_name then
+                  Make.variable (Arithmetic.prim_name ~op:f_name ())
+                else if StringOp.is f_name then
+                  Make.variable (StringOp.prim_name ~op:f_name ())
+                else if Comparison.is f_name then
+                  Make.variable (Comparison.prim_name ~op:f_name ())
+                else if Functions.is f_name then
+                  Make.variable (Functions.prim_name ~op:f_name ())
+                else
+                  Make.variable f_name
+              in
+              Make.apply f (List.map gv vs)
+           | _ ->
+              Make.apply (gv f) (List.map gv vs)
+         end
+      | `Special special ->
+         generate_special env special
+      | `Case (v, cases, default) ->
+         let open Utility in
+         let case (b, body) =
+           Make.clause (Ident.of_binder b) (gc body)
+         in
+         let cases = StringMap.to_alist cases in
+         let case' (label, (b, body)) =
+           label, case (b, body)
+         in
+         Make.casesplit (gv v) (List.map case' cases) (opt_map case default)
+      | `If (v, c1, c2) ->
+         Make.ifthenelse (gv v) (gc c1) (gc c2)
+  and generate_special : venv -> Ir.special -> Js.expression
+    = fun env sp ->
+      let open Ir in
+      let open Js in
+      let gv v = generate_value env v in
+      match sp with
+      | `Wrong _ ->
+         Make.apply (EVar "%error") [ELit (LString "Internal Error: Pattern matching failed")]
+      | `DoOperation (name, args, _) ->
+         let box = function
+           | [] -> Make.extend [] None
+           | [v] -> gv v
+           | vs -> Make.extend (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs) None
+         in
+         Make.do_operation name (box args)
+      | `Handle { ih_comp; ih_clauses; ih_depth } ->
+         failwith "Not yet implemented."
+      | _ -> failwith "Unsupported special."
+
+  and generate_value : venv -> Ir.value -> Js.expression
+    = fun env ->
+      let open Js in
+      let open Utility in
+      let gv v = generate_value env v in
+      function
+      | `Constant c ->
+         Make.constant c
+      | `Variable var ->
+       (* HACK *)
+         let name = VEnv.lookup env var in
+         if Arithmetic.is name then
+           Make.variable (Arithmetic.prim_name ~op:name ())
+         else if StringOp.is name then
+           Make.variable (StringOp.prim_name ~op:name ())
+         else if Comparison.is name then
+           Make.variable (Comparison.prim_name ~op:name ())
+         else if Functions.is name then
+           Make.variable (Functions.prim_name ~op:name ())
+         else
+           begin match name with
+           | "Nil" -> Make.variable "%List.nil"
+           |  _ -> Make.variable name
+           end
+      | `Extend (field_map, rest) ->
+         let open Utility in
+         let fields =
+           List.map
+             (fun (l,v) -> (l, gv v))
+             (StringMap.to_alist field_map)
+         in
+         Make.extend fields (opt_map gv rest)
+      | `Project (name, v) ->
+         Make.project (gv v) name
+      | `Erase (names, v) ->
+         failwith "Record erasure is unsupported."
+      | `Inject (name, v, _t) ->
+         Make.inject name (gv v)
+    (* erase polymorphism *)
+      | `TAbs (_, v)
+      | `TApp (v, _) -> gv v
+      | `ApplyPure (f, vs) ->
+         generate_tail_computation env (`Apply (f, vs))
+      | `Closure (f, v) ->
+         let f_name = VEnv.lookup env f in
+         Make.closure f_name (gv v)
+      | `Coerce (v, _) ->
+         gv v
+      | _ -> failwith "Unsupported value."
+
+  and generate_function : venv -> (Var.var * string) list -> Ir.fun_def -> Js.decl =
+    fun env fs (fb, (_, xsb, body), zb, location) ->
+      let open Js in
+      (* let (_f, f_name) = safe_name_binder fb in *)
+      (* assert (f_name <> ""); *)
+      (* (\* prerr_endline ("f_name: "^f_name); *\) *)
+      (* (\* optionally add an additional closure environment argument *\) *)
+      (* let xsb = *)
+      (*   match zb with *)
+      (*   | None -> xsb *)
+      (*   | Some zb -> zb :: xsb *)
+      (* in *)
+      (* let bs = List.map safe_name_binder xsb in *)
+      (* let _xs, xs_names = List.split bs in *)
+      (* let body_env = List.fold_left VEnv.bind env (fs @ bs) in *)
+      (* let body = *)
+      (*   match location with *)
+      (*   | `Client | `Unknown -> *)
+      (*      snd (generate_computation body_env body) *)
+      (*   | _ -> failwith "Only client side calls are supported." *)
+      (* in *)
+      (* DFun { *)
+      (*   fname = `Named (Ident.of_string f_name); *)
+      (*   fkind = `Generator; *)
+      (*   formal_params = (List.map Ident.of_string xs_names); *)
+  (*   body; } *)
+      failwith "N/A"
+
+
+  let compile : comp_unit -> prog_unit
+    = fun u ->
+      let open Js in
+      let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
+      let (_,prog) = generate_program venv u.program in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["immutable.js"; "cek.js"] in
+      { u with program = prog; includes = dependencies @ u.includes }
+end
+
 (* Compiler selection *)
 module Compiler =
   (val
@@ -1306,5 +1691,7 @@ module Compiler =
          (module CPS : JS_COMPILER)
       | "geniter" ->
          (module GenIter : JS_COMPILER)
+      | "cek" ->
+         (module CEK : JS_COMPILER)
       (* TODO: better error handling *)
       | _ -> failwith "Unrecognised JS backend.") : JS_COMPILER)
