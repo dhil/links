@@ -473,9 +473,13 @@ let compile_js () =
        let (nenv', tyenv') = source.envs in
        let nenv = Env.String.extend nenv nenv' in
        let tyenv = Types.extend_typing_environment tyenv tyenv' in
-       let (globals, (locals, main), t) = source.program in
+       let (globals, (locals,main), t) = source.program in
+       (* Printf.printf "Bindings:\n%s\n%!" (Ir.Show_program.show (locals, `Special (`Wrong `Not_typed))); *)
+       let tenv' = Var.varify_env (nenv, tyenv.Types.var_env) in
+       let (globals,main) = Closures.program tenv' Lib.primitive_vars (globals @ locals,main) in
+       (* BuildTables.program tenv' Lib.primitive_vars (locals, main); *)
        let external_files = source.external_dependencies in
-       ((prelude @ globals @ locals, main), t), (nenv, tyenv), external_files
+       ((prelude @ globals, main), t), (nenv, tyenv), external_files
      in
      (* Printf.printf "Size: %d\n" (Env.String.fold (fun _ _ acc -> acc + 1) nenv 0); *)
      let (program, _t), (nenv, tenv), _alien = parse_and_desugar (nenv, tenv) src in

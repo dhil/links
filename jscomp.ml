@@ -1439,13 +1439,20 @@ module CEK = struct
       in
       let toplevel =
         SExpr (
-          EApply (EPrim "%IO.print", [EVar resultb]))
+          EApply (EVar "_print", [EVar resultb]))
       in
       env', (fun_decls @ [funs; program; result], toplevel)
 
   and generate_toplevel_bindings : venv -> Ir.binding list -> venv * Js.expression list * (Js.label * Js.expression) list * Js.decl list
     = fun env bs ->
       let open Js in
+      let fun_decl f_name f =
+        DLet {
+          bkind = `Const;
+          binder = f_name;
+          expr = f;
+        }
+      in
       let rec gbs env bindings fenv decls = function
         | [] -> env, bindings, fenv, decls
         | `Module _ :: bs | `Alien _ :: bs -> gbs env bindings fenv decls bs
@@ -1462,8 +1469,17 @@ module CEK = struct
            let env' = VEnv.bind env (fb, f_name) in
            gbs env' bindings ((f_name, EVar f_name) :: fenv) (decl :: decls) bs
         | `Rec funs :: bs ->
-           let fs : Ir.binding list = List.map (fun fundef -> `Fun fundef) funs in
-           gbs env bindings fenv decls (fs @ bs)
+         let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) funs in
+         let env' = List.fold_left VEnv.bind env fs in
+         let fenv', decls' =
+           List.fold_left
+             (fun (fenv, decls) ((fb, _, _, _) as def) ->
+               let f = generate_function env' fs def in
+               let f_name = VEnv.lookup env' (fst fb) in
+               ((f_name, EVar f_name) :: fenv, (fun_decl f_name f) :: decls)
+             ) (fenv, decls) funs
+         in
+         gbs env' bindings fenv' decls' bs
         | b :: bs -> (* Let binding *)
            let env', binding = generate_binding env b in
            gbs env' (binding :: bindings) fenv decls bs
@@ -1482,6 +1498,7 @@ module CEK = struct
       let gbs env bs = generate_bindings env bs in
       function
       | `Module _ :: bs | `Alien _ :: bs -> gbs env bs
+      | `Fun _ :: bs | `Rec _ :: bs -> gbs env bs
       | b :: bs ->
          let env', expr = generate_binding env b in
          let (env'', expr') = gbs env' bs in
@@ -1603,7 +1620,9 @@ module CEK = struct
       | `Case (v, cases, default) ->
          let open Utility in
          let case (b, body) =
-           Make.clause (Ident.of_binder b) (gc body)
+           let (b', bname) = safe_name_binder b in
+           let env' = VEnv.bind env (b', bname) in
+           Make.clause (Ident.of_binder b) (snd @@ generate_computation env' body)
          in
          let cases = StringMap.to_alist cases in
          let case' (label, (b, body)) =
@@ -1708,6 +1727,8 @@ module CEK = struct
     = fun u ->
       let open Js in
       let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
+      Printf.eprintf "nenv:\n%s\n%!" (string_of_nenv u.envs.nenv);
+      Printf.eprintf "venv:\n%s\n%!" (string_of_venv venv);
       let (_,prog) = generate_program venv u.program in
       let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["immutable.js"; "cek.js"] in
       { u with program = prog; includes = dependencies @ u.includes }

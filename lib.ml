@@ -243,10 +243,14 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
             IMPURE);
 
   (* High resolution clock (JS only) *)
-  "now",
+  "perfNow",
   (p1 (fun _ -> assert false),
-   datatype "() -> Float",
+   datatype "() -> Perf",
    PURE); (* Somewhat a hack to make this a pure function *)
+  "perfElapsed",
+  (p1 (fun _ -> assert false),
+   datatype "(Perf, Perf) -> Int",
+   PURE);
 
   (* Comparisons *)
   "==",
