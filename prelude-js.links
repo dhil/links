@@ -4,6 +4,12 @@
 typename Maybe(a) = [|Just:a|Nothing|];
 typename Comp(e::Row, a) = () ~e~> a;
 
+# Standard functions
+fun id(x) {x}
+
+sig ignore : (a) -> ()
+fun ignore(_) { () }
+
 sig assert : ((a,a) ~e~> Bool, (a) ~e~> String, a, a) ~e~> ()
 fun assert(eq, toString, expected, actual) {
   ignore(
@@ -62,9 +68,3 @@ fun sortBy (f, l) {
 
 sig sortByBase : ((a) ~b~> (| _::Base), [a]) ~b~> [a]
 fun sortByBase(f, l) {sortBy(f, l)}
-
-# Standard functions
-fun id(x) {x}
-
-sig ignore : (a) -> ()
-fun ignore(_) { () }
