@@ -122,6 +122,12 @@ let reference = {
     arity = [`Type, (`Any, `Any)];
 }
 
+let performance = {
+  Abstype.id = "Perf";
+  name = "Perf";
+  arity = [];
+}
+
 type ('t, 'r) session_type_basis =
     [ `Input of 't * 't
     | `Output of 't * 't

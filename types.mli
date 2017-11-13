@@ -79,6 +79,7 @@ val access_point : Abstype.t
 val socket       : Abstype.t
 val spawn_location : Abstype.t
 val reference : Abstype.t
+val performance : Abstype.t
 
 type ('t, 'r) session_type_basis =
     [ `Input of 't * 't
