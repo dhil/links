@@ -118,7 +118,8 @@ module Prim_Functions : PRIM_DESC = struct
     | "Concat" -> "%List.concat",2
     | "error"  -> "%IO.error",1
     | "print"  -> "%IO.print",1
-    | "now"    -> "%now",0
+    | "perfNow"    -> "%Performance.now",0
+    | "perfElapsed" -> "%Performance.elapsed", 2
     | "intToString" | "floatToString" -> "%String.ofNumber",1
     | "floatToInt" -> "%Number.toInt",1 | "intToFloat" -> "%Number.toFloat",1
     | _ -> raise Not_found
@@ -1403,7 +1404,7 @@ module CEK = struct
   let rec generate_program : venv -> Ir.program -> venv * Js.program
     = fun env (bs,tc) ->
       let open Js in
-      let env', fenv, fun_decls = generate_toplevel_bindings env bs in
+      let env', bindings, fenv, fun_decls = generate_toplevel_bindings env bs in
       let main = generate_tail_computation env' tc in
       let funsb = Ident.of_string "funs" in
       let env_of = Ident.of_string "Env.of" in
@@ -1420,7 +1421,7 @@ module CEK = struct
         DLet {
           bkind = `Const;
           binder = programb;
-          expr = main;
+          expr = Make.computation bindings main;
         }
       in
       let resultb = Ident.of_string "result" in
@@ -1442,28 +1443,32 @@ module CEK = struct
       in
       env', (fun_decls @ [funs; program; result], toplevel)
 
-  and generate_toplevel_bindings : venv -> Ir.binding list -> venv * (Js.label * Js.expression) list * Js.decl list
+  and generate_toplevel_bindings : venv -> Ir.binding list -> venv * Js.expression list * (Js.label * Js.expression) list * Js.decl list
     = fun env bs ->
-    let open Js in
-    let rec gbs env fenv = function
-    | `Module _ :: bs | `Alien _ :: bs -> gbs env fenv bs
-    | `Let _ :: bs -> assert false
-    | `Fun ((b,_,_,_) as fundef) :: bs ->
-       let (fb, f_name) = safe_name_binder b in
-       let f = generate_function env [] fundef in
-       let decl =
-         DLet {
-             bkind = `Const;
-             binder = f_name;
-             expr = f;
-           }
-       in
-       let env' = VEnv.bind env (fb, f_name) in
-       let env'', fenv', decls = gbs env' ((f_name, EVar f_name) :: fenv) bs in
-       env'', fenv', decl :: decls
-    | _ -> assert false
-    in
-    gbs env [] bs
+      let open Js in
+      let rec gbs env bindings fenv decls = function
+        | [] -> env, bindings, fenv, decls
+        | `Module _ :: bs | `Alien _ :: bs -> gbs env bindings fenv decls bs
+        | `Fun ((b,_,_,_) as fundef) :: bs ->
+           let (fb, f_name) = safe_name_binder b in
+           let f = generate_function env [] fundef in
+           let decl =
+             DLet {
+               bkind = `Const;
+               binder = f_name;
+               expr = f;
+             }
+           in
+           let env' = VEnv.bind env (fb, f_name) in
+           gbs env' bindings ((f_name, EVar f_name) :: fenv) (decl :: decls) bs
+        | `Rec funs :: bs ->
+           let fs : Ir.binding list = List.map (fun fundef -> `Fun fundef) funs in
+           gbs env bindings fenv decls (fs @ bs)
+        | b :: bs -> (* Let binding *)
+           let env', binding = generate_binding env b in
+           gbs env' (binding :: bindings) fenv decls bs
+      in
+      gbs env [] [] [] bs
 
   and generate_computation : venv -> Ir.computation -> venv * Js.expression
     = fun env (bs, tc) ->
