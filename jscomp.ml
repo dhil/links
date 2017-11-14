@@ -1609,7 +1609,16 @@ module CEK = struct
                 else if Functions.is f_name then
                   Make.variable (Functions.prim_name ~op:f_name ())
                 else
-                  Make.variable f_name
+                  if Lib.is_primitive f_name
+                    && Lib.primitive_location f_name <> `Server
+                  then
+                    match f_name with
+                    | "deref" -> Make.variable "%Reference.deref"
+                    | "ref" -> Make.variable "%Reference.ref"
+                    | ":=" -> Make.variable "%Reference.assign"
+                    | _ -> Make.variable f_name
+                  else
+                    Make.variable f_name
               in
               Make.apply f (List.map gv vs)
            | _ ->
@@ -1642,12 +1651,38 @@ module CEK = struct
       | `DoOperation (name, args, _) ->
          let box = function
            | [] -> Make.extend [] None
-           | [v] -> gv v
            | vs -> Make.extend (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs) None
          in
          Make.do_operation name (box args)
       | `Handle { ih_comp; ih_clauses; ih_depth } ->
-         failwith "Not yet implemented."
+         let open Utility in
+         let _, m = generate_computation env ih_comp in
+         let (return, operations) = StringMap.pop "Return" ih_clauses in
+         let op_case (r, b, body) =
+           let env', rname =
+             match r with
+             | `NoResumption ->
+                let dummy = Var.fresh_binder (Var.make_local_info (`Not_typed, "dummy_resume")) in
+                let (v, dummy) = safe_name_binder dummy in
+                VEnv.bind env (v, dummy), dummy
+             | `ResumptionBinder rb ->
+                let (vresume, resume) = safe_name_binder rb in
+                VEnv.bind env (vresume, resume), resume
+           in
+           let (b', bname) = safe_name_binder b in
+           let env'' = VEnv.bind env' (b',bname) in
+           Make.opclause (Ident.of_string bname) (Ident.of_string rname) (snd @@ generate_computation env'' body)
+         in
+         let return_case (_, b, body) =
+           let (b', bname) = safe_name_binder b in
+           let env' = VEnv.bind env (b', bname) in
+           Make.clause (Ident.of_string bname) (snd @@ generate_computation env' body)
+         in
+         let operations = StringMap.to_alist operations in
+         let op_case' (label, clause) =
+           label, op_case clause
+         in
+         Make.handle m (return_case return) (EObj (List.map op_case' operations)) ih_depth
       | _ -> failwith "Unsupported special."
 
   and generate_value : venv -> Ir.value -> Js.expression
