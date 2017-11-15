@@ -1027,15 +1027,25 @@ module GenIter = struct
                            ; ("_value", make_dictionary [("p", box args)]) ]
          in
          [], SExpr (EYield { ykind = `Regular; yexpr = op })
-      | `Handle { ih_comp; ih_clauses; _ } ->
+      | `Handle { ih_comp; ih_clauses; ih_depth } ->
          let open Utility in
+         let next iterator arg =
+           match arg with
+           | Some arg -> EApply (EAccess (iterator, "next"), [arg])
+           | None -> EApply (EAccess (iterator, "next"), [])
+         in
          let handle_next handle iterator arg =
-           let next =
-             match arg with
-             | Some arg -> EApply (EAccess (iterator, "next"), [arg])
-             | None -> EApply (EAccess (iterator, "next"), [])
-           in
-           EApply (handle, [next])
+           EApply (handle, [next iterator arg])
+         in
+         let make_shallow_resumption iterator =
+           let x = Ident.of_string "x" in
+           let yexpr = next iterator (Some (EVar x)) in
+           EFun {
+             fname = `Anonymous;
+             fkind = `Generator;
+             formal_params = [x];
+             body = [], SReturn (EYield { ykind = `Star; yexpr; })
+           }
          in
          let make_deep_resumption handle_name iterator =
            let x = Ident.of_string "x" in

@@ -27,12 +27,13 @@ fun evalState(m)(st)() {
 }
 
 fun main(mode, input, expected) {
-    var start = now();
+    var start = perfNow();
     var result = evalState(count)(input)();
-    var elapsed = now() -. start;
-    print("DONE " ^^ intToString(result) ^^ ", " ^^ floatToString(elapsed));
+    var end = perfNow();
+    var elapsed = perfElapsed(start, end);
+    print("DONE " ^^ intToString(result) ^^ ", " ^^ intToString(elapsed));
     # verify("Count", mode, input, expected, start)
     ()
 }
 
-main("cps", 10, 0)
+main("cps", 100, 0)
