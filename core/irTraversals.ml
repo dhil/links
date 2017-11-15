@@ -950,4 +950,38 @@ module InstantiateTypes =
       let p, _, _ = (ir_type_mod_visitor tyenv (instantiate instantiation_maps))#computation c in
       p
 
+type eval_fun_def = var_info * (var list * computation) * Var.var option * location
+  deriving (Show)
+
+(* Eta expand DOs in tail position *)
+module EtaTailDos =
+struct
+
+  let expander tyenv env =
+  object (o)
+    inherit Transform.visitor(tyenv) as super
+
+    val env = env
+
+    method with_env env =
+      {< env = env >}
+
+    method! computation (bs, tc) =
+        match tc with
+        | (`Special (`DoOperation (_,_,t))) as tc ->
+           let v = gensym ~prefix:"_v" () in
+           let vb = Var.fresh_binder (Var.make_local_info (t, v)) in
+           let b = `Let (vb, ([], tc)) in
+           let tc = `Return (`Variable (Var.var_of_binder vb)) in
+           let bs',o = o#bindings (bs @ [b]) in
+           let tc',dt,o = o#tail_computation tc in
+           (bs',tc'),dt,o
+        | _ ->
+           let bs',o = o#bindings bs in
+           let tc',dt,o = o#tail_computation tc in
+           (bs', tc'), dt, o
+  end
+
+  let program typing_env p =
+    fst3 ((expander typing_env IntMap.empty)#computation p)
 end

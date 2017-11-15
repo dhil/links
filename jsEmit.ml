@@ -269,7 +269,8 @@ module CodeGen : CODEGEN = struct
         List.mem
           label
           ["return";
-           "default"]
+           "default";
+           "yield"]
       in
       if is_numeric label then (* use subscript notation *)
         hgrp (obj $ ((text (Printf.sprintf "[%s]" label))))
