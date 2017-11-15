@@ -979,7 +979,7 @@ module GenIter = struct
                      (* [x_binding], SReturn (EVar x_name) *)
               end
            | _ ->
-              [], SReturn (EApply (gv f, List.map gv vs))
+              [], SReturn (EYield { ykind = `Star; yexpr = EApply (gv f, List.map gv vs) })
          end
       | `Special special ->
          generate_special env special
@@ -1293,6 +1293,17 @@ module GenIter = struct
            snd (generate_computation body_env body)
         | _ -> failwith "Only client side calls are supported."
       in
+      (* let body = *)
+      (*   (\* HACK to ensure that *)
+      (*      [[fun get() {do Get}]] *)
+      (*     = *)
+      (*      function* get() { return yield {"_label":"Get", "_value": ... } } *)
+      (*   *\) *)
+      (*   match body with *)
+      (*   | (bs, SExpr ((EYield _) as yield)) -> *)
+      (*      (bs, SReturn yield) *)
+      (*   | _ -> body *)
+      (* in *)
       DFun {
         fname = `Named (Ident.of_string f_name);
         fkind = `Generator;
@@ -1303,8 +1314,9 @@ module GenIter = struct
   let compile : comp_unit -> prog_unit
     = fun u ->
       let open Js in
-      let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
-      let (_,prog) = generate_program venv u.program in
+      let (_nenv, venv, tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
+      let prog = Ir.EtaTailDos.program tenv u.program in
+      let (_,prog) = generate_program venv prog in
       let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "geniter.js"] in
       { u with program = prog; includes = dependencies @ u.includes }
 end

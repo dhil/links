@@ -36,4 +36,4 @@ fun main(mode, input, expected) {
     ()
 }
 
-main("cps", 100, 0)
+main("cps", 10, 0)

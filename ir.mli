@@ -181,5 +181,10 @@ sig
   val program : Types.datatype Env.Int.t -> program -> program
 end
 
+module EtaTailDos :
+sig
+  val program : Types.datatype Env.Int.t -> program -> program
+end
+
 type eval_fun_def = var_info * (var list * computation) * Var.var option * location
   deriving (Show)
