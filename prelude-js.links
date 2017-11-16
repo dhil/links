@@ -20,10 +20,18 @@ fun assert(eq, toString, expected, actual) {
 # Don't use a for comprehension to define concatMap, as
 # for comprehensions are desugared into concatMap!
 sig concatMap : ((a) ~e~> [b], [a]) ~e~> [b]
-fun concatMap(f, l) {
-  switch (l) {
+fun concatMap(f, xs) {
+  switch (xs) {
     case [] -> []
-    case hd::tl -> f(hd) ++ concatMap(f, tl)
+    case x::xs -> f(x) ++ concatMap(f, xs)
+  }
+}
+
+sig fold_left : ((a, b) ~e~> a, a, [b]) ~e~> a
+fun fold_left(f, acc, xs) {
+  switch (xs) {
+    case [] -> acc
+    case x::xs -> fold_left(f, f(acc, x), xs)
   }
 }
 
