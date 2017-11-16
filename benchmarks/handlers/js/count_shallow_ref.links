@@ -1,0 +1,34 @@
+# Stateful counting
+# Microbenchmark adapted from Kammar et al. (2013).
+
+alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%~> Bool, %a, () ~%~> %a) ~%~> ();
+
+sig get : () {Get:s|_}-> s
+fun get() {do Get}
+
+sig put : (s) {Put:(s) {}-> ()|_}-> ()
+fun put(st) {do Put(st)}
+
+sig count : (Comp({Get:Int,Put:(Int) {}-> () |_}, Int))
+fun count() {
+  var n = get();
+  if (n == 0) 0
+  else { put(n-1); count() }
+}
+
+sig evalState : (Comp({Get:s ,Put:(s) {}-> () |e}, a)) -> # Abstract stateful computation
+                (s)                                    -> # Initial state
+                 Comp({Get{_},Put{_}          |e}, a)     # Instantiated computation
+fun evalState(m)(st)() {
+  var st = ref(st);
+  fun stateHandler(m) {
+    shallowhandle(m()) {
+      case Return(x)     -> x
+      case Get(resume)   -> stateHandler(fun() {resume(deref(st))})
+      case Put(p,resume) -> st := p; stateHandler(fun() {resume(())})
+   }
+ }
+ stateHandler(m)
+}
+
+benchmark("Shallow counting (reference cell)", (==), 0, fun() { evalState(count)(10000)() })
