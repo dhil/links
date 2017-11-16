@@ -1,0 +1,102 @@
+sig abs : (Int) -> Int
+fun abs(i) {
+  if (i < 0) -i else i
+}
+
+fun intRange(m,n) {
+  fun intRangeAux(m,n,result) {
+    if (m > n) result
+    else intRangeAux(m, n-1, n::result)
+  }
+  intRangeAux(m,n,[])
+}
+
+sig choose : ([a]) {Choose:([a]) {}-> a |_}-> a
+fun choose(xs) { do Choose(xs) }
+
+fun for_all(p, xs) {
+  switch (xs) {
+    case [] -> true
+    case x :: xs -> if (p(x)) for_all(p, xs) else false
+  }
+}
+
+fun intersperse(y, xs) {
+   switch (xs) {
+     case []      -> []
+     case [x]     -> [x]
+     case x :: xs -> x :: y :: intersperse(y,xs)
+   }
+}
+
+fun showList(showX)(xs) {
+  var xs = fold_left(fun (acc, x) { acc ^^ x }
+                    , ""
+                    , intersperse(", ", map(showX, xs)));
+  "[" ^^ xs ^^ "]"
+}
+
+fun showMaybe(s)(m) {
+   switch (m) {
+      case Just(x) -> "Just(" ^^ s(x) ^^ ")"
+      case Nothing -> "Nothing"
+   }
+}
+
+sig showPair : forall a, b . ((a) -e-> String, (b) -e-> String) -> ((a,b)) -e-> String
+fun showPair(showX,showY)((x,y)) {
+    "(" ^^ showX(x) ^^ ", " ^^ showY(y) ^^ ")"
+}
+
+fun noAttack((a,b))((c,d)) {
+  a <> c && b <> d && abs(a - c) <> abs(b - d)
+}
+
+fun available(a, qs, l) {
+  filter(fun(b) { for_all(noAttack((a,b)), qs) }, l)
+}
+
+fun chooseHandler(m) {
+    handle(m()) {
+      case Return(x) -> Just(x)
+      case Choose(xs,resume) -> {
+           fun loop(xs) {
+              switch(xs) {
+                case []      -> Nothing
+                case x :: xs ->
+                  switch (resume(x)) {
+                    case Nothing -> loop(xs)
+                    case Just(x) -> Just(x)
+                  }
+              }
+           }
+           loop(xs)
+      }
+    }
+}
+
+fun findSolution(n)() {
+    var l = intRange(1,n);
+
+    fun place(x, qs) {
+        if (x == n+1) qs
+        else {
+          var y = choose(available(x, qs, l));
+          place(x+1, (x,y) :: qs)
+        }
+    }
+
+    place(1, [])
+}
+
+
+fun main() {
+  var n = 8;
+  var showSolution = showMaybe(showList(showPair(intToString,intToString)));
+  var solution = showSolution(chooseHandler(findSolution(n)));
+  solution
+}
+
+alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%e~> Bool, %a, () ~%e~> %a) ~%e~> ();
+
+benchmark("Queens", (==), "Just([(8, 4), (7, 2), (6, 7), (5, 3), (4, 6), (3, 8), (2, 5), (1, 1)])", main)
