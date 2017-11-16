@@ -474,10 +474,25 @@ let compile_js () =
        let nenv = Env.String.extend nenv nenv' in
        let tyenv = Types.extend_typing_environment tyenv tyenv' in
        let (globals, (locals,main), t) = source.program in
-       (* Printf.printf "Bindings:\n%s\n%!" (Ir.Show_program.show (locals, `Special (`Wrong `Not_typed))); *)
        let tenv' = Var.varify_env (nenv, tyenv.Types.var_env) in
-       let (globals,main) = Closures.program tenv' Lib.primitive_vars (globals @ locals,main) in
+       (* Optimise *)
+       let optimise_program tenv program =
+         let program = Ir.ElimDeadDefs.program tenv program in
+         let program = Ir.Inline.program tenv program in
+         program
+       in
+       let program =
+         if Settings.get_value BS.optimise
+         then (prerr_endline "optimising."; optimise_program tenv' (globals @ locals, main))
+         else (globals @ locals, main)
+       in
+       (* Closure convert *)
+       let closure_convert tenv program =
+       (* Printf.printf "Bindings:\n%s\n%!" (Ir.Show_program.show (locals, `Special (`Wrong `Not_typed))); *)
+         Closures.program tenv Lib.primitive_vars program
        (* BuildTables.program tenv' Lib.primitive_vars (locals, main); *)
+       in
+       let (globals, main) = closure_convert tenv' program in
        let external_files = source.external_dependencies in
        ((prelude @ globals, main), t), (nenv, tyenv), external_files
      in
