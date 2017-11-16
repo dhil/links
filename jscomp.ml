@@ -1510,7 +1510,7 @@ module CEK = struct
         }
       in
       let rec gbs env bindings fenv decls = function
-        | [] -> env, bindings, fenv, decls
+        | [] -> env, List.rev bindings, fenv, List.rev decls
         | `Module _ :: bs -> gbs env bindings fenv decls bs
         | `Fun ((b,_,_,_) as fundef) :: bs ->
            let (fb, f_name) = safe_name_binder b in
@@ -1558,7 +1558,7 @@ module CEK = struct
       | b :: bs ->
          let env', expr = generate_binding env b in
          let (env'', expr') = gbs env' bs in
-         env'', expr :: expr'
+         env'',  expr :: expr'
       | [] -> env, []
 
   and generate_binding : venv -> Ir.binding -> venv * Js.expression
