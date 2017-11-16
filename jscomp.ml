@@ -801,7 +801,19 @@ module CPS = struct
       (* Printf.printf "nenv:\n%s\n%!" (string_of_nenv u.envs.nenv); *)
       (* Printf.printf "venv:\n%s\n%!" (string_of_venv venv); *)
       let (_,prog) = generate_program venv u.program K.toplevel in
-      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "cps.js"] in
+      let prog =
+        match prog with
+        | decls, stmt ->
+           let mode =
+             DLet {
+               bkind = `Const;
+               binder = Ident.of_string "_mode";
+               expr = ELit (LString "CPS");
+             }
+           in
+           mode :: decls, stmt
+      in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "performance.js"; "cps.js"] in
       { u with program = prog; includes = u.includes @ dependencies }
 end
 
@@ -1323,7 +1335,19 @@ module GenIter = struct
       let (_nenv, venv, tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
       let prog = Ir.EtaTailDos.program tenv u.program in
       let (_,prog) = generate_program venv prog in
-      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "geniter.js"] in
+      let prog =
+        match prog with
+        | decls, stmt ->
+           let mode =
+             DLet {
+               bkind = `Const;
+               binder = Ident.of_string "_mode";
+               expr = ELit (LString "GENITER");
+             }
+           in
+           mode :: decls, stmt
+      in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "performance.js"; "geniter.js"] in
       { u with program = prog; includes = u.includes @ dependencies }
 end
 
@@ -1465,7 +1489,7 @@ module CEK = struct
           binder = resultb;
           expr =
             EApply (EVar value_to_string,
-                    [EApply (EVar cek_run, [EVar funsb; EVar programb])]);
+                    [EApply (EVar cek_run, [EVar funsb; EVar "Env.empty"; EVar programb])]);
 
         }
       in
@@ -1801,7 +1825,19 @@ module CEK = struct
       Printf.eprintf "nenv:\n%s\n%!" (string_of_nenv u.envs.nenv);
       Printf.eprintf "venv:\n%s\n%!" (string_of_venv venv);
       let (_,prog) = generate_program venv u.program in
-      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["immutable.js"; "cek.js"] in
+      let prog =
+        match prog with
+        | decls, stmt ->
+           let mode =
+             DLet {
+               bkind = `Const;
+               binder = Ident.of_string "_mode";
+               expr = ELit (LString "CEK");
+             }
+           in
+           mode :: decls, stmt
+      in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["performance.js"; "immutable.js"; "cek.js"] in
       { u with program = prog; includes = u.includes @ dependencies }
 end
 
