@@ -38,10 +38,10 @@ sig up : (Consumer({Yield{yp} |e}, s)) -> (Pump({ |e}, s)) {Yield{yp} |e}~> ()
 var up = fun(cons)(m) { up(m)()(cons) };
 
 # Handles await
-sig down : ( Comp( {Await:s |e}, ()) )
+sig down0 : ( Comp( {Await:s |e}, ()) )
                    {Await{ap} |e}~>
              Comp( {Await{ap} |e}, (Producer({Await{ap} |e}, s)) {Await{ap} |e}~> ())
-fun down(m)() {
+fun down0(m)() {
   handle(m()) {
     case Return(x) -> fun(_) { x }
     case Await(k)  ->
@@ -53,7 +53,7 @@ fun down(m)() {
 }
 
 sig down : (Producer({Await{ap} |e}, s)) -> (Sink({ |e}, s)) {Await{ap} |e}~> ()
-var down = fun(prod)(m) { down(m)()(prod) };
+var down = fun(prod)(m) { down0(m)()(prod) };
 
 # Some combinators
 # sig <+< : ( Comp({Await:s  , Yield{yp}          |e}, ())      # in: down
@@ -176,9 +176,6 @@ fun unitTest(n) {
   }
 }
 
-fun main() {
-  var result = unitTest(0);
-  print(result)
-}
+alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%e~> Bool, %a, () ~%e~> %a) ~%e~> ();
 
-main()
+benchmark("Deep pipes", (==), "199", fun() { unitTest(0) })
