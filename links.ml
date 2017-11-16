@@ -482,8 +482,8 @@ let compile_js () =
        ((prelude @ globals, main), t), (nenv, tyenv), external_files
      in
      (* Printf.printf "Size: %d\n" (Env.String.fold (fun _ _ acc -> acc + 1) nenv 0); *)
-     let (program, _t), (nenv, tenv), _alien = parse_and_desugar (nenv, tenv) src in
-     let program = Js.make_comp_unit ~source:src ~program ~tenv ~nenv ~target:!ParseSettings.target () in
+     let (program, _t), (nenv, tenv), alien = parse_and_desugar (nenv, tenv) src in
+     let program = Js.make_comp_unit ~includes:alien ~source:src ~program ~tenv ~nenv ~target:!ParseSettings.target () in
      let program = Jscomp.Compiler.compile program in
      JsEmit.emit ~program ()
 

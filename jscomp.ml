@@ -736,8 +736,11 @@ module CPS = struct
              let env', (rest, prog) = gbs (List.fold_left VEnv.bind env fs) kappa bs in
              let defs = List.map (generate_function env fs) defs in
              (env', (defs @ rest, prog))
-          | `Module _ :: bs
-          | `Alien _ :: bs -> gbs env kappa bs
+          | `Module _ :: bs -> gbs env kappa bs
+          | `Alien (bnd, raw_name, _lang) :: bs ->
+             let (a, _a_name) = safe_name_binder bnd in
+             let env' = VEnv.bind env (a, raw_name) in
+             gbs env' kappa bs
           | [] -> (env, generate_tail_computation env tc kappa)
       in
       gbs env kappa bs
@@ -799,7 +802,7 @@ module CPS = struct
       (* Printf.printf "venv:\n%s\n%!" (string_of_venv venv); *)
       let (_,prog) = generate_program venv u.program K.toplevel in
       let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "cps.js"] in
-      { u with program = prog; includes = dependencies @ u.includes }
+      { u with program = prog; includes = u.includes @ dependencies }
 end
 
 (** Generator / Iterator compiler **)
@@ -843,8 +846,11 @@ module GenIter = struct
       (* let open Js in *)
       let gbs env bs = generate_bindings ~toplevel env bs in
       function
-      | `Module _ :: bs
-      | `Alien _ :: bs -> gbs env bs
+      | `Module _ :: bs -> gbs env bs
+      | `Alien (bnd, raw_name, _lang) :: bs ->
+         let (a, _a_name) = safe_name_binder bnd in
+         let env' = VEnv.bind env (a, raw_name) in
+         gbs env' bs
       | b :: bs ->
          let env', decls = generate_binding ~toplevel env b in
          let (env'', decls') = gbs env' bs in
@@ -920,7 +926,7 @@ module GenIter = struct
          let env' = List.fold_left VEnv.bind env fs in
          let defs = List.map (generate_function env fs) defs in
          env', defs
-      | `Module _ | `Alien _ -> failwith "Module and Alien are unsupported."
+      | `Module _  | `Alien _ -> assert false
 
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
     = fun env tc ->
@@ -1318,7 +1324,7 @@ module GenIter = struct
       let prog = Ir.EtaTailDos.program tenv u.program in
       let (_,prog) = generate_program venv prog in
       let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "geniter.js"] in
-      { u with program = prog; includes = dependencies @ u.includes }
+      { u with program = prog; includes = u.includes @ dependencies }
 end
 
 (** CEK compiler **)
@@ -1421,6 +1427,10 @@ module CEK = struct
     let closure : string -> expr -> expr
       = fun fn_name fvs ->
         ir "closure" [ELit (LString fn_name); fvs]
+
+    let alien : string -> expr
+      = fun fn_name ->
+        ir "alien" [ELit (LString fn_name)]
   end
 
   let rec generate_program : venv -> Ir.program -> venv * Js.program
@@ -1477,7 +1487,7 @@ module CEK = struct
       in
       let rec gbs env bindings fenv decls = function
         | [] -> env, bindings, fenv, decls
-        | `Module _ :: bs | `Alien _ :: bs -> gbs env bindings fenv decls bs
+        | `Module _ :: bs -> gbs env bindings fenv decls bs
         | `Fun ((b,_,_,_) as fundef) :: bs ->
            let (fb, f_name) = safe_name_binder b in
            let f = generate_function env [] fundef in
@@ -1502,7 +1512,7 @@ module CEK = struct
              ) (fenv, decls) funs
          in
          gbs env' bindings fenv' decls' bs
-        | b :: bs -> (* Let binding *)
+        | b :: bs -> (* Let or alien binding *)
            let env', binding = generate_binding env b in
            gbs env' (binding :: bindings) fenv decls bs
       in
@@ -1519,8 +1529,8 @@ module CEK = struct
       let open Js in
       let gbs env bs = generate_bindings env bs in
       function
-      | `Module _ :: bs | `Alien _ :: bs -> gbs env bs
-      | `Fun _ :: bs | `Rec _ :: bs -> gbs env bs
+      | `Module _ :: bs -> gbs env bs
+      | `Fun _ :: bs | `Rec _ :: bs -> gbs env bs (* assumed closure converted *)
       | b :: bs ->
          let env', expr = generate_binding env b in
          let (env'', expr') = gbs env' bs in
@@ -1534,6 +1544,10 @@ module CEK = struct
        let (b', bname) = safe_name_binder b in
        let env' = VEnv.bind env (b', bname) in
        env', Make.binding bname (generate_tail_computation env tc)
+    | `Alien (bnd, raw_name, _lang) ->
+       let (a, a_name) = safe_name_binder bnd in
+       let env' = VEnv.bind env (a, a_name) in
+       env', Make.binding a_name (Make.return (Make.alien raw_name))
     | _ -> assert false
 
   (* and generate_binding : ?toplevel:bool -> venv -> Ir.binding -> venv * Js.decl list *)
@@ -1788,7 +1802,7 @@ module CEK = struct
       Printf.eprintf "venv:\n%s\n%!" (string_of_venv venv);
       let (_,prog) = generate_program venv u.program in
       let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["immutable.js"; "cek.js"] in
-      { u with program = prog; includes = dependencies @ u.includes }
+      { u with program = prog; includes = u.includes @ dependencies }
 end
 
 (* Compiler selection *)
