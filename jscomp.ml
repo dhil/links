@@ -1134,7 +1134,7 @@ module GenIter = struct
                  DLet {
                    bkind = `Const;
                    binder = x_name;
-                   expr = EYield { ykind = `Regular; yexpr = EAccess (EVar iterator, "value") };
+                   expr = EYield { ykind = `Regular; yexpr = EAccess (EVar op_or_value, "value") };
                  }
                in
                [x_binding], SReturn (EYield { ykind = `Star; yexpr = handle_next (EVar handle_name) (EVar iterator) (Some (EVar x_name)) })
