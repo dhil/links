@@ -592,8 +592,10 @@ module CPS = struct
                                ; ("_value", make_dictionary [("p", box args); ("s", resumption)]) ]
              in
              bind K.(SReturn (apply (seta <> kappas) op)))
-      | `Handle { Ir.ih_comp = comp; Ir.ih_clauses = clauses; _ } ->
+      | `Handle { Ir.ih_comp = comp; Ir.ih_clauses = clauses; Ir.ih_depth } ->
          let open Utility in
+         if ih_depth = `Shallow then
+           failwith "Translation of shallow handlers has not yet been implemented.";
          (* Generate body *)
          let gb env binder body kappas =
            let env' = VEnv.bind env (safe_name_binder binder) in
