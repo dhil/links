@@ -5,7 +5,7 @@ module BS = Basicsettings
 let to_evaluate : string list ref = ref []
 let to_precompile : string list ref = ref []
 let file_list : string list ref = ref []
-let target : string ref = ref "a.js"
+let target : string ref = ref "/dev/stdout"
 
 let set_web_mode() = (
     (* When forcing web mode using the command-line argument, default

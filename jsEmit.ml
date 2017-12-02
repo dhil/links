@@ -146,9 +146,11 @@ module CodeGen : CODEGEN = struct
   let persist _ = assert false
 
   let gen cu code =
+    let open Js in
     let (_, st) = State.run ~init:(cu, PP.empty) code in
-    Printf.printf "%s\n%!" (PP.to_string ~width:256 (PP.vgrp (snd st)));
-    ()
+    let oc = open_out cu.target in
+    Printf.fprintf oc "%s\n%!" (PP.to_string ~width:256 (PP.vgrp (snd st)));
+    close_out oc
 
   let rec sequence : (js -> js) -> js list -> js
     = fun sep ->

@@ -483,7 +483,7 @@ let compile_js () =
        in
        let program =
          if Settings.get_value BS.optimise
-         then (prerr_endline "optimising."; optimise_program tenv' (globals @ locals, main))
+         then (optimise_program tenv' (globals @ locals, main))
          else (globals @ locals, main)
        in
        (* Closure convert *)
