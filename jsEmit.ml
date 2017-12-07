@@ -80,6 +80,8 @@ module type CODEGEN = sig
     val sequence : js -> js -> js
     val break : unit -> js
     val whileloop : js -> program -> js
+    val continue : js
+    val assign : ident -> js -> js
   end
 
   module Prim: sig
@@ -391,6 +393,16 @@ module CodeGen : CODEGEN = struct
                        (nest 2
                           (break $ (layout_program body))))
                     $/ (text "}"))))
+
+    let continue = PP.(text "continue;")
+
+    let assign x expr =
+      let open PP in
+      hgrp
+        ((text x)
+            $/ (text "=")
+            $/ expr
+            $ (text ";"))
   end
 
   module Prim = struct
@@ -520,6 +532,10 @@ and statement : Js.statement -> CodeGen.js
      CodeGen.Stmt.break ()
   | SWhile (cond, body) ->
      CodeGen.Stmt.whileloop (expression cond) (program' body)
+  | SAssign (x, expr) ->
+     CodeGen.Stmt.assign x (expression expr)
+  | SContinue ->
+     CodeGen.Stmt.continue
 
 and primitive : string -> CodeGen.js
   = fun p ->

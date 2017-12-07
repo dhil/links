@@ -172,6 +172,8 @@ and statement =
   | SExpr of expression
   | SBreak
   | SWhile of expression * program
+  | SContinue
+  | SAssign of Ident.t * expression
 and decl =
   | DLet of binding
   | DFun of fn
