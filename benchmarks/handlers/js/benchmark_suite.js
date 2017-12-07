@@ -1,4 +1,4 @@
-const _Benchmark = (function() {
+it const _Benchmark = (function() {
     const iterations = 5; // How many times to repeat a benchmark
 
     function generate_report(mode, program_name, result) {
@@ -70,7 +70,7 @@ const _Benchmark = (function() {
         'geniter': function*(program_name, compare, expected, program) {
             // Result comparison
             const comparer = function(expected, actual) {
-                return compare(expected, actual);
+                return _Toplevel.run(function*() { return yield* compare(expected, actual); });
             };
             // Thunked program
             const thunk = function() {

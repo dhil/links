@@ -28,4 +28,4 @@ fun evalState(m)(st)() {
   }
 }
 
-benchmark("Deep counting (reference cell)", (==), 0, fun() { evalState(count)(10000)() })
+benchmark("Deep counting (reference cell)", (==), 0, fun() { evalState(count)(100)() })
