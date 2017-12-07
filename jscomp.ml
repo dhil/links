@@ -1059,12 +1059,12 @@ module GenIter = struct
          in
          let make_shallow_resumption iterator =
            let x = Ident.of_string "x" in
-           let yexpr = next iterator (Some (EVar x)) in
+           let expr = next iterator (Some (EVar x)) in
            EFun {
              fname = `Anonymous;
              fkind = `Generator;
              formal_params = [x];
-             body = [], SReturn (EYield { ykind = `Star; yexpr; })
+             body = [], SReturn expr;
            }
          in
          let make_deep_resumption handle_name iterator =
@@ -1077,57 +1077,66 @@ module GenIter = struct
              body = [], SReturn (EYield { ykind = `Star; yexpr; });
            }
          in
-         let handle iterator =
-           let (===) a b =
-             EApply (EPrim "%eq", [a; b])
+         let generate_operation_clause env op_value resumption (resumeb, xb, body) =
+           (* Generate arguments and resumption binders *)
+           let (_, x_name) as xb = safe_name_binder xb in
+           let p_binding =
+             DLet {
+               bkind = `Const;
+               binder = x_name;
+               expr = EAccess (EAccess (op_value, "_value"), "p");
+             }
            in
+           let env', bindings =
+             match resumeb with
+             | `ResumptionBinder rb ->
+                let (_,r_name) as rb = safe_name_binder rb in
+                let r_binding =
+                  DLet {
+                    bkind = `Const;
+                    binder = r_name;
+                    expr = resumption;
+                  }
+                in
+                VEnv.bind (VEnv.bind env xb) rb, r_binding :: p_binding :: []
+             | _ ->
+                VEnv.bind env xb, p_binding :: []
+           in
+           (* Generate the body *)
+           let _, (decls, prog) = generate_computation env' body in
+           bindings @ decls, prog
+         in
+         let generate_return_clause env value (_, xb, body) =
+           let (x_binder, x_name) = safe_name_binder xb in
+           let return_value_binding =
+             DLet {
+               bkind = `Const;
+               binder = x_name;
+               expr = value;
+             }
+             in
+           let (_,(decls, stmt)) = generate_computation (VEnv.bind env (x_binder, x_name)) body in
+           return_value_binding :: decls, stmt
+         in
+         (* Equality *)
+         let (===) a b =
+           EApply (EPrim "%eq", [a; b])
+         in
+         (* Deep handler compilation *)
+         let deep_handle iterator =
            let op_or_value = Ident.make ~prefix:"_op_or_value" () in
            let handle_name = Ident.make ~prefix:"_handle" () in
            let return_clause, operation_clauses = StringMap.pop "Return" ih_clauses in
+           let op_value = EAccess (EVar op_or_value, "value") in
            (* Generate the return clause *)
            let return_clause =
-             let (_, xb, body) = return_clause in
-             let (x_binder, x_name) = safe_name_binder xb in
-             let return_value_binding =
-               DLet {
-                 bkind = `Const;
-                 binder = x_name;
-                 expr = EAccess (EVar op_or_value, "value");
-               }
-             in
-             let (_,(decls, stmt)) = generate_computation (VEnv.bind env (x_binder, x_name)) body in
-             return_value_binding :: decls, stmt
+             generate_return_clause env op_value return_clause
            in
            (* Generate the operation clauses *)
            let operation_clauses =
-             let gc env (resumeb, xb, body) =
-               (* Generate arguments and resumption binders *)
-               let (_, x_name) as xb = safe_name_binder xb in
-               let p_binding =
-                 DLet {
-                   bkind = `Const;
-                   binder = x_name;
-                   expr = EAccess (EAccess (EAccess (EVar op_or_value, "value"), "_value"), "p");
-                 }
-               in
-               let env', bindings =
-                 match resumeb with
-                 | `ResumptionBinder rb ->
-                    let (_,r_name) as rb = safe_name_binder rb in
-                    let r_binding =
-                      DLet {
-                        bkind = `Const;
-                        binder = r_name;
-                        expr = make_deep_resumption (EVar handle_name) (EVar iterator);
-                      }
-                    in
-                    VEnv.bind (VEnv.bind env xb) rb, r_binding :: p_binding :: []
-                 | _ ->
-                    VEnv.bind env xb, p_binding :: []
-               in
-               (* Generate the body *)
-               let _, (decls, prog) = generate_computation env' body in
-               bindings @ decls, prog
+             let gc env clause =
+               let resumption = make_deep_resumption (EVar handle_name) (EVar iterator) in
+               generate_operation_clause env op_value resumption clause
              in
              (* Generate forwarding clause *)
              let forward =
@@ -1136,13 +1145,13 @@ module GenIter = struct
                  DLet {
                    bkind = `Const;
                    binder = x_name;
-                   expr = EYield { ykind = `Regular; yexpr = EAccess (EVar op_or_value, "value") };
+                   expr = EYield { ykind = `Regular; yexpr = op_value };
                  }
                in
                [x_binding], SReturn (EYield { ykind = `Star; yexpr = handle_next (EVar handle_name) (EVar iterator) (Some (EVar x_name)) })
              in
              let scrutinee =
-               EAccess (EAccess (EVar op_or_value, "value"), "_label")
+               EAccess (op_value, "_label")
              in
              [], SCase (scrutinee, StringMap.map (gc env) operation_clauses, Some forward)
            in
@@ -1152,10 +1161,60 @@ module GenIter = struct
              fname = `Named handle_name;
              formal_params = [op_or_value];
              body =
-               [], SIf ( (EAccess (EVar op_or_value, "done")) === (ELit (LBool false)),
-                         operation_clauses,
-                         return_clause);
+               [], SIf ( (EAccess (EVar op_or_value, "done")) === (ELit (LBool true)),
+                         return_clause,
+                         operation_clauses);
            }
+         in
+         (* Shallow handler compilation *)
+         let shallow_handle iterator =
+         let op_or_value = Ident.make ~prefix:"_op_or_value" () in
+           let return_clause, operation_clauses = StringMap.pop "Return" ih_clauses in
+           let op_value = EAccess (EVar op_or_value, "value") in
+           (* Generate the return clause *)
+           let return_clause =
+             generate_return_clause env op_value return_clause
+           in
+           (* Generate the operation clauses *)
+           let operation_clauses =
+             let gc env clause =
+               let resumption = make_shallow_resumption (EVar iterator) in
+               generate_operation_clause env op_value resumption clause
+             in
+             (* Generate forwarding clause *)
+             let forward =
+               let x_name = Ident.make ~prefix:"_x" () in
+               let x_binding =
+                 DLet {
+                   bkind = `Const;
+                   binder = x_name;
+                   expr = EYield { ykind = `Regular; yexpr = op_value };
+                 }
+               in
+               let op_or_value_upd =
+                 SAssign (op_or_value, next (EVar iterator) (Some (EVar x_name)))
+               in
+               [x_binding], SSeq (op_or_value_upd, SContinue)
+             in
+             let scrutinee =
+               EAccess (op_value, "_label")
+             in
+             [], SCase (scrutinee, StringMap.map (gc env) operation_clauses, Some forward)
+           in
+           let op_or_value_binding =
+             DLet {
+               bkind = `Let;
+               binder = op_or_value;
+               expr = next (EVar iterator) None;
+             }
+           in
+           (* Generate the handle *)
+           let tt = ELit (LBool true) in
+           [op_or_value_binding],
+           SWhile (tt,
+                   ([], SIf ( (EAccess (EVar op_or_value, "done")) === (ELit (LBool true)),
+                              return_clause,
+                              operation_clauses)))
          in
          (* Generate the iterator *)
          let iterator_name = Ident.make ~prefix:"_m" () in
@@ -1175,9 +1234,16 @@ module GenIter = struct
              expr = wrapped_computation;
            }
          in
-         let handle_name, handle_fn = handle iterator_name in
-         let init = handle_next (EVar handle_name) (EVar iterator_name) None in
-         [iterator_binding; handle_fn], SReturn (EYield { ykind = `Star; yexpr = init })
+         (* Generate the appropriate handle *)
+         begin match ih_depth with
+         | `Deep ->
+            let handle_name, handle_fn = deep_handle iterator_name in
+            let init = handle_next (EVar handle_name) (EVar iterator_name) None in
+            [iterator_binding; handle_fn], SReturn (EYield { ykind = `Star; yexpr = init })
+         | `Shallow ->
+            let (bs, stmt) = shallow_handle iterator_name in
+            iterator_binding :: bs, stmt
+         end
       | _ -> failwith "Unsupported special."
 
   and generate_value : venv -> Ir.value -> Js.expression
@@ -1552,7 +1618,7 @@ module CEK = struct
 
   and generate_bindings : venv -> Ir.binding list -> venv * Js.expression list
     = fun env ->
-      let open Js in
+      (* let open Js in *)
       let gbs env bs = generate_bindings env bs in
       function
       | `Module _ :: bs -> gbs env bs
