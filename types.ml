@@ -1587,11 +1587,12 @@ struct
       | (`Any, `Session) -> restriction `Session
       | (l, r) -> full (l, r)
 
+  let primary_kind : primary_kind -> string = function
+    | `Type -> "Type"
+    | `Row -> "Row"
+    | `Presence -> "Presence"
+
   let kind : (policy * names) -> kind -> string =
-    let primary_kind = function
-      | `Type -> "Type"
-      | `Row -> "Row"
-      | `Presence -> "Presence" in
     let restriction = function
       | `Any -> "Any"
       | `Base -> "Base"
@@ -2052,6 +2053,9 @@ let string_of_tycon_spec ?(policy=Print.default_policy) ?(refresh_tyvar_names=tr
   if refresh_tyvar_names then
     build_tyvar_names (fun x -> free_bound_tycon_type_vars x) [tycon];
   Print.tycon_spec TypeVarSet.empty (policy (), Vars.tyvar_name_map) tycon
+
+let string_of_primary_kind primary_kind =
+  Print.primary_kind primary_kind
 
 module Show_datatype =
   Deriving_Show.Defaults

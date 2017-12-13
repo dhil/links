@@ -64,6 +64,28 @@ typename F(a,b) = (a) {:b}~> a; sig f : F(Int,Int) fun f(x) {recv() + x} sig g :
 stdout : fun : F (Int,String)
 
 Nested closures
-./tests/nested-closures.links
+./tests/functions/nested-closures.links
 filemode : true
 stdout : true : Bool
+
+Quantification of alien functions (#280)
+./tests/functions/alien-quantification.links
+filemode : true
+exit : 1
+stderr : @\*\*\* Fatal error.*
+
+Type annotation on inner function (correct, basic)
+./tests/functions/innerfun1.links
+filemode : true
+stdout : "Hello!" : String
+
+Type annotation on inner function (incorrect, basic)
+./tests/functions/innerfun2.links
+filemode : true
+stderr : @.*
+exit : 1
+
+Type annotation on inner function (correct, recursive)
+./tests/functions/innerfun3.links
+filemode : true
+stdout : "Hello!" : String
