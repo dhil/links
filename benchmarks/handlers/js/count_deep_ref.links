@@ -1,6 +1,8 @@
 # Stateful counting
 # Microbenchmark adapted from Kammar et al. (2013).
 
+typename Comp(e::Eff,a) = () ~e~> a;
+
 alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%~> Bool, %a, () ~%~> %a) ~%~> ();
 
 sig get : () {Get:s|_}-> s

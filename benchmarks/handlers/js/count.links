@@ -1,0 +1,9 @@
+alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%~> Bool, %a, () ~%~> %a) ~%~> ();
+
+sig count : (Int) ~> Int
+fun count(n) {
+  if (n == 0) 0
+  else { count(n-1) }
+}
+
+benchmark("Deep counting (direct)", (==), 0, fun() { count(100) })

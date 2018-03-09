@@ -1,4 +1,4 @@
-it const _Benchmark = (function() {
+const _Benchmark = (function() {
     const iterations = 5; // How many times to repeat a benchmark
 
     function generate_report(mode, program_name, result) {

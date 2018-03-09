@@ -3,6 +3,8 @@
 
 alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%~> Bool, %a, () ~%~> %a) ~%~> ();
 
+typename Comp(e::Eff,a) = () ~e~> a;
+
 sig get : () {Get:s|_}-> s
 fun get() {do Get}
 
