@@ -895,7 +895,7 @@ struct
 
   let expander tyenv env =
   object (o)
-    inherit Transform.visitor(tyenv) as super
+    inherit Transform.visitor(tyenv) as _super
 
     val env = env
 

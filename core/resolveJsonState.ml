@@ -10,7 +10,7 @@ let rec extract_json_values : Value.t -> (handler_id_set * (Value.chan list)) =
   function
   (* Can't-dos *)
   | `PrimitiveFunction _ | `Socket _
-  | `Resumption _ | `Continuation _ as r ->
+  | `Ref _ | `Resumption _ | `Continuation _ as r ->
       failwith ("Can't create json state for " ^ Value.string_of_value r);
 
   (* Empties *)
