@@ -968,7 +968,7 @@ struct
 
     method! computation (bs, tc) =
         match tc with
-        | (`Special (`DoOperation (_,_,t))) as tc ->
+        | (Special (DoOperation (_,_,t))) as tc ->
            let v = gensym ~prefix:"_v" () in
            let vb = Var.fresh_binder (Var.make_local_info (t, v)) in
            let b = `Let (vb, ([], tc)) in

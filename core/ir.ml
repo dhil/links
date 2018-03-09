@@ -146,9 +146,3 @@ let string_of_binding = show_binding
 let string_of_special  = show_special
 let string_of_computation = show_computation
 let string_of_program = show_program
-
-
-
-
-type eval_fun_def = var_info * (var list * computation) * Var.var option * location
-  [@@deriving show]

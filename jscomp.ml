@@ -574,8 +574,9 @@ module CPS = struct
       match sp with
       | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
       | `DoOperation (name, args, _) ->
-         let box vs =
-           make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
+         let box = function
+           | [v] -> gv v
+           | vs -> make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
          in
          let cons k ks =
            EApply (EPrim "%List.cons", [k;ks])
@@ -1033,8 +1034,9 @@ module GenIter = struct
       match sp with
       | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
       | `DoOperation (name, args, _) ->
-         let box vs =
-           make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
+         let box = function
+           | [v] -> gv v
+           | vs -> make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
          in
          let op =
            make_dictionary [ ("_label", strlit name)
