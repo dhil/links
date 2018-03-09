@@ -592,18 +592,18 @@ module CPS = struct
                                ; ("_value", make_dictionary [("p", box args); ("s", resumption)]) ]
              in
              bind K.(SReturn (apply (seta <> kappas) op)))
-      | `Handle { Ir.ih_comp = comp; Ir.ih_clauses = clauses; Ir.ih_depth } ->
+      | `Handle { Ir.ih_comp = comp; Ir.ih_return = return; Ir.ih_cases = eff_cases; Ir.ih_depth = depth } ->
          let open Utility in
-         if ih_depth = `Shallow then
+         if depth = `Shallow then
            failwith "Translation of shallow handlers has not yet been implemented.";
          (* Generate body *)
          let gb env binder body kappas =
            let env' = VEnv.bind env (safe_name_binder binder) in
            snd (generate_computation env' body kappas)
          in
-         let (return_clause, operation_clauses) = StringMap.pop "Return" clauses in
+         let (return_clause, operation_clauses) = (return, eff_cases) in
          let return =
-           let (_, xb, body) = return_clause in
+           let (xb, body) = return_clause in
            let x_name = snd @@ safe_name_binder xb in
            contify (fun kappa ->
              let bind, _, kappa = K.pop kappa in
@@ -615,17 +615,11 @@ module CPS = struct
          in
          let operations =
            (* Generate clause *)
-           let gc env (ct, xb, body) kappas _z =
+           let gc env (xb, rb, body) kappas _z =
              let x_name = snd @@ safe_name_binder xb in
              let env', r_name =
-               match ct with
-               | `ResumptionBinder rb ->
-                  let rb' = safe_name_binder rb in
-                  VEnv.bind env rb', snd rb'
-               | _ ->
-                  let dummy_binder = Var.fresh_binder (Var.make_local_info (`Not_typed, "_dummy_resume")) in
-                  let dummy = safe_name_binder dummy_binder in
-                  VEnv.bind env dummy, snd dummy
+               let rb' = safe_name_binder rb in
+               VEnv.bind env rb', snd rb'
              in
              let v_name, v = Ident.make ~prefix:"_v" (), EAccess (EVar _z, "_value") in
              let p = EAccess (EVar v_name, "p") in
@@ -1047,7 +1041,7 @@ module GenIter = struct
                            ; ("_value", make_dictionary [("p", box args)]) ]
          in
          [], SExpr (EYield { ykind = `Regular; yexpr = op })
-      | `Handle { ih_comp; ih_clauses; ih_depth } ->
+      | `Handle { ih_comp; ih_return; ih_cases; ih_depth } ->
          let open Utility in
          let next iterator arg =
            match arg with
@@ -1077,7 +1071,7 @@ module GenIter = struct
              body = [], SReturn (EYield { ykind = `Star; yexpr; });
            }
          in
-         let generate_operation_clause env op_value resumption (resumeb, xb, body) =
+         let generate_operation_clause env op_value resumption (xb, resumeb, body) =
            (* Generate arguments and resumption binders *)
            let (_, x_name) as xb = safe_name_binder xb in
            let p_binding =
@@ -1088,25 +1082,21 @@ module GenIter = struct
              }
            in
            let env', bindings =
-             match resumeb with
-             | `ResumptionBinder rb ->
-                let (_,r_name) as rb = safe_name_binder rb in
-                let r_binding =
-                  DLet {
-                    bkind = `Const;
-                    binder = r_name;
-                    expr = resumption;
-                  }
-                in
-                VEnv.bind (VEnv.bind env xb) rb, r_binding :: p_binding :: []
-             | _ ->
-                VEnv.bind env xb, p_binding :: []
+             let (_,r_name) as rb = safe_name_binder resumeb in
+             let r_binding =
+               DLet {
+                 bkind = `Const;
+                 binder = r_name;
+                 expr = resumption;
+               }
+             in
+             VEnv.bind (VEnv.bind env xb) rb, r_binding :: p_binding :: []
            in
            (* Generate the body *)
            let _, (decls, prog) = generate_computation env' body in
            bindings @ decls, prog
          in
-         let generate_return_clause env value (_, xb, body) =
+         let generate_return_clause env value (xb, body) =
            let (x_binder, x_name) = safe_name_binder xb in
            let return_value_binding =
              DLet {
@@ -1126,7 +1116,7 @@ module GenIter = struct
          let deep_handle iterator =
            let op_or_value = Ident.make ~prefix:"_op_or_value" () in
            let handle_name = Ident.make ~prefix:"_handle" () in
-           let return_clause, operation_clauses = StringMap.pop "Return" ih_clauses in
+           let return_clause, operation_clauses = (ih_return, ih_cases) in
            let op_value = EAccess (EVar op_or_value, "value") in
            (* Generate the return clause *)
            let return_clause =
@@ -1169,7 +1159,7 @@ module GenIter = struct
          (* Shallow handler compilation *)
          let shallow_handle iterator =
          let op_or_value = Ident.make ~prefix:"_op_or_value" () in
-           let return_clause, operation_clauses = StringMap.pop "Return" ih_clauses in
+           let return_clause, operation_clauses = (ih_return, ih_cases) in
            let op_value = EAccess (EVar op_or_value, "value") in
            (* Generate the return clause *)
            let return_clause =
@@ -1236,10 +1226,11 @@ module GenIter = struct
          in
          (* Generate the appropriate handle *)
          begin match ih_depth with
-         | `Deep ->
+         | `Deep [] ->
             let handle_name, handle_fn = deep_handle iterator_name in
             let init = handle_next (EVar handle_name) (EVar iterator_name) None in
             [iterator_binding; handle_fn], SReturn (EYield { ykind = `Star; yexpr = init })
+         | `Deep _ -> failwith "Parameterised handlers are currently not supported."
          | `Shallow ->
             let (bs, stmt) = shallow_handle iterator_name in
             iterator_binding :: bs, stmt
@@ -1474,9 +1465,18 @@ module CEK = struct
       = fun parambinder resumebinder body ->
         ir "opclause" [ELit (LString parambinder); ELit (LString resumebinder); body]
 
-    let handle : expr -> expr -> expr -> [`Deep | `Shallow] -> expr
-      = fun comp ret ops depth ->
-        ir "handle" [comp; ret; ops; ir_tag depth]
+    let handle : expr -> expr -> expr -> [`Deep of (string * expr) list | `Shallow] -> expr
+      = fun comp ret ops -> function
+      | `Deep params ->
+         let params =
+           List.map
+             (fun (b,v) ->
+               EObj [("binder", ELit (LString b)); ("initial_value", v)])
+             params
+         in
+         ir "handle" [comp; ret; ops; ir_tag `Deep; EArray (Array.of_list params)]
+      | `Shallow ->
+        ir "handle" [comp; ret; ops; ir_tag `Shallow]
 
     let do_operation : string -> expr -> expr
       = fun label args ->
@@ -1778,39 +1778,48 @@ module CEK = struct
          Make.apply (EVar "%error") [ELit (LString "Internal Error: Pattern matching failed")]
       | `DoOperation (name, args, _) ->
          let box = function
-           | [] -> Make.extend [] None
+           | [v] -> gv v
            | vs -> Make.extend (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs) None
          in
          Make.do_operation name (box args)
-      | `Handle { ih_comp; ih_clauses; ih_depth } ->
+      | `Handle { ih_comp; ih_return; ih_cases; ih_depth } ->
          let open Utility in
          let _, m = generate_computation env ih_comp in
-         let (return, operations) = StringMap.pop "Return" ih_clauses in
-         let op_case (r, b, body) =
+         let (return, operations) = (ih_return, ih_cases) in
+         let op_case env (b, rb, body) =
            let env', rname =
-             match r with
-             | `NoResumption ->
-                let dummy = Var.fresh_binder (Var.make_local_info (`Not_typed, "dummy_resume")) in
-                let (v, dummy) = safe_name_binder dummy in
-                VEnv.bind env (v, dummy), dummy
-             | `ResumptionBinder rb ->
-                let (vresume, resume) = safe_name_binder rb in
-                VEnv.bind env (vresume, resume), resume
+             let (vresume, resume) = safe_name_binder rb in
+             VEnv.bind env (vresume, resume), resume
            in
            let (b', bname) = safe_name_binder b in
            let env'' = VEnv.bind env' (b',bname) in
            Make.opclause (Ident.of_string bname) (Ident.of_string rname) (snd @@ generate_computation env'' body)
          in
-         let return_case (_, b, body) =
+         let return_case env (b, body) =
            let (b', bname) = safe_name_binder b in
            let env' = VEnv.bind env (b', bname) in
            Make.clause (Ident.of_string bname) (snd @@ generate_computation env' body)
          in
          let operations = StringMap.to_alist operations in
-         let op_case' (label, clause) =
-           label, op_case clause
+         let op_case' env (label, clause) =
+           label, op_case env clause
          in
-         Make.handle m (return_case return) (EObj (List.map op_case' operations)) ih_depth
+         let env, depth =
+           match ih_depth with
+           | `Deep params ->
+              let env, params =
+                List.fold_right
+                  (fun (b,v) (env, params) ->
+                    let b' = safe_name_binder b in
+                    let env' = VEnv.bind env b' in
+                    let params' = (Ident.of_string (snd b'), gv v) :: params in
+                    env', params')
+                  params (env, [])
+              in
+              env, `Deep params
+           | `Shallow -> env, `Shallow
+         in
+         Make.handle m (return_case env return) (EObj (List.map (op_case' env) operations)) depth
       | _ -> failwith "Unsupported special."
 
   and generate_value : venv -> Ir.value -> Js.expression
