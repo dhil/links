@@ -187,5 +187,10 @@ sig
   val program : Types.datatype Env.Int.t -> program -> program
 end
 
+module ProcedureFragmentation :
+sig
+  val procedure : Types.datatype Env.Int.t -> [`Fun of fun_def | `Rec of fun_def list] -> [ `Rec of fun_def list ] list
+end
+
 type eval_fun_def = var_info * (var list * computation) * Var.var option * location
   deriving (Show)
