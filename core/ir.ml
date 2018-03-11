@@ -146,3 +146,135 @@ let string_of_binding = show_binding
 let string_of_special  = show_special
 let string_of_computation = show_computation
 let string_of_program = show_program
+
+module ProcedureFragmentation =
+  struct
+
+    type liveset = IntSet.t
+    type liveness_map = liveset IntMap.t
+    module LivenessMonad = struct
+      type st = liveset * liveness_map
+      type 'a t = st -> ('a * st)
+
+      let pure : 'a -> 'a t
+        = fun x st -> (x, st)
+
+      let run ~init m =
+        m init
+
+      let kill : Var.var -> unit t
+        = fun v (ls, lm) ->
+        ((), (IntSet.remove v ls, lm))
+
+      let use : Var.var -> unit t
+        = fun v (ls, lm) ->
+        ((), (IntSet.add v ls, lm))
+
+      let register : Var.var -> unit t
+        = fun v (ls, lm) ->
+        ((), (ls, IntMap.add v ls lm))
+
+      let get_liveset : liveset t
+        = fun (ls, lm) -> (ls, (ls, lm))
+
+      let put_liveset ls ->
+          fun (_, lm) -> ((), (ls, lm))
+
+      let union : liveset list -> unit t
+        = fun lss (ls, lm) ->
+        let ls =
+          List.fold_left
+            (fun ls ls' ->
+              IntSet.union ls ls')
+            ls lss
+        in
+        ((), (ls, lm))
+
+      let (>>=) m k =
+        fun st ->
+        let (x, st') = run ~init:st m in
+        run ~init:st' (k x)
+    end
+    (* Fine-grained liveness analysis.
+       Computes a mapping from binders to the live set at their
+       definition point. *)
+    let liveness tyenv =
+      let open LivenessMonad in
+      let rec value : value -> unit LivenessMonad.t
+        = fun v ->
+        match v with
+        | `Variable v -> use v
+        | `Extend (fields, r) ->
+           let m =
+             StringMap.fold
+               (fun _ v m ->
+                 m >>= (fun () -> value v))
+               fields (pure ())
+           in
+           begin match r with
+           | None -> m
+           | Some v ->
+              m >>= (fun () -> value v)
+           end
+        | `Project (_, v)
+        | `Erase (_, v)
+        | `Inject (_, v, _)
+        | `TAbs (_, v)
+        | `TApp (v, _)
+        | `Closure (_, v)
+        | `Coerce (v, _) -> value v
+        | `ApplyPure (v, vs) ->
+           let m = value v in
+           List.fold_left
+             (fun m v ->
+               m >>= (fun () -> value v))
+             m vs
+      in
+      assert false
+
+
+    (* Precondition: closure conversion *)
+    let fragmentise tyenv =
+      object (o)
+        inherit Transform.visitor(tyenv)
+
+        val basename = ""
+        method set_basename name =
+          {< basename = name >}
+
+        val n = ref (-1)
+        method fresh_frame_name =
+          incr n; Printf.sprintf "%s%d" basename !n
+
+        val frames : fun_def list = []
+        method add_frame f =
+          {< frames = f :: frames >}
+        method get_frames = frames
+
+        val live_vars : Var.binder list = []
+        method add_live_var b =
+          {< live_vars = live_vars @ [b] >} (* TODO FIXME: choose a clever order preserving data structure *)
+        method add_live_vars bs =
+          {< live_vars = live_vars @ bs >}
+
+        method! computation (bs, tc) =
+          assert false
+
+        method! binding = function
+          | _ -> assert false
+
+        method fun_def = function
+          | `Fun (binder, (_tyvars, _formal_params, body), _clo, _location) ->
+             (* let o = o#add_live_vars formal_params in (\* TODO FIXME: too conservative liveness estimate *\) *)
+             let fname = Var.name_of_binder binder in
+             let o = o#set_basename fname in
+             o#computation body
+          | `Rec _fd -> assert false
+      end
+
+  let procedure : Types.datatype Env.Int.t -> [`Fun of fun_def | `Rec of fun_def list] -> [ `Rec of fun_def list ] list
+    = fun env ->
+    function
+    | `Fun _fd -> assert false
+    | `Rec _fd -> assert false
+end
