@@ -493,13 +493,18 @@ let compile_js () =
        let optimise_program tenv program =
          let program = Ir.ElimDeadDefs.program tenv program in
          let program = Ir.Inline.program tenv program in
+         (* Printf.eprintf "Before: %s\n%!" (Ir.Show_program.show program); *)
+         let program = Ir.TreeShaking.program tenv program in
+         (* Printf.eprintf "After: %s\n%!" (Ir.Show_program.show program); *)
+         let program = Ir.ElimDeadDefs.program tenv program in
          program
        in
        let program =
          if Settings.get_value BS.optimise
-         then (optimise_program tenv' (globals @ locals, main))
-         else (globals @ locals, main)
+         then (optimise_program tenv' (prelude @ globals @ locals, main))
+         else (prelude @ globals @ locals, main)
        in
+       (* Printf.eprintf "Program: %s\n%!" (Ir.Show_program.show program); *)
        (* Closure convert *)
        let closure_convert tenv program =
        (* Printf.printf "Bindings:\n%s\n%!" (Ir.Show_program.show (locals, `Special (`Wrong `Not_typed))); *)
@@ -508,7 +513,7 @@ let compile_js () =
        in
        let (globals, main) = closure_convert tenv' program in
        let external_files = source.external_dependencies in
-       ((prelude @ globals, main), t), (nenv, tyenv), external_files
+       ((globals, main), t), (nenv, tyenv), external_files
      in
      (* Printf.printf "Size: %d\n" (Env.String.fold (fun _ _ acc -> acc + 1) nenv 0); *)
      let (program, _t), (nenv, tenv), alien = parse_and_desugar (nenv, tenv) src in

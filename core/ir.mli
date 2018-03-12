@@ -170,7 +170,50 @@ sig
   end
 end
 
+module type ITER =
+sig
+  type environment = Types.datatype Env.Int.t
+
+  class visitor : environment ->
+  object ('self_type)
+    val tyenv : environment
+
+    method lookup_type : var -> Types.datatype
+    method constant : constant -> 'self_type
+    method option :
+      'a.
+      ('self_type -> 'a -> 'self_type) ->
+        'a option -> 'self_type
+    method list :
+      'a.
+      ('self_type -> 'a -> 'self_type) ->
+      'a list -> 'self_type
+    method name_map :
+      'a.
+      ('self_type -> 'a -> 'self_type) ->
+      'a name_map -> 'self_type
+    method var_map :
+      'a.
+      ('self_type -> 'a -> 'self_type) ->
+      'a var_map -> 'self_type
+    method var : var -> 'self_type
+    method value : value -> 'self_type
+
+    method tail_computation : tail_computation -> 'self_type
+    method special : special -> 'self_type
+    method bindings : binding list -> 'self_type
+    method computation : computation -> 'self_type
+    method binding : binding -> 'self_type
+    method binder : binder -> 'self_type
+
+    method program : program -> 'self_type
+
+    method get_type_environment : environment
+  end
+end
+
 module Transform : TRANSFORM
+module Iter : ITER
 
 module Inline :
 sig
@@ -191,6 +234,11 @@ module ProcedureFragmentation :
 sig
   val liveness : Types.datatype Env.Int.t -> program -> Utility.IntSet.t Utility.IntMap.t
   val procedure : Types.datatype Env.Int.t -> [`Fun of fun_def | `Rec of fun_def list] -> [ `Rec of fun_def list ] list
+end
+
+module TreeShaking :
+sig
+  val program : Types.datatype Env.Int.t -> program -> program
 end
 
 type eval_fun_def = var_info * (var list * computation) * Var.var option * location
