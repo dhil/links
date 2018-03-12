@@ -952,7 +952,7 @@ module ProcedureFragmentation =
       let get_liveset : liveset t
         = fun (ls, lm) -> (ls, (ls, lm))
 
-      let put_liveset ls ->
+      let put_liveset ls =
           fun (_, lm) -> ((), (ls, lm))
 
       let union : liveset list -> unit t
@@ -973,11 +973,10 @@ module ProcedureFragmentation =
     (* Fine-grained liveness analysis.
        Computes a mapping from binders to the live set at their
        definition point. *)
-    let liveness tyenv =
+    let liveness tyenv prog =
       let open LivenessMonad in
       let rec value : value -> unit LivenessMonad.t
-        = fun v ->
-        match v with
+        = function
         | `Variable v -> use v
         | `Extend (fields, r) ->
            let m =
@@ -1004,8 +1003,133 @@ module ProcedureFragmentation =
              (fun m v ->
                m >>= (fun () -> value v))
              m vs
+        | _ -> pure ()
+      and tail_computation : tail_computation -> unit LivenessMonad.t
+      = function
+      | `Return v -> value v
+      | `Apply (f, vs) ->
+         let m = value f in
+         List.fold_left
+           (fun m v ->
+             m >>= (fun () -> value v))
+           m vs
+      | `Special s -> special s
+      | `Case (scrutinee, cases, default) ->
+         let cases =
+           let cases =
+             List.map (fun (_,c) -> c) (StringMap.to_alist cases)
+           in
+           match default with
+           | Some case -> case :: cases
+           | None -> cases
+         in
+         get_liveset >>= fun ls ->
+         let m =
+           List.fold_left
+             (fun m (b, comp) ->
+               let v = Var.var_of_binder b in
+               get_liveset >>= fun ls ->
+               computation comp >>= fun () ->
+               kill v >>= fun () ->
+               register v >>= fun () ->
+               get_liveset >>= fun ls' ->
+               put_liveset ls >>= fun () ->
+               m >>= fun lss ->
+               pure (ls' :: lss))
+             (pure []) cases
+         in
+         m >>= union >>= fun () ->
+         value scrutinee
+      | `If (cond, tt, ff) ->
+         get_liveset >>= fun ls ->
+         computation tt >>= fun () ->
+         get_liveset >>= fun ls' ->
+         put_liveset ls >>= fun () ->
+         computation ff >>= fun () ->
+         get_liveset >>= fun ls'' ->
+         union [ls'; ls''] >>= fun () ->
+         value cond
+      and special : special -> unit LivenessMonad.t
+      = function
+      | `Wrong _ -> pure ()
+      | `DoOperation (_, vs, _) ->
+         let m = pure () in
+         List.fold_left
+           (fun m v ->
+             m >>= (fun () -> value v))
+           m vs
+      | _ -> failwith "Not yet implemented"
+      and computation : computation -> unit LivenessMonad.t
+      = fun (bs, tc) ->
+        List.fold_left
+          (fun m b ->
+            m >>= fun() ->
+            binding b)
+          (tail_computation tc) bs
+      and binding : binding -> unit LivenessMonad.t
+      = function
+      | `Let (b, (_, tc)) ->
+        let v = Var.var_of_binder b in
+        tail_computation tc >>= fun () ->
+        kill v >>= fun () ->
+        register v
+      | `Fun (b, (_, bs, comp), b', _) ->
+         let bs =
+           match b' with
+           | Some b' -> b' :: b :: bs
+           | None -> b :: bs
+         in
+         let m =
+           List.fold_left
+             (fun m b ->
+               let v = Var.var_of_binder b in
+               m >>= fun () ->
+               kill v)
+             (computation comp) bs
+         in
+         List.fold_left
+           (fun m b ->
+             let v = Var.var_of_binder b in
+             m >>= fun () ->
+             register v)
+           m bs
+      | `Rec fundefs ->
+         let rec_def (_, (_, bs, comp), b', _) =
+           let bs =
+             match b' with
+             | Some b' -> b' :: bs
+             | None -> bs
+           in
+           let m =
+             List.fold_left
+               (fun m b ->
+                 let v = Var.var_of_binder b in
+                 m >>= fun () ->
+                 kill v)
+               (computation comp) bs
+           in
+           List.fold_left
+             (fun m b ->
+               let v = Var.var_of_binder b in
+               m >>= fun () ->
+               register v)
+             m bs
+         in
+         List.fold_left
+           (fun m f ->
+             get_liveset >>= fun ls ->
+             rec_def f >>= fun () ->
+             put_liveset ls)
+           (pure ()) fundefs
+      | `Alien (b, _, _) ->
+         let v = Var.var_of_binder b in
+         kill v >>= fun () ->
+         register v
+      | _ -> assert false
       in
-      assert false
+      let (_, (_, lm)) =
+        LivenessMonad.run ~init:(IntSet.empty, IntMap.empty) (computation prog)
+      in lm
 
 
     (* Precondition: closure conversion *)
