@@ -30,8 +30,6 @@ let process_exprarg envs expr =
   let result = Driver.NonInteractive.evaluate_string_in envs expr in
   print_simple result.Driver.result_type result.Driver.result_value
 
-
-
 let main () =
   let prelude, envs = measure "prelude" Driver.NonInteractive.load_prelude () in
 

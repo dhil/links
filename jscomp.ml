@@ -1938,9 +1938,9 @@ module Stack = struct
     = fun u ->
       let open Js in
       let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
-      Printf.eprintf "%s\n%!" (Ir.Show_program.show u.program);
-      let lm = Ir.ProcedureFragmentation.liveness _tenv u.program in
-      Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm);
+      (* Printf.eprintf "%s\n%!" (Ir.Show_program.show u.program); *)
+      (* let lm = Ir.ProcedureFragmentation.liveness _tenv u.program in *)
+      (* Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm); *)
       assert false
 end
 
