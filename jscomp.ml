@@ -1,3 +1,4 @@
+open Utility
 type comp_unit = Ir.program Js.comp_unit
 type prog_unit = Js.program Js.comp_unit
 
@@ -22,6 +23,17 @@ let string_of_nenv (env : int Env.String.t) =
       env []
   in
   List.fold_left (fun acc str -> Printf.sprintf "%s%s\n" acc str) "" strings
+
+let string_of_liveness_map nenv (lm : IntSet.t IntMap.t) =
+  let strings =
+    IntMap.fold
+      (fun k vs acc ->
+        let k = Env.Int.lookup nenv k in
+        (Printf.sprintf "%s -> %s" k (IntSet.Show_t.show vs)) :: acc)
+      lm []
+  in
+  List.fold_left (fun acc str -> Printf.sprintf "%s%s\n" acc str) "" strings
+
 
 let initialise_envs (nenv, tyenv) =
   let dt = DesugarDatatypes.read ~aliases:tyenv.Types.tycon_env in
@@ -1920,6 +1932,18 @@ module CEK = struct
       { u with program = prog; includes = u.includes @ dependencies }
 end
 
+(* Generalised Stack Inspection compiler *)
+module Stack = struct
+  let compile : comp_unit -> prog_unit
+    = fun u ->
+      let open Js in
+      let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
+      Printf.eprintf "%s\n%!" (Ir.Show_program.show u.program);
+      let lm = Ir.ProcedureFragmentation.liveness _tenv u.program in
+      Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm);
+      assert false
+end
+
 (* Compiler selection *)
 module Compiler =
   (val
@@ -1930,5 +1954,7 @@ module Compiler =
          (module GenIter : JS_COMPILER)
       | "cek" ->
          (module CEK : JS_COMPILER)
+      | "stackinspection" ->
+         (module Stack : JS_COMPILER)
       (* TODO: better error handling *)
       | _ -> failwith "Unrecognised JS backend.") : JS_COMPILER)

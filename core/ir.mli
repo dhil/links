@@ -125,6 +125,7 @@ val string_of_program : program -> string
 
 module ProcedureFragmentation :
 sig
+  val liveness : Types.datatype Env.Int.t -> program -> Utility.IntSet.t Utility.IntMap.t
   val procedure : Types.datatype Env.Int.t -> [`Fun of fun_def | `Rec of fun_def list] -> [ `Rec of fun_def list ] list
 end
 
