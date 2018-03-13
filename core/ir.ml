@@ -419,8 +419,9 @@ end
 module ProcedureFragmentation =
   struct
 
-  (*   type liveset = IntSet.t *)
-  (*   type liveness_map = liveset IntMap.t *)
+    type liveset = IntSet.t
+    and liveness_map = liveset IntMap.t
+      deriving (Show)
   (*   module LivenessMonad = struct *)
   (*     type st = liveset * liveness_map *)
   (*     type 'a t = st -> ('a * st) *)
@@ -670,18 +671,97 @@ module ProcedureFragmentation =
   (*   function *)
   (*   | `Fun _fd -> assert false *)
     (*   | `Rec _fd -> assert false *)
-    let liveness _ _ = assert false
+    let liveness tyenv prog =
+      let analysis tyenv =
+        object (o)
+          inherit Iter.visitor(tyenv) as super
+
+          val liveness_map = IntMap.empty
+          val liveset = IntSet.empty
+          method use var =
+            {< liveset = IntSet.add var liveset >}
+          method kill b =
+            let var = Var.var_of_binder b in
+            {< liveset = IntSet.remove var liveset >}
+          method with_liveset liveset =
+            {< liveset = liveset >}
+          method register b =
+            let var = Var.var_of_binder b in
+            {< liveness_map = IntMap.add var liveset liveness_map >}
+          method get_liveness_map = liveness_map
+          method union lss =
+            let ls = List.fold_left IntSet.union liveset lss in
+            o#with_liveset ls
+
+          method! bindings bs =
+            List.fold_right
+              (fun b o -> o#binding b)
+              bs o
+
+          method! binding = function
+          | `Let (b, (_, tc)) ->
+             let o = o#binder b in
+             let o = o#tail_computation tc in
+             let o = o#kill b in
+             o#register b
+          | e -> super#binding e
+
+          method! var var = o#use var
+
+          method! tail_computation = function
+          | `If (cond, tt, ff) ->
+             let ls = liveset in
+             let o = o#computation tt in
+             let ls' = liveset in
+             let o = (o#with_liveset ls)#computation ff in
+             let ls'' = liveset in
+             let o = (o#with_liveset ls)#union [ls'; ls''] in
+             o#value cond
+          | `Case (scrutinee, cases, default) ->
+             let ls = liveset in
+             let lss, o =
+               let ls = liveset in
+               StringMap.fold
+                 (fun _ (xb, comp) (lss, o) ->
+                   let o = o#binder xb in
+                   let o = (o#with_liveset ls)#computation comp in
+                   let ls' = liveset in
+                   let o = o#kill xb in
+                   let o = o#register xb in
+                   (ls' :: lss, o))
+                 cases ([], o)
+             in
+             let o = (o#with_liveset ls)#union lss in
+             let ls' = liveset in
+             let o =
+               match default with
+               | None -> o
+               | Some (xb, comp) ->
+                  let o = o#binder xb in
+                  let o = (o#with_liveset ls)#computation comp in
+                  let o = o#kill xb in
+                  o#register xb
+             in
+             let ls'' = liveset in
+             let o = (o#with_liveset ls)#union [ls'; ls''] in
+             o#value scrutinee
+          | e -> super#tail_computation e
+        end
+      in
+      let o = (analysis tyenv)#program prog in
+      o#get_liveness_map
+
     let procedure _ _prog = assert false
   end
 
-module TreeShaking =
+(* Computes a map from vars to names; useful for debugging. *)
+module NameMap =
 struct
-
-  type name_env = string IntMap.t
+  type name_map = string IntMap.t
     deriving (Show)
 
-  let name_env tyenv =
-    object (o)
+  let compute tyenv prog =
+    ((object (o)
       inherit Iter.visitor(tyenv)
 
       val nenv = IntMap.empty
@@ -691,13 +771,21 @@ struct
 
       method! binder (var, (_, name, _)) =
         o#add var name
-    end
+     end)#program prog)#get_nenv
+end
+
+(* Tree shaking includes "live code", i.e. code that will be run
+   directly or indirectly by the module's main
+   computation. Though, we are somewhat conservative with regard
+   to let bindings. *)
+module TreeShaking =
+struct
 
   type usage_map = IntSet.t IntMap.t
     deriving (Show)
 
-  (* Computes a map from function variables and global let bound
-     variables to a set of variables used in their bodies *)
+  (* Computes a map from functions to a set of variables used in their
+     bodies *)
   let usage_map tyenv =
     object (o)
       inherit Iter.visitor(tyenv) as super
@@ -727,18 +815,8 @@ struct
         o#use scope_owner var
 
       method! binding = function
-      | `Let (b, (_, tc)) ->
-         let (_, _, loc) = Var.info_of_binder b in
-         let v = Var.var_of_binder b in
-         if loc = `Global then
-           let so = scope_owner in
-           let o = o#init v in
-           let o = o#with_scope_owner v in
-           let o = o#tail_computation tc in
-           o#with_scope_owner so
-         else
-           o#tail_computation tc
       | `Fun (b, (_, _, comp), _, _) ->
+         let o = o#binder b in
          let v = Var.var_of_binder b in
          let so = scope_owner in
          let o = o#init v in
@@ -750,6 +828,7 @@ struct
          let o =
            List.fold_left
              (fun o (f, _, _, _) ->
+               let o = o#binder f in
                let v = Var.var_of_binder f in
                o#init v)
              o fundefs
@@ -764,13 +843,14 @@ struct
              o#with_scope_owner so)
            o fundefs
       | `Alien (b, _, _) ->
+         let o = o#binder b in
          let v = Var.var_of_binder b in
          o#init v
-      | _ -> assert false
+      | e -> super#binding e
 
     end
 
-  (* Computes the set of variable used directly by the top-level tail
+  (* Computes the set of variables used directly by the top-level tail
      computation (i.e. the "main" computation) *)
   let code_used_directly_by_main tyenv =
     object (o)
@@ -786,8 +866,8 @@ struct
       method! var var = o#use var
     end
 
-  (* Eliminates function and global let definitions which are not used
-     directly or indirectly by the main computation. *)
+  (* Eliminates function which are not used directly or indirectly by
+     the main computation. *)
   let eliminator tyenv reachable =
     object (o)
       inherit Transform.visitor(tyenv) as super
@@ -796,9 +876,9 @@ struct
         let v = Var.var_of_binder b in
         IntSet.mem v reachable
 
-      method is_global b =
-        let (_, _, loc) = Var.info_of_binder b in
-        loc = `Global
+      (* method is_global b = *)
+      (*   let (_, _, loc) = Var.info_of_binder b in *)
+      (*   loc = `Global *)
 
       method! bindings bs =
         let bs =
@@ -807,12 +887,12 @@ struct
               function
               | `Fun (fb, _, _, _) when not (o#is_reachable fb) -> bs
               | `Rec fundefs ->
-                 begin match fundefs with
-                 | [] -> bs
-                 | (fb, _, _, _) :: _ when not (o#is_reachable fb) -> bs
-                 | _ -> (`Rec fundefs) :: bs
-                 end
-              | `Let (b, _) when o#is_global b && not (o#is_reachable b) -> bs
+                 let fundefs' =
+                   List.filter (fun (fb, _, _, _) -> o#is_reachable fb) fundefs
+                 in
+                 if fundefs' = []
+                 then bs
+                 else (`Rec fundefs') :: bs
               | b -> b :: bs)
             [] bs
         in
@@ -820,10 +900,10 @@ struct
     end
 
   let program tyenv prog =
-    let nenv =
-      let o = (name_env tyenv)#program prog in
-      o#get_nenv
-    in
+    (* let nenv = *)
+    (*   let o = (name_env tyenv)#program prog in *)
+    (*   o#get_nenv *)
+    (* in *)
     let usage_map =
       let o = (usage_map tyenv)#program prog in
       o#get_usage_map
@@ -842,6 +922,7 @@ struct
         IntSet.fold
           (fun v live ->
             try
+              (* Printf.printf "Intermediate live set: %s\n%!" (IntSet.Show_t.show live); *)
               IntSet.union (IntMap.find v usage_map) live
             with
               NotFound _ (* occurs when v is primitive *) -> IntSet.add v live)
@@ -854,5 +935,7 @@ struct
     let liveset = lfp main_uses usage_map in
     (* Printf.printf "Live: %s\n%!" (IntSet.Show_t.show liveset); *)
     let (prog, _, _) = (eliminator tyenv liveset)#program prog in
+    (* let liveness_map = ProcedureFragmentation.liveness tyenv prog in *)
+    (* Printf.printf "Liveness: %s\n%!" (ProcedureFragmentation.Show_liveness_map.show liveness_map); *)
     prog
 end

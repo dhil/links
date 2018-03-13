@@ -2,7 +2,7 @@
 
 # Standard type aliases
 typename Maybe(a) = [|Just:a|Nothing|];
-typename Comp(e::Row, a) = () ~e~> a;
+typename Comp(e::Eff, a) = () ~e~> a;
 
 # Standard functions
 fun id(x) {x}

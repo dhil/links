@@ -134,5 +134,12 @@ sig
   val program : Types.datatype Env.Int.t -> program -> program
 end
 
+module NameMap :
+sig
+  type name_map = string Utility.IntMap.t
+    deriving (Show)
+  val compute : Types.datatype Env.Int.t -> program -> name_map
+end
+
 type eval_fun_def = var_info * (var list * computation) * Var.var option * location
   [@@deriving show]

@@ -13,7 +13,6 @@ let _ = ParseSettings.validate_settings ()
 let to_evaluate : string list ref = ParseSettings.to_evaluate
 let file_list : string list ref = ParseSettings.file_list
 
-
 let print_simple rtype value =
   print_string (Value.string_of_value value);
   print_endline
