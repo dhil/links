@@ -751,7 +751,39 @@ module ProcedureFragmentation =
       let o = (analysis tyenv)#program prog in
       o#get_liveness_map
 
-    let procedure _ _prog = assert false
+    let fragmentise tyenv prog =
+      let liveness_map = liveness tyenv prog in
+      let counter = ref (-1) in
+      let fresh_frame_name base =
+        incr counter;
+        Printf.sprintf "%s_frame%d" base !counter
+      in
+      assert false
+      (* (object (o) *)
+      (*   inherit Transform.visitor(tyenv) as _super *)
+
+      (*   val basename = "_toplevel" *)
+      (*   method with_basename name = *)
+      (*     {< basename = name >} *)
+      (*   method fresh_frame_name = *)
+      (*     fresh_frame_name basename *)
+
+      (*   (\* method! computation (bs, tc) = *\) *)
+      (*   (\*   let (bs, o) = *\) *)
+      (*   (\*     let f = function *\) *)
+      (*   (\*       | `Let (b, (tyvars, tc)) -> *\) *)
+      (*   (\*          (\\* Create new frame *\\) *\) *)
+      (*   (\*          let frame = assert false in *\) *)
+      (*   (\*          let (b, o) = o#binder b in *\) *)
+      (*   (\*          let var = Var.var_of_binder var in *\) *)
+      (*   (\*          let liveset = IntMap.find var liveness_map in *\) *)
+      (*   (\*          (\\* Apply frame *\\) *\) *)
+      (*   (\*          ([], `Apply (frame, IntSet.to_list liveset)) *\) *)
+                 
+      (*   (\*   in *\) *)
+      (*   (\*   let (tc, dt, o) = o#tail_computation tc in *\) *)
+      (*   (\*   ((bs, tc), dt, o) *\) *)
+      (* end)#program prog *)
   end
 
 (* Computes a map from vars to names; useful for debugging. *)
