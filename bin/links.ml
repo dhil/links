@@ -471,6 +471,34 @@ let file_list : string list ref = ParseSettings.file_list
 
 (* Compiling to JavaScript *)
 let compile_js () =
+  let load_prelude () =
+    let open Loader in
+    let source =
+      (Errors.display_fatal
+         (Loader.load_file (Lib.nenv, Lib.typing_env)) (Settings.get_value BS.prelude_file))
+    in
+    let (nenv, tyenv) = source.envs in
+    let (globals, _, _) = source.program in
+
+    let tyenv = Lib.patch_prelude_funs tyenv in
+
+    Lib.prelude_tyenv := Some tyenv;
+    Lib.prelude_nenv := Some nenv;
+
+    (* let tenv = (Var.varify_env (Lib.nenv, Lib.typing_env.Types.var_env)) in *)
+
+  (*   let globals = Closures.bindings tenv Lib.primitive_vars globals in *)
+  (* (\* Debug.print ("Prelude after closure conversion: " ^ Ir.Show_program.show (globals, `Return (`Extend (StringMap.empty, None)))); *\) *)
+  (*   BuildTables.bindings tenv Lib.primitive_vars globals; *)
+
+    let valenv = Eval.run_defs Value.Env.empty globals in
+    let envs =
+      (valenv,
+       Env.String.extend Lib.nenv nenv,
+       Types.extend_typing_environment Lib.typing_env tyenv)
+    in
+    globals, envs
+  in
   Settings.set_value BS.interacting false;
   match !file_list with
   | [] -> ()
@@ -495,7 +523,7 @@ let compile_js () =
          let program = Ir.Inline.program tenv program in
          (* Printf.eprintf "Before: %s\n%!" (Ir.Show_program.show program); *)
          let program = Ir.TreeShaking.program tenv program in
-         (* Printf.eprintf "After: %s\n%!" (Ir.Show_program.show program); *)
+         Printf.eprintf "After: %s\n%!" (Ir.Show_program.show program);
          let program = Ir.ElimDeadDefs.program tenv program in
          program
        in
