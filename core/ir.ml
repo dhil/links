@@ -702,8 +702,8 @@ module ProcedureFragmentation =
           | `Let (b, (_, tc)) ->
              let o = o#binder b in
              let o = o#tail_computation tc in
-             let o = o#kill b in
-             o#register b
+             let o = o#register b in (* live(b) = {b} U live *)
+             o#kill b
           | e -> super#binding e
 
           method! var var = o#use var
@@ -751,39 +751,255 @@ module ProcedureFragmentation =
       let o = (analysis tyenv)#program prog in
       o#get_liveness_map
 
-    let fragmentise tyenv prog =
+    (* Note this pass is not hygienic. Use with caution. *)
+    let alpha_convert tyenv renaming =
+      object (o)
+        inherit Transform.visitor(tyenv) as super
+
+        val renaming = renaming
+        (* method backup = renaming *)
+        (* method restore renaming = *)
+        (*   {< renaming = renaming >} *)
+        (* method remove v = *)
+        (*   {< renaming = IntMap.remove v renaming >}*)
+
+        method rename v =
+          try IntMap.find v renaming with
+          | NotFound _ -> v
+
+        method! var v =
+          let (v, dt, o) = super#var v in
+          (o#rename v, dt, o)
+
+        (* method! binding = function *)
+        (* | `Let (b, _) as e -> *)
+        (*    let sigma = o#backup in *)
+        (*    let o = o#remove (Var.var_of_binder b) in *)
+        (*    let (b, o) = super#binding e in *)
+        (*    (b, o#restore sigma) *)
+        (* | `Fun (fb, _, _, _) as e -> *)
+        (*    let sigma = o#backup in *)
+        (*    let o = o#remove (Var.var_of_binder b) in *)
+        (*    let (b, o) = super#binding e in *)
+        (*    (b, o#restore sigma) *)
+        (* | `Rec fundefs as e -> *)
+        (*    let sigma = o#backup in *)
+        (*    let o = *)
+        (*      List.fold_left *)
+        (*        (fun o (fb, _, _, _) -> o#remove (Var.var_of_binder b)) *)
+        (*        o fundefs *)
+        (*    in *)
+        (*    let (b, o) = super#binding e in *)
+        (*    (b, o#restore sigma) *)
+        (* | e -> super#binding e *)
+
+        (* method! name_map f map = *)
+        (*   let  *)
+      end
+
+    let fragmentise (tyenv : Types.datatype Env.Int.t) prog =
       let liveness_map = liveness tyenv prog in
       let counter = ref (-1) in
-      let fresh_frame_name base =
+      let fresh_answer_name base =
         incr counter;
-        Printf.sprintf "%s_frame%d" base !counter
+        Printf.sprintf "%s_an%d" base !counter
       in
-      assert false
-      (* (object (o) *)
-      (*   inherit Transform.visitor(tyenv) as _super *)
+      let freshen_binders bs =
+        let freshen_binder (binders, sigma) (var, info) =
+          let var' = Var.fresh_raw_var () in
+          ((var', info) :: binders, IntMap.add var var' sigma)
+        in
+        let (bs', sigma) = List.fold_left freshen_binder ([], IntMap.empty) bs in
+        List.rev bs', sigma
+      in
+      let fresh_answer_binder base : binder =
+        Var.(make_local_info ->- fresh_binder) (`Not_typed, fresh_answer_name base)
+      in
+      let arglist_of_liveset ls : value list =
+        List.map (fun (v : var) -> `Variable v) (IntSet.to_list ls)
+      in
+      let paramlist_of_liveset tyenv ls : binder list =
+        let vars = IntSet.to_list ls in
+        List.map (fun v -> (v, Var.make_local_info (`Not_typed, ""))) vars
+      in
+      (* let rec tail_computation basename liveset tc : tail_computation = *)
+      (*   let computation = computation basename liveset in *)
+      (*   match tc with *)
+      (*   | `If (cond, tt, ff) -> *)
+      (*      `If (cond, computation tt, computation ff) *)
+      (*   | `Case (scrutinee, cases, default) -> *)
+      (*      let case (xb, comp) = (xb, computation comp) in *)
+      (*      let cases = StringMap.map case cases in *)
+      (*      let default = Utility.opt_map case default in *)
+      (*      `Case (scrutinee, cases, default) *)
+      (*   | `Special sp -> `Special (special basename liveset sp) *)
+      (*   | e -> e *)
+      (* and special basename liveset sp = *)
+      (*   let computation = computation basename liveset in *)
+      (*   match sp with *)
+      (*   | `Handle _ -> assert false *)
+      (*   | e -> e *)
+      (* and computation basename liveset (bs, tc) : computation = *)
+      (*   let rec bindings fb liveset kappa = function *)
+      (*     | [] -> *)
+      (*        let fundef : fun_def = *)
+      (*          let params = paramlist_of_liveset liveset in *)
+      (*          let body = ([], tail_computation basename liveset kappa) in *)
+      (*          (fb, ([], params, body), None, `Unknown) *)
+      (*        in *)
+      (*        [fundef], liveset *)
+      (*     | (`Let (b, (tyvars, tc))) :: bs -> *)
+      (*        let var = Var.var_of_binder b in *)
+      (*        let liveset = IntMap.find var liveness_map in *)
+      (*        let f', fb' = *)
+      (*          let b = fresh_answer_binder basename in *)
+      (*          `Variable (fst b), b *)
+      (*        in *)
+      (*        let fundef liveset' : fun_def = *)
+      (*          let params = paramlist_of_liveset liveset in *)
+      (*          let args = arglist_of_liveset liveset' in *)
+      (*          let body : computation = *)
+      (*            [`Let (b, (tyvars, tail_computation basename liveset tc))], `Apply (f', args) *)
+      (*          in *)
+      (*          (fb, ([], params, body), None, `Unknown) *)
+      (*        in *)
+      (*        let fundefs, liveset' = bindings fb' liveset kappa bs in *)
+      (*        (fundef liveset') :: fundefs, liveset *)
+      (*     | _ -> assert false (\* Assumes closure conversion *\) *)
+      (*     (\* | (`Fun (fb', (tyvars, params, body), z, loc)) :: bs -> *\) *)
+      (*     (\*    let fundef = *\) *)
+      (*     (\*      (fb', (tyvars, params, computation basename liveset body), z, loc) *\) *)
+      (*     (\*    in *\) *)
+      (*     (\*    let fundefs, liveset = bindings fb liveset kappa bs in *\) *)
+      (*     (\*    fundef :: fundefs, liveset *\) *)
+      (*     (\* | (`Rec fundefs) :: bs -> *\) *)
+      (*     (\*    assert false *\) *)
+      (*     (\* | e -> e, liveset *\) *)
+      (*   in *)
+      (*   let initial_f, initial_fb = *)
+      (*     let b = fresh_answer_binder basename in *)
+      (*     `Variable (fst b), b *)
+      (*   in *)
+      (*   let answer_frames : fun_def list = *)
+      (*     fst (bindings initial_fb liveset tc bs) *)
+      (*   in *)
+      (*   [`Rec answer_frames], `Apply (initial_f, arglist_of_liveset liveset) *)
+      (* and program (bs, tc) = *)
+      (*   let toplevel_binding = function *)
+      (*     | `Fun (fb, (tyvars, params, body), z, loc) -> *)
+      (*        `Fun (fb, (tyvars, params, computation "fun" IntSet.empty body), z, loc) *)
+      (*     | e -> e *)
+      (*   in *)
+      (*   let bs = List.map toplevel_binding bs in *)
+      (*   (bs, tail_computation "_toplevel" IntSet.empty tc) *)
+      (* in *)
+  (* program prog *)
+      let fragmentise =
+        object(o)
+          inherit Transform.visitor(tyenv) as super
 
-      (*   val basename = "_toplevel" *)
-      (*   method with_basename name = *)
-      (*     {< basename = name >} *)
-      (*   method fresh_frame_name = *)
-      (*     fresh_frame_name basename *)
+          val basename = "_toplevel"
+          method with_basename name =
+            {< basename = name >}
+          method binders_of_vars vars : binder list =
+            let binder_of_var v : binder =
+              let ty = Env.Int.lookup tyenv v in
+              (v, Var.info_of_type ty)
+            in
+            List.map binder_of_var vars
 
-      (*   (\* method! computation (bs, tc) = *\) *)
-      (*   (\*   let (bs, o) = *\) *)
-      (*   (\*     let f = function *\) *)
-      (*   (\*       | `Let (b, (tyvars, tc)) -> *\) *)
-      (*   (\*          (\\* Create new frame *\\) *\) *)
-      (*   (\*          let frame = assert false in *\) *)
-      (*   (\*          let (b, o) = o#binder b in *\) *)
-      (*   (\*          let var = Var.var_of_binder var in *\) *)
-      (*   (\*          let liveset = IntMap.find var liveness_map in *\) *)
-      (*   (\*          (\\* Apply frame *\\) *\) *)
-      (*   (\*          ([], `Apply (frame, IntSet.to_list liveset)) *\) *)
-                 
-      (*   (\*   in *\) *)
-      (*   (\*   let (tc, dt, o) = o#tail_computation tc in *\) *)
-      (*   (\*   ((bs, tc), dt, o) *\) *)
-      (* end)#program prog *)
+          method refresh_binders bs =
+            freshen_binders bs
+
+          method make_param_list liveset : binder list * var IntMap.t =
+            let xs = o#binders_of_vars (IntSet.to_list liveset) in
+            o#refresh_binders xs
+
+          val liveset = IntSet.empty
+          method with_liveset ls =
+            {< liveset = ls >}
+
+          method! computation (bs, tc) =
+            let rec bindings o fb tc = function
+              | [] ->
+                 let fundef : fun_def =
+                   let params, sigma = o#make_param_list liveset in
+                   let body =
+                     let tc =
+                       let (tc, _, _) = o#tail_computation tc in
+                       fst3 ((alpha_convert tyenv sigma)#tail_computation tc)
+                     in
+                     ([], tc)
+                   in
+                   (fb, ([], params, body), None, `Unknown)
+                 in
+                 [fundef], o
+              | (`Let (b, (tyvars, tc'))) :: bs ->
+                 let (b, o) = o#binder b in
+                 let f', fb' =
+                   let b = fresh_answer_binder basename in
+                   `Variable (fst b), b
+                 in
+                 let (_, o) = o#binder fb' in
+                 let fundefs, o = bindings o fb' tc bs in
+                 let var = Var.var_of_binder b in
+                 let liveset = IntMap.find var liveness_map in
+                 let fundef : fun_def =
+                   let liveset' = IntSet.remove var liveset in
+                   let params, sigma = o#make_param_list liveset' in
+                   let args = arglist_of_liveset liveset in
+                   let body : computation =
+                     let tc =
+                       let (tc, _, _) = (o#with_liveset liveset')#tail_computation tc' in
+                       fst3 ((alpha_convert tyenv sigma)#tail_computation tc)
+                     in
+                     [`Let (b, (tyvars, tc))], `Apply (f', args)
+                   in
+                   (fb, ([], params, body), None, `Unknown)
+                 in
+                 fundef :: fundefs, o
+              | _ -> assert false (* Assumes closure conversion *)
+            in
+            let initial_f, (initial_fb : binder) =
+              let b = fresh_answer_binder basename in
+              `Variable (fst b), b
+            in
+            let (_, o) = o#binder initial_fb in
+            let answer_frames, o =
+              bindings o initial_fb tc bs
+            in
+            ([`Rec answer_frames], `Apply (initial_f, arglist_of_liveset liveset)), `Not_typed, o
+
+          method! program (bs, tc) =
+            let toplevel_binding (o : 'self_type) (b : binding) : binding * Types.datatype * 'self_type =
+              match b with
+              | `Fun (fb, (tyvars, params, body), z, loc) ->
+                 let ((fb : binder), o) = o#binder fb in
+                 let ((params : binder list), o) =
+                   List.fold_left
+                     (fun (ps, o) p ->
+                       let (p, o) = o#binder p in (p :: ps, o))
+                     ([], o) params
+                 in
+                 let o = o#with_basename (Var.name_of_binder fb) in
+                 let (body, _, o) = o#computation body in
+                 (`Fun (fb, (tyvars, List.rev params, body), z, loc)), `Not_typed, o
+              | e -> assert false
+            in
+            let (bs : binding list), o =
+              List.fold_left
+                (fun (bs, o) b ->
+                  let (b, _, o) = toplevel_binding o b in
+                  (b :: bs, o))
+                ([], o) bs
+            in
+            let (tc, dt, o) = o#tail_computation tc in
+            (List.rev bs, tc), dt, o
+        end
+      in
+      let (prog, _, _) = fragmentise#program prog in
+      prog
+
   end
 
 (* Computes a map from vars to names; useful for debugging. *)
