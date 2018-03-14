@@ -1941,6 +1941,8 @@ module Stack = struct
       (* Printf.eprintf "%s\n%!" (Ir.Show_program.show u.program); *)
       (* let lm = Ir.ProcedureFragmentation.liveness _tenv u.program in *)
       (* Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm); *)
+      let prog = Ir.ProcedureFragmentation.fragmentise _tenv u.program in
+      Printf.eprintf "Fragmented: %s\n%!" (Ir.Show_program.show prog);
       assert false
 end
 

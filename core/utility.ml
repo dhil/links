@@ -216,17 +216,29 @@ end
 module Set :
 sig
   module type OrderedType = OrderedShow
-  module type S = Set
+  module type S = sig
+    include Set
+    val to_list : t -> elt list
+  end
   module Make (Ord : OrderedType) : S with type elt = Ord.t
 end =
 struct
   module type OrderedType = OrderedShow
-  module type S = Set
+  module type S = sig
+    include Set
+    val to_list : t -> elt list
+  end
   module Make (Ord : OrderedType) = struct
     include Set.Make(Ord)
     let union_all sets = List.fold_right union sets empty
     let from_list l = List.fold_right add l empty
     module Show_t = Deriving_Show.Show_set(Ord)(Ord.Show_t)
+
+    let to_list set =
+      let xs =
+        fold (fun x xs -> x :: xs) set []
+      in
+      List.rev xs
   end
 end
 
