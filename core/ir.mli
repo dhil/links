@@ -230,11 +230,11 @@ sig
   val program : Types.datatype Env.Int.t -> program -> program
 end
 
-module ProcedureFragmentation :
-sig
-  val liveness : Types.datatype Env.Int.t -> program -> Utility.IntSet.t Utility.IntMap.t
-  val fragmentise : Types.datatype Env.Int.t -> program -> program
-end
+(* module ProcedureFragmentation : *)
+(* sig *)
+(*   val liveness : Types.datatype Env.Int.t -> program -> Utility.IntSet.t Utility.IntMap.t *)
+(*   val fragmentise : Types.datatype Env.Int.t -> program -> program *)
+(* end *)
 
 module TreeShaking :
 sig
