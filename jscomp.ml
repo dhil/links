@@ -1,3 +1,4 @@
+(*pp deriving *)
 open Utility
 type comp_unit = Ir.program Js.comp_unit
 type prog_unit = Js.program Js.comp_unit
@@ -1913,8 +1914,8 @@ module CEK = struct
     = fun u ->
       let open Js in
       let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
-      Printf.eprintf "nenv:\n%s\n%!" (string_of_nenv u.envs.nenv);
-      Printf.eprintf "venv:\n%s\n%!" (string_of_venv venv);
+      (* Printf.eprintf "nenv:\n%s\n%!" (string_of_nenv u.envs.nenv); *)
+      (* Printf.eprintf "venv:\n%s\n%!" (string_of_venv venv); *)
       let (_,prog) = generate_program venv u.program in
       let prog =
         match prog with
@@ -1934,16 +1935,722 @@ end
 
 (* Generalised Stack Inspection compiler *)
 module Stack = struct
+  module ProcedureFragmentation = struct
+    open Utility
+
+    type liveset = IntSet.t
+    and continuation_point = {
+      before: liveset;
+      after: liveset
+    }
+    and liveness_map = continuation_point IntMap.t
+      deriving (Show)
+
+    let liveness tyenv prog =
+      let analysis tyenv =
+        object (o)
+          inherit Ir.Iter.visitor(tyenv) as super
+
+          val funbinder_set = IntSet.empty
+          val liveness_map = IntMap.empty
+          val liveset = IntSet.empty
+          method use var =
+            if Lib.is_primitive_var var || IntSet.mem var funbinder_set then o
+            else {< liveset = IntSet.add var liveset >}
+          method kill b =
+            let var = Var.var_of_binder b in
+            {< liveset = IntSet.remove var liveset >}
+          method with_liveset liveset =
+            {< liveset = liveset >}
+          method get_liveset = liveset
+          method register b before after =
+            let var = Var.var_of_binder b in
+            {< liveness_map = IntMap.add var { before = before; after = after } liveness_map >}
+          method get_liveness_map = liveness_map
+          method union lss =
+            List.fold_left IntSet.union liveset lss
+          method diff before after =
+            IntSet.diff before after
+          method add_funbinder fb =
+            let var = Var.var_of_binder fb in
+            {< funbinder_set = IntSet.add var funbinder_set >}
+
+          (* method! bindings bs = *)
+          (*   o#list (fun o -> o#binding) (List.rev bs) *)
+
+          method! binding = function
+          | `Let (b, (_, tc)) ->
+             let ls = o#get_liveset in
+             let o = (o#with_liveset IntSet.empty)#tail_computation tc in
+             let ls' = o#get_liveset in
+             let ls'' = o#diff ls ls' in
+             let o = (o#with_liveset ls'')#register b ls' ls'' in
+             o#kill b
+          | `Fun (fb, (_, params, body), z, _) ->
+             let o = o#add_funbinder fb in
+             let o = o#kill fb in
+             let o = o#computation body in
+             let o = o#list (fun o -> o#kill) params in
+             o#option (fun o -> o#kill) z
+          | `Rec fundefs ->
+             let o =
+               o#list (fun o (fb, _, _, _) ->
+                 let o = o#add_funbinder fb in
+                 o#kill fb) fundefs
+             in
+             o#list
+               (fun o (fb, (_, params, body), z, loc) ->
+                 let o = o#computation body in
+                 let o = o#list (fun o -> o#kill) params in
+                 o#option (fun o -> o#kill) z)
+               fundefs
+          | e -> super#binding e
+
+          method! var var =
+            (* Printf.eprintf "Var: %d\n%!" var; *)
+            o#use var
+
+          method! tail_computation = function
+          | `If (cond, tt, ff) ->
+             let ls = o#get_liveset in
+             (* Printf.eprintf "Before if: %s\n%!" (Show_liveset.show ls); *)
+             let o = o#computation tt in
+             let ls' = o#get_liveset in
+             (* Printf.eprintf "After tt: %s\n%!" (Show_liveset.show ls'); *)
+             let o = (o#with_liveset ls)#computation ff in
+             let ls'' = o#get_liveset in
+             (* Printf.eprintf "After ff: %s\n%!" (Show_liveset.show ls''); *)
+             let ls = (o#with_liveset ls)#union [ls'; ls''] in
+             (* Printf.eprintf "Union: %s\n%!" (Show_liveset.show ls); *)
+             (o#with_liveset ls)#value cond
+          | `Case (scrutinee, cases, default) ->
+             let ls = o#get_liveset in
+             let lss, o =
+               let ls = o#get_liveset in
+               StringMap.fold
+                 (fun _ (xb, comp) (lss, o) ->
+                   let ls = o#get_liveset in
+                   let o = o#binder xb in
+                   let o = (o#with_liveset IntSet.empty)#computation comp in
+                   let ls' = o#get_liveset in
+                   let ls'' = IntSet.diff ls ls' in
+                   let o = (o#with_liveset ls'')#register xb ls' ls'' in
+                   let o = o#kill xb in
+                   (ls' :: lss, o))
+                 cases ([], o)
+             in
+             let ls = (o#with_liveset ls)#union lss in
+             let o =
+               match default with
+               | None -> o
+               | Some (xb, comp) ->
+                  let o = o#binder xb in
+                  let o = (o#with_liveset IntSet.empty)#computation comp in
+                  let ls' = o#get_liveset in
+                  let ls'' = IntSet.diff ls ls' in
+                  let o = (o#with_liveset ls'')#register xb ls' ls'' in
+                  o#kill xb
+             in
+             let ls' = o#get_liveset in
+             let ls = (o#with_liveset ls)#union [ls; ls'] in
+             (o#with_liveset ls)#value scrutinee
+          | e -> super#tail_computation e
+
+          method! computation (bs, tc) =
+            let o = o#tail_computation tc in
+            List.fold_right
+              (fun b o -> o#binding b) bs o
+        end
+      in
+      let o = (analysis tyenv)#program prog in
+      o#get_liveness_map
+
+    (* (\* Note this pass is not hygienic. Use with caution. *\) *)
+    (* let alpha_convert tyenv renaming = *)
+    (*   object (o) *)
+    (*     inherit Ir.Transform.visitor(tyenv) as super *)
+
+    (*     val renaming = renaming *)
+
+    (*     method rename v = *)
+    (*       try IntMap.find v renaming with *)
+    (*       | NotFound _ -> v *)
+
+    (*     method! var v = *)
+    (*       let (v, dt, o) = super#var v in *)
+    (*       (o#rename v, dt, o) *)
+
+    (*   end *)
+
+    let fragmentise (tyenv : Types.datatype Env.Int.t) prog =
+      let liveness_map = liveness tyenv prog in
+      (* Printf.eprintf "Liveness_map: %s\n" (Show_liveness_map.show liveness_map); *)
+      let counter = ref (-1) in
+      let fresh_answer_name base =
+        incr counter;
+        Printf.sprintf "_%s_an%d" base !counter
+      in
+      let freshen_binders bs =
+        let freshen_binder (binders, sigma) (var, info) =
+          let var' = Var.fresh_raw_var () in
+          ((var', info) :: binders, IntMap.add var var' sigma)
+        in
+        let (bs', sigma) = List.fold_left freshen_binder ([], IntMap.empty) bs in
+        List.rev bs', sigma
+      in
+      let fresh_answer_binder base : Ir.binder =
+        Var.(make_local_info ->- fresh_binder) (`Not_typed, fresh_answer_name base)
+      in
+      let arglist_of_liveset ls : Ir.value list =
+        List.map (fun (v : Ir.var) -> `Variable v) (IntSet.to_list ls)
+      in
+      let fragmentise =
+        object(o)
+          inherit Ir.Transform.visitor(tyenv) as super
+
+          val basename = "_toplevel"
+          method with_basename name =
+            {< basename = name >}
+          method binders_of_vars vars : Ir.binder list =
+            let binder_of_var v : Ir.binder =
+              let ty = Env.Int.lookup tyenv v in
+              (v, Var.info_of_type ty)
+            in
+            List.map binder_of_var vars
+
+          method refresh_binders bs = bs, IntMap.empty
+
+          method make_param_list liveset : Ir.binder list * Ir.var IntMap.t =
+            let xs = o#binders_of_vars (IntSet.to_list liveset) in
+            o#refresh_binders xs
+
+          val liveset = IntSet.empty
+          method with_liveset ls =
+            {< liveset = ls >}
+
+          method! computation (bs, tc) =
+            let split_bindings bs =
+              let is_let_binding = function | `Let _ -> true | _ -> false in
+              List.fold_right
+                (fun b (lets, other) ->
+                  if is_let_binding b then (b :: lets, other)
+                  else (lets, b :: other))
+                bs ([], [])
+            in
+            let rec letbindings o liveset fb tc = function
+              | [] ->
+                 let fundef : Ir.fun_def =
+                   (* Printf.eprintf "Liveset at %s: %s\n%!" (Var.name_of_binder fb) (Show_liveset.show liveset); *)
+                   let params, _sigma = o#make_param_list liveset in
+                   let body =
+                     let tc =
+                       let (tc, _, _) = o#tail_computation tc in
+                       tc
+                       (* fst3 ((alpha_convert tyenv sigma)#tail_computation tc) *)
+                     in
+                     ([], tc)
+                   in
+                   (fb, ([], params, body), None, `Unknown)
+                 in
+                 [fundef], o
+              | (`Let (b, (tyvars, tc'))) :: bs ->
+                 let (b, o) = o#binder b in
+                 let var = Var.var_of_binder b in
+                 let liveset = IntMap.find var liveness_map in
+                 let f', fb' =
+                   let b = fresh_answer_binder basename in
+                   `Variable (fst b), b
+                 in
+                 let (_, o) = o#binder fb' in
+                 let fundefs, o = letbindings (o#with_liveset liveset.after) liveset.after fb' tc bs in
+                 (* Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset); *)
+                 let fundef : Ir.fun_def =
+                   let params, _sigma = o#make_param_list liveset.before in
+                   let args = arglist_of_liveset liveset.after in
+                   let body : Ir.computation =
+                     let tc =
+                       let (tc, _, _) = (o#with_liveset liveset.before)#tail_computation tc' in
+                       tc
+                       (* fst3 ((alpha_convert tyenv sigma)#tail_computation tc) *)
+                     in
+                     [`Let (b, (tyvars, tc))], `Apply (f', args)
+                   in
+                   (fb, ([], params, body), None, `Unknown)
+                 in
+                 fundef :: fundefs, o
+              | _ -> assert false (* Assumes closure conversion *)
+            in
+            let funbinding o : Ir.binding -> Ir.binding * 'self_type = function
+              | `Fun (fb, (tyvars, (params : Ir.binder list), body), (z : Ir.binder option), loc) ->
+                 let z, o =
+                   match z with
+                   | None -> z, o
+                   | Some z -> let z, o = o#binder z in Some z, o
+                 in
+                 let ((params : Ir.binder list), o) =
+                   List.fold_left
+                     (fun (ps, o) p ->
+                       let (p, o) = o#binder p in (p :: ps, o))
+                     ([], o) params
+                 in
+                 let o = o#with_basename (Var.name_of_binder fb) in
+                 let (body, _, o) = o#computation body in
+                 let ((fb : Ir.binder), o) = o#binder fb in
+                 (`Fun (fb, (tyvars, List.rev params, body), z, loc)), o
+              | `Rec fundefs ->
+                 let o =
+                   List.fold_right
+                     (fun (f, _, _, _) o ->
+                       let _, o = o#binder f in o)
+                     fundefs o
+                 in
+                 let defs, o =
+                   List.fold_right
+                     (fun (fb, (tyvars, (params : Ir.binder list), body), (z : Ir.binder option), loc) (defs, o) ->
+                       let z, o =
+                         match z with
+                         | None -> z, o
+                         | Some z -> let z, o = o#binder z in Some z, o
+                       in
+                       let params, o =
+                         List.fold_right
+                           (fun p (ps, o) ->
+                             let p, o = o#binder p in
+                             (p :: ps, o))
+                           params ([], o)
+                       in
+                       let o = o#with_basename (Var.name_of_binder fb) in
+                       let (body, _, o) = o#computation body in
+                       ((fb, (tyvars, params, body), z, loc) :: defs, o))
+                     fundefs ([], o)
+                 in
+                 `Rec defs, o
+              | b -> b, o
+            in
+            let (lets, rest) = split_bindings bs in
+            let initial_f, (initial_fb : Ir.binder) =
+              let b = fresh_answer_binder basename in
+              `Variable (fst b), b
+            in
+            let (_, o) = o#binder initial_fb in
+            let answer_frames, o =
+              letbindings o liveset initial_fb tc lets
+            in
+            let funs, o =
+              List.fold_left
+                (fun (bs, o) b ->
+                  let b, o = funbinding o b in
+                  (b :: bs, o))
+                ([], o) rest
+            in
+            (funs @ [`Rec answer_frames], `Apply (initial_f, arglist_of_liveset liveset)), `Not_typed, o
+
+          method! program comp =
+            (* let toplevel_binding (o : 'self_type) (b : Ir.binding) : Ir.binding * Types.datatype * 'self_type = *)
+            (*   match b with *)
+            (*   | `Fun (fb, (tyvars, params, body), z, loc) -> *)
+            (*      let ((params : Ir.binder list), o) = *)
+            (*        List.fold_left *)
+            (*          (fun (ps, o) p -> *)
+            (*            let (p, o) = o#binder p in (p :: ps, o)) *)
+            (*          ([], o) params *)
+            (*      in *)
+            (*      let o = o#with_basename (Var.name_of_binder fb) in *)
+            (*      let (body, _, o) = o#computation body in *)
+            (*      let ((fb : Ir.binder), o) = o#binder fb in *)
+            (*      (`Fun (fb, (tyvars, List.rev params, body), z, loc)), `Not_typed, o *)
+            (*   (\* | `Rec fundefs -> *\) *)
+            (*   (\*    let _, o = *\) *)
+            (*   (\*      List.fold_right *\) *)
+            (*   (\*        (fun (f, _, _, _) (fs, o) -> *\) *)
+            (*   (\*          let f, o = o#binder f in *\) *)
+            (*   (\*          (f::fs, o)) *\) *)
+            (*   (\*        fundefs *\) *)
+            (*   (\*        ([], o) *\) *)
+            (*   (\*    in *\) *)
+            (*   (\*    let defs, o = *\) *)
+            (*   (\*      List.fold_left *\) *)
+            (*   (\*        (fun (defs, (o : 'self_type)) (f, (tyvars, xs, body), z, location) -> *\) *)
+            (*   (\*          let (z, o) = o#optionu (fun o -> o#binder) z in *\) *)
+            (*   (\*          let xs, o = *\) *)
+            (*   (\*            List.fold_right *\) *)
+            (*   (\*              (fun x (xs, o) -> *\) *)
+            (*   (\*                let (x, o) = o#binder x in *\) *)
+            (*   (\*                (x::xs, o)) *\) *)
+            (*   (\*              xs ([], o) *\) *)
+            (*   (\*          in *\) *)
+            (*   (\*          let body, _, o = o#computation body in *\) *)
+            (*   (\*          (f, (tyvars, xs, body), z, location)::defs, o) *\) *)
+            (*   (\*        ([], o) *\) *)
+            (*   (\*        fundefs *\) *)
+            (*   (\*    in *\) *)
+            (*   (\*    let defs = List.rev defs in *\) *)
+            (*   (\*    `Rec defs, `Not_typed, o *\) *)
+            (*   | e -> e, `Not_typed, o *)
+            (* in *)
+            (* let (bs : Ir.binding list), o = *)
+            (*   List.fold_left *)
+            (*     (fun (bs, o) b -> *)
+            (*       let (b, _, o) = toplevel_binding o b in *)
+            (*       (b :: bs, o)) *)
+            (*     ([], o) bs *)
+            (* in *)
+            (* let (tc, dt, o) = o#tail_computation tc in *)
+        (* (List.rev bs, tc), dt, o *)
+            let o = o#with_basename "_toplevel" in
+            o#computation comp
+        end
+      in
+      let (prog, _, _) = fragmentise#program prog in
+      prog
+
+  end
+
+  let rec generate_program : venv -> Ir.program -> venv * Js.program
+    = fun env (bs,tc) ->
+      let open Js in
+      let env', decls = generate_bindings ~toplevel:true env bs in
+      let env'',body = generate_computation env' ([], tc) in
+      assert false
+
+
+  and generate_computation : venv -> Ir.computation -> venv * Js.program
+    = fun env (bs, tc) ->
+      (* let open Js in *)
+      let rec gbs : venv -> Ir.binding list -> venv * Js.program =
+        fun env ->
+          function
+          | `Module _ :: bs
+          | `Alien _ :: bs -> gbs env bs
+          | b :: bs ->
+             let env', decls = generate_binding ~toplevel:false env b in
+             let (env'', (decls', stmt)) = gbs env' bs in
+             env'', (decls @ decls', stmt)
+          | [] -> (env, generate_tail_computation env tc)
+      in
+      gbs env bs
+
+  and generate_bindings : ?toplevel:bool -> venv -> Ir.binding list -> venv * Js.decl list
+    = fun ?(toplevel=false) env ->
+      (* let open Js in *)
+      let gbs env bs = generate_bindings ~toplevel env bs in
+      function
+      | `Module _ :: bs -> gbs env bs
+      | `Alien (bnd, raw_name, _lang) :: bs ->
+         let (a, _a_name) = safe_name_binder bnd in
+         let env' = VEnv.bind env (a, raw_name) in
+         gbs env' bs
+      | b :: bs ->
+         let env', decls = generate_binding ~toplevel env b in
+         let (env'', decls') = gbs env' bs in
+         env'', decls @ decls'
+      | [] -> env, []
+
+  and generate_binding : ?toplevel:bool -> venv -> Ir.binding -> venv * Js.decl list
+    = fun ?(toplevel=false) env ->
+      let open Js in
+      (* let gv v = generate_value env v in *)
+      function
+      | `Let (b, (_, `Return v)) ->
+         let (x, x_name) = safe_name_binder b in
+         VEnv.bind env (x, x_name),
+         [DLet {
+           bkind = `Const;
+           binder = Ident.of_string x_name;
+           expr = generate_value env v; }]
+      | `Let (b, (_, tc)) when toplevel = false ->
+         let (x, x_name) = safe_name_binder b in
+         VEnv.bind env (x, x_name),
+         begin match generate_tail_computation env tc with
+         | [], SReturn expr
+         | [], SExpr expr ->
+            [DLet {
+              bkind = `Const;
+              binder = Ident.of_string x_name;
+              expr }]
+         | body ->
+            [DLet {
+              bkind = `Const;
+              binder = Ident.of_string x_name;
+              expr =
+                EYield ({ ykind = `Star;
+                          yexpr = EApply (EFun {
+                            fname = `Anonymous;
+                            fkind = `Generator;
+                            formal_params = [];
+                            body;
+                          }, []); }) }]
+         end
+      | `Let (b, (_, tc)) ->
+         let (x, x_name) = safe_name_binder b in
+         let toplevel =
+           DLet {
+             bkind = `Const;
+             binder = x_name;
+             expr =
+               EApply
+                 (EPrim "%Toplevel.run",
+                  [EFun {
+                    fname = `Anonymous;
+                    fkind = `Generator;
+                    formal_params = [];
+                    body = generate_tail_computation env tc; }]); }
+         in
+         VEnv.bind env (x, x_name),
+         [toplevel]
+      | `Fun ((fb, _, _zs, _location) as def) ->
+         let (f, f_name) = safe_name_binder fb in
+         VEnv.bind env (f, f_name),
+         [generate_function env [] def]
+      | `Rec defs ->
+         let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) defs in
+         let env' = List.fold_left VEnv.bind env fs in
+         let defs = List.map (generate_function env fs) defs in
+         env', defs
+      | `Module _  | `Alien _ -> assert false
+
+  and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
+    = fun env tc ->
+      let open Js in
+      let gv v = generate_value env v in
+      let gc c = snd (generate_computation env c) in
+      match tc with
+      | `Return v ->
+         [], SReturn (gv v)
+      | `Apply (f, vs) ->
+         let f = strip_poly f in
+         begin
+           match f with
+           | `Variable f ->
+              let f_name = VEnv.lookup env f in
+              begin
+                match vs with
+                | [l; r] when Arithmetic.is f_name ->
+                   [], SReturn (Arithmetic.gen ~op:f_name ~args:[gv l; gv r] ())
+                | [l; r] when StringOp.is f_name ->
+                   [], SReturn (StringOp.gen ~op:f_name ~args:[gv l; gv r] ())
+                | [l; r] when Comparison.is f_name ->
+                   [], SReturn (Comparison.gen ~op:f_name ~args:[gv l; gv r] ())
+                | _ ->
+                   if Lib.is_primitive f_name
+                     && Lib.primitive_location f_name <> `Server
+                   then
+                     match f_name, vs with
+                     | "deref", [v] ->
+                        [], SReturn (EAccess (gv v, "_contents"))
+                     | "ref", [v] ->
+                        [], SReturn (EObj [("_contents", gv v)])
+                     | ":=", [r; v] ->
+                        let destructive_update =
+                          EApply (EPrim "%assign", [EAccess (gv r, "_contents"); gv v])
+                        in
+                        [], SSeq (SExpr destructive_update, SReturn (EObj []))
+                     | _ ->
+                        let expr =
+                          try
+                            let args = List.map gv vs in
+                            Functions.gen ~op:f_name ~args ()
+                          with Not_found -> failwith (Printf.sprintf "Unsupported primitive (tc): %s.\n" f_name)
+                        in
+                        [], SReturn expr
+                   else
+                     [], SReturn (EApply (gv (`Variable f), List.map gv vs))
+              end
+           | _ ->
+              [], SReturn (EApply (gv f, List.map gv vs))
+         end
+      | `Special special ->
+         generate_special env special
+      | `Case (v, cases, default) ->
+         let v = gv v in
+         let scrutineeb = Ident.make ~prefix:"_scrutinee" () in
+         let bind_scrutinee scrutinee =
+           DLet {
+             bkind = `Const;
+             binder = scrutineeb;
+             expr = scrutinee; }
+         in
+         let open Utility in
+         let (decls, prog) =
+           let translate_case (xb, c) =
+             let (x, x_name) = safe_name_binder xb in
+             let value_binding =
+               DLet { bkind = `Const;
+                      binder = Ident.of_string x_name;
+                      expr = EAccess (EVar scrutineeb, "_value"); }
+             in
+             let (_, (decls, stmt)) = generate_computation (VEnv.bind env (x, x_name)) c in
+             value_binding :: decls, stmt
+           in
+           let cases = StringMap.map translate_case cases in
+           let default = opt_map translate_case default in
+           [], SCase (EAccess (EVar scrutineeb, "_label"), cases, default)
+         in
+         decls @ [bind_scrutinee v], prog
+      | `If (v, c1, c2) ->
+         [], SIf (gv v, gc c1, gc c2)
+  and generate_special : venv -> Ir.special -> Js.program
+    = fun env sp ->
+      let open Ir in
+      let open Js in
+      let gv v = generate_value env v in
+      match sp with
+      | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
+      | _ -> failwith "Unsupported special."
+
+  and generate_value : venv -> Ir.value -> Js.expression
+    = fun env ->
+      let open Js in
+      let open Utility in
+      let gv v = generate_value env v in
+      function
+      | `Constant c ->
+         ELit (
+           match c with
+           | `Int v  -> LInt v
+           | `Float v  -> LFloat v
+           | `Bool v   -> LBool v
+           | `Char v   -> LChar v
+           | `String v -> LString v)
+      | `Variable var ->
+       (* HACK *)
+         let name = VEnv.lookup env var in
+         if Arithmetic.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Regular;
+                  formal_params = [x; y];
+                  body = [], SReturn (Arithmetic.gen ~op:name ~args:[EVar x; EVar y] ()) }
+         else if StringOp.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Regular;
+                  formal_params = [x; y];
+                  body = [], SReturn (StringOp.gen ~op:name ~args:[EVar x; EVar y] ()) }
+         else if Comparison.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Regular;
+                  formal_params = [x; y];
+                  body = [], SReturn (Comparison.gen ~op:name ~args:[EVar x; EVar y] ()) }
+         else if Functions.is name then
+           let rec replicate x = function
+             | 0 -> []
+             | n -> x :: (replicate x (n - 1))
+           in
+           let arity = Functions.arity ~op:name () in
+           let formal_params = List.map (fun _ -> Ident.make ()) (replicate () arity) in
+           let actual_params = List.map (fun i -> EVar i) formal_params in
+           EFun { fname = `Anonymous;
+                  fkind = `Regular;
+                  formal_params = formal_params;
+                  body = [], SReturn (Functions.gen ~op:name ~args:actual_params ()) }
+         else
+           begin match name with
+           | "Nil" -> EPrim "%List.nil"
+           |  _ -> EVar name
+           end
+      | `Extend (field_map, rest) ->
+         let dict =
+           make_dictionary
+             (StringMap.fold
+                (fun name v dict ->
+                  (name, gv v) :: dict)
+                field_map [])
+         in
+         begin
+           match rest with
+           | None -> dict
+           | Some v ->
+              EApply (EPrim "%Record.union", [gv v; dict])
+         end
+      | `Project (name, v) ->
+         EAccess (gv v, name)
+      | `Erase (names, v) ->
+         EApply (EPrim "%Record.erase",
+                 [gv v; make_array (List.map strlit (StringSet.elements names))])
+      | `Inject (name, v, _t) ->
+         make_dictionary [("_label", strlit name); ("_value", gv v)]
+    (* erase polymorphism *)
+      | `TAbs (_, v)
+      | `TApp (v, _) -> gv v
+      | `ApplyPure (f, vs) ->
+         let f = strip_poly f in
+         begin
+           match f with
+           | `Variable f ->
+              let f_name = VEnv.lookup env f in
+              begin
+                match vs with
+                | [l; r] when Arithmetic.is f_name ->
+                   Arithmetic.gen ~op:f_name ~args:[gv l; gv r] ()
+                | [l; r] when StringOp.is f_name ->
+                   StringOp.gen ~op:f_name ~args:[gv l; gv r] ()
+                | [l; r] when Comparison.is f_name ->
+                   Comparison.gen ~op:f_name ~args:[gv l; gv r] ()
+                | _ ->
+                   if Lib.is_primitive f_name
+                     && Lib.primitive_location f_name <> `Server
+                   then
+                     try
+                       Functions.gen ~op:f_name ~args:(List.map gv vs) ()
+                     with Not_found -> failwith (Printf.sprintf "Unsupported primitive (val): %s.\n" f_name)
+                   else
+                     EApply (gv (`Variable f), (List.map gv vs))
+              end
+           | _ ->
+              EApply (gv f, List.map gv vs)
+         end
+      | `Closure (f, v) ->
+         EApply (EPrim "%Closure.apply", [gv (`Variable f); gv v])
+      | `Coerce (v, _) ->
+         gv v
+      | _ -> failwith "Unsupported value."
+
+  and generate_function : venv -> (Var.var * string) list -> Ir.fun_def -> Js.decl =
+    fun env fs (fb, (_, xsb, body), zb, location) ->
+      let open Js in
+      let (_f, f_name) = safe_name_binder fb in
+      assert (f_name <> "");
+      (* prerr_endline ("f_name: "^f_name); *)
+      (* optionally add an additional closure environment argument *)
+      let xsb =
+        match zb with
+        | None -> xsb
+        | Some zb -> zb :: xsb
+      in
+      let bs = List.map safe_name_binder xsb in
+      let _xs, xs_names = List.split bs in
+      let body_env = List.fold_left VEnv.bind env (fs @ bs) in
+      let body =
+        match location with
+        | `Client | `Unknown ->
+           snd (generate_computation body_env body)
+        | _ -> failwith "Only client side calls are supported."
+      in
+      DFun {
+        fname = `Named (Ident.of_string f_name);
+        fkind = `Regular;
+        formal_params = (List.map Ident.of_string xs_names);
+        body; }
+
   let compile : comp_unit -> prog_unit
     = fun u ->
       let open Js in
       let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
+      let nenv = Ir.NameMap.(compute _tenv u.program) in
+      Printf.eprintf "nenv: %s\n%!" (Ir.NameMap.Show_name_map.show nenv);
       (* Printf.eprintf "%s\n%!" (Ir.Show_program.show u.program); *)
       (* let lm = Ir.ProcedureFragmentation.liveness _tenv u.program in *)
       (* Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm); *)
-      let prog = Ir.ProcedureFragmentation.fragmentise _tenv u.program in
+      let prog = ProcedureFragmentation.fragmentise _tenv u.program in
       Printf.eprintf "Fragmented: %s\n%!" (Ir.Show_program.show prog);
-      assert false
+      let _, prog = generate_program venv prog in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["performance.js"; "stack.js"] in
+      { u with program = prog; includes = u.includes @ dependencies }
 end
 
 (* Compiler selection *)
