@@ -2246,57 +2246,6 @@ module Stack = struct
             (funs @ [`Rec answer_frames], `Apply (initial_f, arglist_of_liveset liveset)), `Not_typed, o
 
           method! program comp =
-            (* let toplevel_binding (o : 'self_type) (b : Ir.binding) : Ir.binding * Types.datatype * 'self_type = *)
-            (*   match b with *)
-            (*   | `Fun (fb, (tyvars, params, body), z, loc) -> *)
-            (*      let ((params : Ir.binder list), o) = *)
-            (*        List.fold_left *)
-            (*          (fun (ps, o) p -> *)
-            (*            let (p, o) = o#binder p in (p :: ps, o)) *)
-            (*          ([], o) params *)
-            (*      in *)
-            (*      let o = o#with_basename (Var.name_of_binder fb) in *)
-            (*      let (body, _, o) = o#computation body in *)
-            (*      let ((fb : Ir.binder), o) = o#binder fb in *)
-            (*      (`Fun (fb, (tyvars, List.rev params, body), z, loc)), `Not_typed, o *)
-            (*   (\* | `Rec fundefs -> *\) *)
-            (*   (\*    let _, o = *\) *)
-            (*   (\*      List.fold_right *\) *)
-            (*   (\*        (fun (f, _, _, _) (fs, o) -> *\) *)
-            (*   (\*          let f, o = o#binder f in *\) *)
-            (*   (\*          (f::fs, o)) *\) *)
-            (*   (\*        fundefs *\) *)
-            (*   (\*        ([], o) *\) *)
-            (*   (\*    in *\) *)
-            (*   (\*    let defs, o = *\) *)
-            (*   (\*      List.fold_left *\) *)
-            (*   (\*        (fun (defs, (o : 'self_type)) (f, (tyvars, xs, body), z, location) -> *\) *)
-            (*   (\*          let (z, o) = o#optionu (fun o -> o#binder) z in *\) *)
-            (*   (\*          let xs, o = *\) *)
-            (*   (\*            List.fold_right *\) *)
-            (*   (\*              (fun x (xs, o) -> *\) *)
-            (*   (\*                let (x, o) = o#binder x in *\) *)
-            (*   (\*                (x::xs, o)) *\) *)
-            (*   (\*              xs ([], o) *\) *)
-            (*   (\*          in *\) *)
-            (*   (\*          let body, _, o = o#computation body in *\) *)
-            (*   (\*          (f, (tyvars, xs, body), z, location)::defs, o) *\) *)
-            (*   (\*        ([], o) *\) *)
-            (*   (\*        fundefs *\) *)
-            (*   (\*    in *\) *)
-            (*   (\*    let defs = List.rev defs in *\) *)
-            (*   (\*    `Rec defs, `Not_typed, o *\) *)
-            (*   | e -> e, `Not_typed, o *)
-            (* in *)
-            (* let (bs : Ir.binding list), o = *)
-            (*   List.fold_left *)
-            (*     (fun (bs, o) b -> *)
-            (*       let (b, _, o) = toplevel_binding o b in *)
-            (*       (b :: bs, o)) *)
-            (*     ([], o) bs *)
-            (* in *)
-            (* let (tc, dt, o) = o#tail_computation tc in *)
-        (* (List.rev bs, tc), dt, o *)
             let o = o#with_basename "_toplevel" in
             o#computation comp
         end
@@ -2308,106 +2257,49 @@ module Stack = struct
 
   let rec generate_program : venv -> Ir.program -> venv * Js.program
     = fun env (bs,tc) ->
-      let open Js in
-      let env', decls = generate_bindings ~toplevel:true env bs in
-      let env'',body = generate_computation env' ([], tc) in
-      assert false
+      generate_computation env (bs, tc) (* TODO FIXME: add toplevel runner *)
 
 
   and generate_computation : venv -> Ir.computation -> venv * Js.program
     = fun env (bs, tc) ->
       (* let open Js in *)
-      let rec gbs : venv -> Ir.binding list -> venv * Js.program =
-        fun env ->
-          function
-          | `Module _ :: bs
-          | `Alien _ :: bs -> gbs env bs
-          | b :: bs ->
-             let env', decls = generate_binding ~toplevel:false env b in
-             let (env'', (decls', stmt)) = gbs env' bs in
-             env'', (decls @ decls', stmt)
-          | [] -> (env, generate_tail_computation env tc)
-      in
-      gbs env bs
+      let env, bs = generate_bindings env bs in
+      let bs', tc = generate_tail_computation env tc in
+      env, (bs @ bs', tc)
 
-  and generate_bindings : ?toplevel:bool -> venv -> Ir.binding list -> venv * Js.decl list
-    = fun ?(toplevel=false) env ->
-      (* let open Js in *)
-      let gbs env bs = generate_bindings ~toplevel env bs in
+  and generate_bindings : venv -> Ir.binding list -> venv * Js.decl list
+    = fun env ->
+      let open Js in
+      let gbs env bs = generate_bindings env bs in
       function
       | `Module _ :: bs -> gbs env bs
       | `Alien (bnd, raw_name, _lang) :: bs ->
          let (a, _a_name) = safe_name_binder bnd in
          let env' = VEnv.bind env (a, raw_name) in
          gbs env' bs
-      | b :: bs ->
-         let env', decls = generate_binding ~toplevel env b in
-         let (env'', decls') = gbs env' bs in
-         env'', decls @ decls'
-      | [] -> env, []
-
-  and generate_binding : ?toplevel:bool -> venv -> Ir.binding -> venv * Js.decl list
-    = fun ?(toplevel=false) env ->
-      let open Js in
-      (* let gv v = generate_value env v in *)
-      function
-      | `Let (b, (_, `Return v)) ->
-         let (x, x_name) = safe_name_binder b in
-         VEnv.bind env (x, x_name),
-         [DLet {
-           bkind = `Const;
-           binder = Ident.of_string x_name;
-           expr = generate_value env v; }]
-      | `Let (b, (_, tc)) when toplevel = false ->
-         let (x, x_name) = safe_name_binder b in
-         VEnv.bind env (x, x_name),
-         begin match generate_tail_computation env tc with
-         | [], SReturn expr
-         | [], SExpr expr ->
-            [DLet {
-              bkind = `Const;
-              binder = Ident.of_string x_name;
-              expr }]
-         | body ->
-            [DLet {
-              bkind = `Const;
-              binder = Ident.of_string x_name;
-              expr =
-                EYield ({ ykind = `Star;
-                          yexpr = EApply (EFun {
-                            fname = `Anonymous;
-                            fkind = `Generator;
-                            formal_params = [];
-                            body;
-                          }, []); }) }]
-         end
-      | `Let (b, (_, tc)) ->
-         let (x, x_name) = safe_name_binder b in
-         let toplevel =
+      | `Let (b, (_, tc)) :: bs ->
+         let b = safe_name_binder b in
+         let body =
+         (* generate_tail_computation env tc *)
+           assert false
+         in
+         let binding =
            DLet {
              bkind = `Const;
-             binder = x_name;
-             expr =
-               EApply
-                 (EPrim "%Toplevel.run",
-                  [EFun {
-                    fname = `Anonymous;
-                    fkind = `Generator;
-                    formal_params = [];
-                    body = generate_tail_computation env tc; }]); }
+             binder = snd b;
+             expr = body
+           }
          in
-         VEnv.bind env (x, x_name),
-         [toplevel]
-      | `Fun ((fb, _, _zs, _location) as def) ->
-         let (f, f_name) = safe_name_binder fb in
-         VEnv.bind env (f, f_name),
-         [generate_function env [] def]
-      | `Rec defs ->
-         let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) defs in
-         let env' = List.fold_left VEnv.bind env fs in
-         let defs = List.map (generate_function env fs) defs in
-         env', defs
-      | `Module _  | `Alien _ -> assert false
+         let env' = VEnv.bind env b in
+         let env'', bindings = gbs env' bs in
+         env'', binding :: bindings
+      | `Fun (fb, xs, z, loc) :: bs ->
+         let fbinding = generate_function env [] (fb, xs, z, loc) in
+         let fb = safe_name_binder fb in
+         let env', bindings = gbs (VEnv.bind env fb) bs in
+         env', fbinding :: bindings
+      | `Rec fundefs :: bs -> assert false
+      | [] -> env, []
 
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
     = fun env tc ->
