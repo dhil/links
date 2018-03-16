@@ -1953,12 +1953,11 @@ module StackInspection = struct
         object (o)
           inherit Ir.Iter.visitor(tyenv) as super
 
-          val funbinder_set = IntSet.empty (* slight hack to avoid function binders in live sets *)
           val liveness_map = IntMap.empty  (* binder |-> before and after live sets *)
           val liveset = IntSet.empty       (* current live set being built *)
 
           method use var = (* registers a use of a variable, provided it is not primitive or a function binder *)
-            if Lib.is_primitive_var var || IntSet.mem var funbinder_set then o
+            if Lib.is_primitive_var var || Tables.mem Tables.fun_defs var then o
             else {< liveset = IntSet.add var liveset >}
 
           method kill b = (* removes a binder from the current live set *)
@@ -1975,10 +1974,6 @@ module StackInspection = struct
 
           method get_liveness_map = liveness_map
 
-          method add_funbinder fb = (* register a function binder *)
-            let var = Var.var_of_binder fb in
-            {< funbinder_set = IntSet.add var funbinder_set >}
-
           (* method! bindings bs = *)
           (*   o#list (fun o -> o#binding) (List.rev bs) *)
 
@@ -1992,17 +1987,10 @@ module StackInspection = struct
              in
              (o#with_liveset before)#register b before after
           | `Fun (fb, (_, params, body), z, _) ->
-             let o = o#add_funbinder fb in
-             let o = o#kill fb in
              let o = o#computation body in
              let o = o#list (fun o -> o#kill) params in
              o#option (fun o -> o#kill) z
           | `Rec fundefs ->
-             let o =
-               o#list (fun o (fb, _, _, _) ->
-                 let o = o#add_funbinder fb in
-                 o#kill fb) fundefs
-             in
              o#list
                (fun o (fb, (_, params, body), z, loc) ->
                  let o = o#computation body in
@@ -2013,6 +2001,7 @@ module StackInspection = struct
 
           method! var var =
             (* Printf.eprintf "Var: %d\n%!" var; *)
+            (* Printf.eprintf "Var %d is a fun? %s\n%!" var (if Tables.mem Tables.fun_defs var then "TRUE" else "FALSE"); *)
             o#use var
 
           method! tail_computation = function
@@ -2241,7 +2230,7 @@ module StackInspection = struct
                   (b :: bs, o))
                 ([], o) rest
             in
-            (funs @ [`Rec answer_frames], `Apply (initial_f, arglist_of_liveset liveset)), `Not_typed, o
+            (funs @ [`Rec answer_frames], `Apply (initial_f, arglist_of_liveset liveset)), `Not_typed, o#with_liveset IntSet.empty
 
           method! program comp =
             let o = o#with_basename "_toplevel" in
@@ -2330,8 +2319,8 @@ module StackInspection = struct
          env', fbinding :: bindings
       | `Rec fundefs :: bs ->
          let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) fundefs in
+         let defs = List.map (generate_function env fs) fundefs in
          let env' = List.fold_left VEnv.bind env fs in
-         let defs = List.map (generate_function env' fs) fundefs in
          let env'', bindings = gbs env' bs in
          env'', defs @ bindings
       | [] -> env, []
@@ -2339,6 +2328,7 @@ module StackInspection = struct
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
     = fun env tc ->
       let open Js in
+      (* Printf.eprintf "tc: %s\n%!" (Ir.Show_tail_computation.show tc); *)
       let gv v = generate_value env v in
       let gc c = snd (generate_computation env c) in
       match tc with
@@ -2556,6 +2546,7 @@ module StackInspection = struct
       let body =
         match location with
         | `Client | `Unknown ->
+           (* Printf.eprintf "Generating body: %s\n%!" (Ir.Show_computation.show body); *)
            snd (generate_computation body_env body)
         | _ -> failwith "Only client side calls are supported."
       in
