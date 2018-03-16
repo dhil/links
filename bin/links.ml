@@ -536,8 +536,9 @@ let compile_js () =
        (* Closure convert *)
        let closure_convert tenv program =
        (* Printf.printf "Bindings:\n%s\n%!" (Ir.Show_program.show (locals, `Special (`Wrong `Not_typed))); *)
-         Closures.program tenv Lib.primitive_vars program
-       (* BuildTables.program tenv' Lib.primitive_vars (locals, main); *)
+         let (globals, main) = Closures.program tenv Lib.primitive_vars program in
+         BuildTables.program tenv' Lib.primitive_vars (globals, main);
+         (globals, main)
        in
        let (globals, main) = closure_convert tenv' program in
        let external_files = source.external_dependencies in
