@@ -102,6 +102,7 @@ module Prim_Arithmetic : PRIM_DESC = struct
   let prim_desc = function
     | "+" -> "%int_add",2  | "+." -> "%float_add",2
     | "-"  -> "%int_sub",2 | "-." -> "%float_sub",2
+    | "*" -> "%int_mult",2 | "*." -> "%float_mult",2
     | "/" -> "%int_div",2  | "/." -> "%float_div",2
     | "^" -> "%int_pow",2  | "^." -> "%float_pow",2
     | "mod" -> "%mod",2
@@ -2263,7 +2264,20 @@ module StackInspection = struct
   (* Translation start *)
   let rec generate_program : venv -> Ir.program -> venv * Js.program
     = fun env (bs,tc) ->
-      generate_computation env (bs, tc) (* TODO FIXME: add toplevel runner *)
+      let open Js in
+      let toplevel body =
+        SExpr
+          (EApply
+             (EFun {
+               fname = `Anonymous;
+               fkind = `Regular;
+               body = body;
+               formal_params = [] },
+              []))
+      in
+      let (env', (bs, stmt)) = generate_computation env (bs, tc)
+      in
+      (env', (bs, toplevel ([], stmt)))
 
 
   and generate_computation : venv -> Ir.computation -> venv * Js.program
