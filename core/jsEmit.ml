@@ -481,8 +481,9 @@ and expression : Js.expression -> CodeGen.js
      | "%le" -> apply_binop "<=" (pop2 args')
      | "%ge" -> apply_binop ">=" (pop2 args')
 
-     | "%int_add" | "%float_add" -> apply_binop "+" (pop2 args')
-     | "%int_sub" | "%float_sub" -> apply_binop "-" (pop2 args')
+     | "%int_add"  | "%float_add"  -> apply_binop "+" (pop2 args')
+     | "%int_sub"  | "%float_sub"  -> apply_binop "-" (pop2 args')
+     | "%int_mult" | "%float_mult" -> apply_binop "*" (pop2 args')
      | "%assign" -> apply_binop "=" (pop2 args')
      | "%not" -> apply_unary "!" (pop1 args')
      | "%negate" -> apply_unary "-" (pop1 args')
