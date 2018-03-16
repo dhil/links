@@ -6,6 +6,7 @@ type prog_unit = Js.program Js.comp_unit
 (* Environment *)
 module VEnv = Env.Int
 type venv = string VEnv.t
+  deriving (Show)
 
 let string_of_venv (env : venv) =
   let strings =
@@ -1934,7 +1935,7 @@ module CEK = struct
 end
 
 (* Generalised Stack Inspection compiler *)
-module Stack = struct
+module StackInspection = struct
   module ProcedureFragmentation = struct
     open Utility
 
@@ -1951,27 +1952,29 @@ module Stack = struct
         object (o)
           inherit Ir.Iter.visitor(tyenv) as super
 
-          val funbinder_set = IntSet.empty
-          val liveness_map = IntMap.empty
-          val liveset = IntSet.empty
-          method use var =
+          val funbinder_set = IntSet.empty (* slight hack to avoid function binders in live sets *)
+          val liveness_map = IntMap.empty  (* binder |-> before and after live sets *)
+          val liveset = IntSet.empty       (* current live set being built *)
+
+          method use var = (* registers a use of a variable, provided it is not primitive or a function binder *)
             if Lib.is_primitive_var var || IntSet.mem var funbinder_set then o
             else {< liveset = IntSet.add var liveset >}
-          method kill b =
+
+          method kill b = (* removes a binder from the current live set *)
             let var = Var.var_of_binder b in
             {< liveset = IntSet.remove var liveset >}
-          method with_liveset liveset =
+
+          method with_liveset liveset = (* updates the current live set *)
             {< liveset = liveset >}
           method get_liveset = liveset
-          method register b before after =
+
+          method register b before after = (* registers a continuation point with its live sets *)
             let var = Var.var_of_binder b in
             {< liveness_map = IntMap.add var { before = before; after = after } liveness_map >}
+
           method get_liveness_map = liveness_map
-          method union lss =
-            List.fold_left IntSet.union liveset lss
-          method diff before after =
-            IntSet.diff before after
-          method add_funbinder fb =
+
+          method add_funbinder fb = (* register a function binder *)
             let var = Var.var_of_binder fb in
             {< funbinder_set = IntSet.add var funbinder_set >}
 
@@ -1980,12 +1983,13 @@ module Stack = struct
 
           method! binding = function
           | `Let (b, (_, tc)) ->
-             let ls = o#get_liveset in
-             let o = (o#with_liveset IntSet.empty)#tail_computation tc in
-             let ls' = o#get_liveset in
-             let ls'' = o#diff ls ls' in
-             let o = (o#with_liveset ls'')#register b ls' ls'' in
-             o#kill b
+             let after = o#get_liveset in
+             let o = (o#with_liveset IntSet.empty)#tail_computation tc in (* computes use *)
+             let use = o#get_liveset in
+             let before = (* (use U after) - {b} *)
+               IntSet.(remove (Var.var_of_binder b) (union_all [use; after]))
+             in
+             (o#with_liveset before)#register b before after
           | `Fun (fb, (_, params, body), z, _) ->
              let o = o#add_funbinder fb in
              let o = o#kill fb in
@@ -2012,52 +2016,38 @@ module Stack = struct
 
           method! tail_computation = function
           | `If (cond, tt, ff) ->
-             let ls = o#get_liveset in
-             (* Printf.eprintf "Before if: %s\n%!" (Show_liveset.show ls); *)
              let o = o#computation tt in
-             let ls' = o#get_liveset in
-             (* Printf.eprintf "After tt: %s\n%!" (Show_liveset.show ls'); *)
-             let o = (o#with_liveset ls)#computation ff in
-             let ls'' = o#get_liveset in
-             (* Printf.eprintf "After ff: %s\n%!" (Show_liveset.show ls''); *)
-             let ls = (o#with_liveset ls)#union [ls'; ls''] in
-             (* Printf.eprintf "Union: %s\n%!" (Show_liveset.show ls); *)
-             (o#with_liveset ls)#value cond
+             let after_tt = o#get_liveset in
+             let o = o#computation ff in
+             let after_ff = o#get_liveset in
+             let before_if = IntSet.union_all [after_tt; after_ff] in
+             (o#with_liveset before_if)#value cond
           | `Case (scrutinee, cases, default) ->
-             let ls = o#get_liveset in
              let lss, o =
-               let ls = o#get_liveset in
                StringMap.fold
                  (fun _ (xb, comp) (lss, o) ->
-                   let ls = o#get_liveset in
                    let o = o#binder xb in
-                   let o = (o#with_liveset IntSet.empty)#computation comp in
-                   let ls' = o#get_liveset in
-                   let ls'' = IntSet.diff ls ls' in
-                   let o = (o#with_liveset ls'')#register xb ls' ls'' in
+                   let o = o#computation comp in
                    let o = o#kill xb in
-                   (ls' :: lss, o))
+                   let after = o#get_liveset in
+                   (after :: lss, o))
                  cases ([], o)
              in
-             let ls = (o#with_liveset ls)#union lss in
-             let o =
+             let o, after_default =
                match default with
-               | None -> o
+               | None -> o, IntSet.empty
                | Some (xb, comp) ->
                   let o = o#binder xb in
-                  let o = (o#with_liveset IntSet.empty)#computation comp in
-                  let ls' = o#get_liveset in
-                  let ls'' = IntSet.diff ls ls' in
-                  let o = (o#with_liveset ls'')#register xb ls' ls'' in
-                  o#kill xb
+                  let o = o#computation comp in
+                  let o = o#kill xb in
+                  o, o#get_liveset
              in
-             let ls' = o#get_liveset in
-             let ls = (o#with_liveset ls)#union [ls; ls'] in
-             (o#with_liveset ls)#value scrutinee
+             let after_cases = IntSet.union_all (after_default :: lss) in
+             (o#with_liveset after_cases)#value scrutinee
           | e -> super#tail_computation e
 
           method! computation (bs, tc) =
-            let o = o#tail_computation tc in
+            let o = (o#with_liveset IntSet.empty)#tail_computation tc in
             List.fold_right
               (fun b o -> o#binding b) bs o
         end
@@ -2128,6 +2118,11 @@ module Stack = struct
           method with_liveset ls =
             {< liveset = ls >}
 
+          val answer_frames = IntSet.empty
+          method add_answer_frame b =
+            {< answer_frames = IntSet.add (Var.var_of_binder b) answer_frames >}
+          method get_answer_frames = answer_frames
+
           method! computation (bs, tc) =
             let split_bindings bs =
               let is_let_binding = function | `Let _ -> true | _ -> false in
@@ -2140,7 +2135,7 @@ module Stack = struct
             let rec letbindings o liveset fb tc = function
               | [] ->
                  let fundef : Ir.fun_def =
-                   (* Printf.eprintf "Liveset at %s: %s\n%!" (Var.name_of_binder fb) (Show_liveset.show liveset); *)
+                   Printf.eprintf "Liveset at %s: %s\n%!" (Var.name_of_binder fb) (Show_liveset.show liveset);
                    let params, _sigma = o#make_param_list liveset in
                    let body =
                      let tc =
@@ -2162,8 +2157,9 @@ module Stack = struct
                    `Variable (fst b), b
                  in
                  let (_, o) = o#binder fb' in
+                 let o = o#add_answer_frame fb' in
                  let fundefs, o = letbindings (o#with_liveset liveset.after) liveset.after fb' tc bs in
-                 (* Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset); *)
+                 Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset);
                  let fundef : Ir.fun_def =
                    let params, _sigma = o#make_param_list liveset.before in
                    let args = arglist_of_liveset liveset.after in
@@ -2233,6 +2229,7 @@ module Stack = struct
               `Variable (fst b), b
             in
             let (_, o) = o#binder initial_fb in
+            let o = o#add_answer_frame initial_fb in
             let answer_frames, o =
               letbindings o liveset initial_fb tc lets
             in
@@ -2250,11 +2247,20 @@ module Stack = struct
             o#computation comp
         end
       in
-      let (prog, _, _) = fragmentise#program prog in
-      prog
+      let (prog, _, o) = fragmentise#program prog in
+      prog, o#get_answer_frames
 
   end
 
+  (* The answer frame set is for all practical purposes a global
+     constant after the procedure fragmentation pass. *)
+  type afrenv = IntSet.t
+  let answer_frame_set : afrenv ref = ref IntSet.empty
+  let is_answer_frame fb =
+    let var = Var.var_of_binder fb in
+    IntSet.mem var !answer_frame_set
+
+  (* Translation start *)
   let rec generate_program : venv -> Ir.program -> venv * Js.program
     = fun env (bs,tc) ->
       generate_computation env (bs, tc) (* TODO FIXME: add toplevel runner *)
@@ -2263,9 +2269,9 @@ module Stack = struct
   and generate_computation : venv -> Ir.computation -> venv * Js.program
     = fun env (bs, tc) ->
       (* let open Js in *)
-      let env, bs = generate_bindings env bs in
-      let bs', tc = generate_tail_computation env tc in
-      env, (bs @ bs', tc)
+      let env', bs = generate_bindings env bs in
+      let bs', tc = generate_tail_computation env' tc in
+      env', (bs @ bs', tc)
 
   and generate_bindings : venv -> Ir.binding list -> venv * Js.decl list
     = fun env ->
@@ -2278,10 +2284,20 @@ module Stack = struct
          let env' = VEnv.bind env (a, raw_name) in
          gbs env' bs
       | `Let (b, (_, tc)) :: bs ->
+         (* Printf.printf "Var: %d\n%!" (Var.var_of_binder b); *)
+         (* Printf.printf "Env: %s\n%!" (Show_venv.show env); *)
          let b = safe_name_binder b in
          let body =
-         (* generate_tail_computation env tc *)
-           assert false
+           match tc with
+           | `Return v -> generate_value env v
+           | _ ->
+              EApply
+                (EFun {
+                  fname = `Anonymous;
+                  fkind = `Regular;
+                  body = generate_tail_computation env tc;
+                  formal_params = [] },
+                 [])
          in
          let binding =
            DLet {
@@ -2298,7 +2314,12 @@ module Stack = struct
          let fb = safe_name_binder fb in
          let env', bindings = gbs (VEnv.bind env fb) bs in
          env', fbinding :: bindings
-      | `Rec fundefs :: bs -> assert false
+      | `Rec fundefs :: bs ->
+         let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) fundefs in
+         let env' = List.fold_left VEnv.bind env fs in
+         let defs = List.map (generate_function env' fs) fundefs in
+         let env'', bindings = gbs env' bs in
+         env'', defs @ bindings
       | [] -> env, []
 
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
@@ -2504,6 +2525,7 @@ module Stack = struct
 
   and generate_function : venv -> (Var.var * string) list -> Ir.fun_def -> Js.decl =
     fun env fs (fb, (_, xsb, body), zb, location) ->
+      Printf.eprintf "Generating fb (%d, %s)\n%!" (Var.var_of_binder fb) (Var.name_of_binder fb);
       let open Js in
       let (_f, f_name) = safe_name_binder fb in
       assert (f_name <> "");
@@ -2538,10 +2560,13 @@ module Stack = struct
       (* Printf.eprintf "%s\n%!" (Ir.Show_program.show u.program); *)
       (* let lm = Ir.ProcedureFragmentation.liveness _tenv u.program in *)
       (* Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm); *)
-      let prog = ProcedureFragmentation.fragmentise _tenv u.program in
+      let prog =
+        let prog, answer_frames = ProcedureFragmentation.fragmentise _tenv u.program in
+        answer_frame_set := answer_frames; prog
+      in
       Printf.eprintf "Fragmented: %s\n%!" (Ir.Show_program.show prog);
       let _, prog = generate_program venv prog in
-      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["performance.js"; "stack.js"] in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "performance.js"; "stack.js"] in
       { u with program = prog; includes = u.includes @ dependencies }
 end
 
@@ -2556,6 +2581,6 @@ module Compiler =
       | "cek" ->
          (module CEK : JS_COMPILER)
       | "stackinspection" ->
-         (module Stack : JS_COMPILER)
+         (module StackInspection : JS_COMPILER)
       (* TODO: better error handling *)
       | _ -> failwith "Unrecognised JS backend.") : JS_COMPILER)

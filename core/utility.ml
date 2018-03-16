@@ -207,6 +207,9 @@ sig
   val union_all : t list -> t
     (** Take the union of a collection of sets *)
 
+  val inter_all : t list -> t
+    (** Take the intersection of a collection of sets *)
+
   val from_list : elt list -> t
   (** Construct a set from a list *)
 
@@ -231,6 +234,10 @@ struct
   module Make (Ord : OrderedType) = struct
     include Set.Make(Ord)
     let union_all sets = List.fold_right union sets empty
+    let inter_all = function
+      | [] -> empty
+      | [set] -> set
+      | set :: sets -> List.fold_right inter sets set
     let from_list l = List.fold_right add l empty
     module Show_t = Deriving_Show.Show_set(Ord)(Ord.Show_t)
 
