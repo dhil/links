@@ -201,5 +201,10 @@ sig
   val compute : Types.datatype Env.Int.t -> program -> name_map
 end
 
+module TidyBindings :
+sig
+  val program : Types.datatype Env.Int.t -> program -> program
+end
+
 type eval_fun_def = var_info * (var list * computation) * Var.var option * location
   [@@deriving show]
