@@ -2510,16 +2510,20 @@ module StackInspection = struct
   let rec generate_program : venv -> Ir.program -> venv * Js.program
     = fun env (bs,tc) ->
       let open Js in
-      let toplevel body =
-        DFun {
-          fname = `Named "_toplevel";
-          fkind = `Regular;
-          body = body;
-          formal_params = [] }
-      in
-      let (env', (bs, stmt)) = generate_computation env (bs, tc)
-      in
-      (env', (bs @ [toplevel ([], stmt)], SExpr (EApply (EVar (Ident.of_string "_toplevel"), []))))
+      (* let toplevel body = *)
+      (*   DFun { *)
+      (*     fname = `Named "_toplevel"; *)
+      (*     fkind = `Regular; *)
+      (*     body = body; *)
+      (*     formal_params = [] } *)
+      (* in *)
+      (* let (env', (bs, stmt)) = generate_computation env (bs, tc) *)
+      (* in *)
+      (* (env', (bs @ [toplevel ([], stmt)], SExpr (EApply (EVar (Ident.of_string "_toplevel"), [])))) *)
+      (* Hack *)
+      match generate_computation env (bs, tc) with
+      | (env, (decls, SReturn e)) -> env, (decls, SExpr e)
+      | _ -> assert false
 
 
   and generate_computation : venv -> Ir.computation -> venv * Js.program
