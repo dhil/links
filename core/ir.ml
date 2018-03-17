@@ -522,7 +522,18 @@ struct
       method use var = {< uses = IntSet.add var uses >}
       method get_uses = uses
 
-      method! program (_, tc) =
+      method! program (bs, tc) =
+        let o =
+          List.fold_left
+            (fun o b ->
+              match b with
+              | `Let (b, (_, tc)) ->
+                 let var = Var.var_of_binder b in
+                 let o = o#use var in
+                 o#tail_computation tc
+              | _ -> o)
+            o bs
+        in
         o#tail_computation tc
 
       method! var var = o#use var
@@ -570,8 +581,8 @@ struct
       let o = (code_used_directly_by_main tyenv)#program prog in
       o#get_uses
     in
-    (* Printf.printf "Main_uses: %s\n%!" (IntSet.Show_t.show main_uses); *)
-    (* Printf.printf "Usage map: %s\n%!" (Show_usage_map.show usage_map); *)
+    Printf.eprintf "Main_uses: %s\n%!" (IntSet.Show_t.show main_uses);
+    Printf.eprintf "Usage map: %s\n%!" (Show_usage_map.show usage_map);
     (* All reachable definitions from main (i.e. live code) are
        computed as the least fix point *)
     let rec lfp main_uses usage_map =
@@ -579,7 +590,7 @@ struct
         IntSet.fold
           (fun v live ->
             try
-              (* Printf.printf "Intermediate live set: %s\n%!" (IntSet.Show_t.show live); *)
+              (* Printf.eprintf "Intermediate live set: %s\n%!" (IntSet.Show_t.show live); *)
               IntSet.union (IntMap.find v usage_map) live
             with
               NotFound _ (* occurs when v is primitive *) -> IntSet.add v live)
