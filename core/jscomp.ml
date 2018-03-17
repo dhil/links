@@ -1986,7 +1986,7 @@ module StackInspection = struct
                IntSet.(remove (Var.var_of_binder b) (union_all [use; after]))
              in
              (o#with_liveset before)#register b before after
-          | `Fun (fb, (_, params, body), z, _) -> (* add fb to liveness_map *)
+          | `Fun (fb, (_, params, body), z, _) ->
              let before = IntSet.empty in
              let o = o#computation body in
              let after = IntSet.remove (Var.var_of_binder fb) o#get_liveset in
@@ -1995,7 +1995,7 @@ module StackInspection = struct
              o#option (fun o -> o#kill) z
           | `Rec fundefs ->
              o#list
-               (fun o (fb, (_, params, body), z, loc) -> (* add fb to liveness_map *)
+               (fun o (fb, (_, params, body), z, _loc) ->
                  let before = IntSet.empty in (* assumes closure conversion, i.e. functions are closed *)
                  let o = o#computation body in
                  let after = IntSet.remove (Var.var_of_binder fb) o#get_liveset in
@@ -2068,186 +2068,433 @@ module StackInspection = struct
 
     (*   end *)
 
-    let fragmentise (tyenv : Types.datatype Env.Int.t) prog =
+    (* let fragmentise (tyenv : Types.datatype Env.Int.t) prog = *)
+    (*   let liveness_map = liveness tyenv prog in *)
+    (*   (\* Printf.eprintf "Liveness_map: %s\n" (Show_liveness_map.show liveness_map); *\) *)
+    (*   let counter = ref (-1) in *)
+    (*   let fresh_answer_name base = *)
+    (*     incr counter; *)
+    (*     Printf.sprintf "_%s_an%d" base !counter *)
+    (*   in *)
+    (*   let freshen_binders bs = *)
+    (*     let freshen_binder (binders, sigma) (var, info) = *)
+    (*       let var' = Var.fresh_raw_var () in *)
+    (*       ((var', info) :: binders, IntMap.add var var' sigma) *)
+    (*     in *)
+    (*     let (bs', sigma) = List.fold_left freshen_binder ([], IntMap.empty) bs in *)
+    (*     List.rev bs', sigma *)
+    (*   in *)
+    (*   let fresh_answer_binder base : Ir.binder = *)
+    (*     Var.(make_local_info ->- fresh_binder) (`Not_typed, fresh_answer_name base) *)
+    (*   in *)
+    (*   let arglist_of_liveset ls : Ir.value list = *)
+    (*     List.map (fun (v : Ir.var) -> `Variable v) (IntSet.to_list ls) *)
+    (*   in *)
+    (*   let fragmentise = *)
+    (*     object(o) *)
+    (*       inherit Ir.Transform.visitor(tyenv) as super *)
+
+    (*       val basename = "_toplevel" *)
+    (*       method with_basename name = *)
+    (*         {< basename = name >} *)
+    (*       method binders_of_vars vars : Ir.binder list = *)
+    (*         let binder_of_var v : Ir.binder = *)
+    (*           let ty = Env.Int.lookup tyenv v in *)
+    (*           (v, Var.info_of_type ty) *)
+    (*         in *)
+    (*         List.map binder_of_var vars *)
+
+    (*       method refresh_binders bs = bs, IntMap.empty *)
+
+    (*       method make_param_list liveset : Ir.binder list * Ir.var IntMap.t = *)
+    (*         let xs = o#binders_of_vars (IntSet.to_list liveset) in *)
+    (*         o#refresh_binders xs *)
+
+    (*       val liveset = IntSet.empty *)
+    (*       method with_liveset ls = *)
+    (*         {< liveset = ls >} *)
+    (*       method get_liveset = liveset *)
+
+    (*       val answer_frames = IntSet.empty *)
+    (*       method add_answer_frame b = *)
+    (*         {< answer_frames = IntSet.add (Var.var_of_binder b) answer_frames >} *)
+    (*       method get_answer_frames = answer_frames *)
+
+    (*       method! computation (bs, tc) = *)
+    (*         let split_bindings bs = *)
+    (*           let is_let_binding = function | `Let _ -> true | _ -> false in *)
+    (*           List.fold_right *)
+    (*             (fun b (lets, other) -> *)
+    (*               if is_let_binding b then (b :: lets, other) *)
+    (*               else (lets, b :: other)) *)
+    (*             bs ([], []) *)
+    (*         in *)
+    (*         let rec letbindings o liveset fb tc = function *)
+    (*           | [] -> *)
+    (*              let fundef : Ir.fun_def = *)
+    (*                Printf.eprintf "Liveset at %s: %s\n%!" (Var.name_of_binder fb) (Show_liveset.show liveset); *)
+    (*                let params, _sigma = o#make_param_list liveset in *)
+    (*                let body = *)
+    (*                  let tc = *)
+    (*                    let (tc, _, _) = o#tail_computation tc in *)
+    (*                    tc *)
+    (*                    (\* fst3 ((alpha_convert tyenv sigma)#tail_computation tc) *\) *)
+    (*                  in *)
+    (*                  ([], tc) *)
+    (*                in *)
+    (*                (fb, ([], params, body), None, `Unknown) *)
+    (*              in *)
+    (*              [fundef], o *)
+    (*           | (`Let (b, (tyvars, tc'))) :: bs -> *)
+    (*              let (b, o) = o#binder b in *)
+    (*              let var = Var.var_of_binder b in *)
+    (*              let liveset = IntMap.find var liveness_map in *)
+    (*              let f', fb' = *)
+    (*                let b = fresh_answer_binder basename in *)
+    (*                `Variable (fst b), b *)
+    (*              in *)
+    (*              let (_, o) = o#binder fb' in *)
+    (*              let o = o#add_answer_frame fb' in *)
+    (*              let fundefs, o = letbindings (o#with_liveset liveset.before) liveset.after fb' tc bs in *)
+    (*              Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset); *)
+    (*              let fundef : Ir.fun_def = *)
+    (*                let params, _sigma = o#make_param_list liveset.before in *)
+    (*                let args = arglist_of_liveset liveset.after in *)
+    (*                let body : Ir.computation = *)
+    (*                  let tc = *)
+    (*                    let (tc, _, _) = (o#with_liveset liveset.before)#tail_computation tc' in *)
+    (*                    tc *)
+    (*                    (\* fst3 ((alpha_convert tyenv sigma)#tail_computation tc) *\) *)
+    (*                  in *)
+    (*                  [`Let (b, (tyvars, tc))], `Apply (f', args) *)
+    (*                in *)
+    (*                (fb, ([], params, body), None, `Unknown) *)
+    (*              in *)
+    (*              fundef :: fundefs, o *)
+    (*           | _ -> assert false (\* Assumes closure conversion *\) *)
+    (*         in *)
+    (*         let funbinding o : Ir.binding -> Ir.binding * 'self_type = function *)
+    (*           | `Fun (fb, (tyvars, (params : Ir.binder list), body), (z : Ir.binder option), loc) -> *)
+    (*              let z, o = *)
+    (*                match z with *)
+    (*                | None -> z, o *)
+    (*                | Some z -> let z, o = o#binder z in Some z, o *)
+    (*              in *)
+    (*              let ((params : Ir.binder list), o) = *)
+    (*                List.fold_left *)
+    (*                  (fun (ps, o) p -> *)
+    (*                    let (p, o) = o#binder p in (p :: ps, o)) *)
+    (*                  ([], o) params *)
+    (*              in *)
+    (*              let o = o#with_basename (Var.name_of_binder fb) in *)
+    (*              let liveset = IntMap.find (Var.var_of_binder fb) liveness_map in *)
+    (*              let (body, _, o) = (o#with_liveset liveset.after)#computation body in *)
+    (*              let ((fb : Ir.binder), o) = o#binder fb in *)
+    (*              (`Fun (fb, (tyvars, List.rev params, body), z, loc)), o *)
+    (*           | `Rec fundefs -> *)
+    (*              let o = *)
+    (*                List.fold_right *)
+    (*                  (fun (f, _, _, _) o -> *)
+    (*                    let _, o = o#binder f in o) *)
+    (*                  fundefs o *)
+    (*              in *)
+    (*              let defs, o = *)
+    (*                List.fold_right *)
+    (*                  (fun (fb, (tyvars, (params : Ir.binder list), body), (z : Ir.binder option), loc) (defs, o) -> *)
+    (*                    let z, o = *)
+    (*                      match z with *)
+    (*                      | None -> z, o *)
+    (*                      | Some z -> let z, o = o#binder z in Some z, o *)
+    (*                    in *)
+    (*                    let params, o = *)
+    (*                      List.fold_right *)
+    (*                        (fun p (ps, o) -> *)
+    (*                          let p, o = o#binder p in *)
+    (*                          (p :: ps, o)) *)
+    (*                        params ([], o) *)
+    (*                    in *)
+    (*                    let o = o#with_basename (Var.name_of_binder fb) in *)
+    (*                    let liveset = IntMap.find (Var.var_of_binder fb) liveness_map in *)
+    (*                    let (body, _, o) = (o#with_liveset liveset.after)#computation body in *)
+    (*                    ((fb, (tyvars, params, body), z, loc) :: defs, o)) *)
+    (*                  fundefs ([], o) *)
+    (*              in *)
+    (*              `Rec defs, o#with_liveset IntSet.empty *)
+    (*           | b -> b, o *)
+    (*         in *)
+    (*         let (lets, rest) = split_bindings bs in *)
+    (*         let initial_f, (initial_fb : Ir.binder) = *)
+    (*           let b = fresh_answer_binder basename in *)
+    (*           `Variable (fst b), b *)
+    (*         in *)
+    (*         let (_, o) = o#binder initial_fb in *)
+    (*         let o = o#add_answer_frame initial_fb in *)
+    (*         let answer_frames, o = *)
+    (*           letbindings o liveset initial_fb tc lets *)
+    (*         in *)
+    (*         let funs, o = *)
+    (*           List.fold_left *)
+    (*             (fun (bs, o) b -> *)
+    (*               let b, o = funbinding o b in *)
+    (*               (b :: bs, o)) *)
+    (*             ([], o) rest *)
+    (*         in *)
+    (*         (funs @ [`Rec answer_frames], `Apply (initial_f, arglist_of_liveset o#get_liveset)), `Not_typed, o#with_liveset IntSet.empty *)
+
+    (*       method! program comp = *)
+    (*         let o = o#with_basename "_toplevel" in *)
+    (*         o#computation comp *)
+    (*     end *)
+    (*   in *)
+    (*   let (prog, _, o) = fragmentise#program prog in *)
+    (*   prog, o#get_answer_frames *)
+
+    let opt_fragmentise (tyenv : Types.datatype Env.Int.t) prog =
       let liveness_map = liveness tyenv prog in
       (* Printf.eprintf "Liveness_map: %s\n" (Show_liveness_map.show liveness_map); *)
-      let counter = ref (-1) in
-      let fresh_answer_name base =
-        incr counter;
-        Printf.sprintf "_%s_an%d" base !counter
-      in
-      let freshen_binders bs =
-        let freshen_binder (binders, sigma) (var, info) =
-          let var' = Var.fresh_raw_var () in
-          ((var', info) :: binders, IntMap.add var var' sigma)
-        in
-        let (bs', sigma) = List.fold_left freshen_binder ([], IntMap.empty) bs in
-        List.rev bs', sigma
-      in
-      let fresh_answer_binder base : Ir.binder =
-        Var.(make_local_info ->- fresh_binder) (`Not_typed, fresh_answer_name base)
-      in
-      let arglist_of_liveset ls : Ir.value list =
-        List.map (fun (v : Ir.var) -> `Variable v) (IntSet.to_list ls)
-      in
-      let fragmentise =
-        object(o)
-          inherit Ir.Transform.visitor(tyenv) as super
+      let frame_counter = ref 0 in
+      let opt_fragmentise =
+        object(o : 'self_type)
+          inherit Ir.Transform.visitor(tyenv)
 
-          val basename = "_toplevel"
+          (* Frame binder generation *)
+          val basename = "unknown"
           method with_basename name =
             {< basename = name >}
-          method binders_of_vars vars : Ir.binder list =
+          method get_basename = basename
+
+          (* val frame_counter = ref 0 *)
+          (* method with_frame_counter fc = *)
+          (*   {< frame_counter = ref fc >} *)
+          method fresh_frame_binder ?var () =
+            let var =
+              match var with
+              | None -> Var.fresh_raw_var ()
+              | Some var -> var
+            in
+            let make_binder =
+              Var.(make_local_info ->- fresh_binder)
+            in
+            incr frame_counter;
+            let ty =
+              Types.make_pure_function_type [`Not_typed] `Not_typed
+            in
+            make_binder (ty, Printf.sprintf "_%s_%d_an%d" basename var !frame_counter)
+
+          method make_parameters vars : Ir.binder list =
             let binder_of_var v : Ir.binder =
               let ty = Env.Int.lookup tyenv v in
               (v, Var.info_of_type ty)
             in
             List.map binder_of_var vars
 
-          method refresh_binders bs = bs, IntMap.empty
+          method make_arguments (vars : Ir.var list) : Ir.value list =
+            List.map (fun v -> `Variable v) vars
 
-          method make_param_list liveset : Ir.binder list * Ir.var IntMap.t =
-            let xs = o#binders_of_vars (IntSet.to_list liveset) in
-            o#refresh_binders xs
+          (* Keep track of which binders are frame binders *)
+          val frame_binders = IntSet.empty
+          method add_frame_binder b =
+            {< frame_binders = IntSet.add (Var.var_of_binder b) frame_binders >}
+          method get_frame_binders = frame_binders
 
+
+          (* Explicit continuation stack for frame generation *)
+          val continuation : Ir.tail_computation list = []
+          method with_cont k =
+            {< continuation = k >}
+          method pop_cont =
+            match continuation with
+            | [] -> failwith "Empty continuation"
+            | tc :: k ->
+               tc, o#with_cont k
+          method push_cont tc =
+            o#with_cont (tc :: continuation)
+
+          (* Current live set *)
           val liveset = IntSet.empty
           method with_liveset ls =
             {< liveset = ls >}
           method get_liveset = liveset
 
-          val answer_frames = IntSet.empty
-          method add_answer_frame b =
-            {< answer_frames = IntSet.add (Var.var_of_binder b) answer_frames >}
-          method get_answer_frames = answer_frames
+          (* Bookkeeping *)
+          method backup = (continuation, basename, !frame_counter, liveset)
+          method restore (k, basename, _fc, ls) =
+            let o = o#with_cont k in
+            (* let o = o#with_frame_counter fc in *)
+            let o = o#with_basename basename in
+            o#with_liveset ls
+          method reset =
+            let o = o#with_cont [] in
+            (* let o = o#with_frame_counter 0 in *)
+            let o = o#with_basename "unknown" in
+            o#with_liveset IntSet.empty
 
-          method! computation (bs, tc) =
-            let split_bindings bs =
-              let is_let_binding = function | `Let _ -> true | _ -> false in
-              List.fold_right
-                (fun b (lets, other) ->
-                  if is_let_binding b then (b :: lets, other)
-                  else (lets, b :: other))
-                bs ([], [])
-            in
-            let rec letbindings o liveset fb tc = function
-              | [] ->
-                 let fundef : Ir.fun_def =
-                   Printf.eprintf "Liveset at %s: %s\n%!" (Var.name_of_binder fb) (Show_liveset.show liveset);
-                   let params, _sigma = o#make_param_list liveset in
-                   let body =
-                     let tc =
-                       let (tc, _, _) = o#tail_computation tc in
-                       tc
-                       (* fst3 ((alpha_convert tyenv sigma)#tail_computation tc) *)
-                     in
-                     ([], tc)
-                   in
-                   (fb, ([], params, body), None, `Unknown)
-                 in
-                 [fundef], o
-              | (`Let (b, (tyvars, tc'))) :: bs ->
-                 let (b, o) = o#binder b in
+          (* Convenient when visiting recursive functions *)
+          method fun_binder (fb, _, _, _) =
+            snd (o#binder fb)
+
+          (* Now, the actual algorithm *)
+          method! computation ((bs, tc) : Ir.computation) =
+            let rec generate_frames (o : 'self_type) : Ir.binding list -> (Ir.fun_def list * Ir.binding list * 'self_type) = function
+              | [] -> [], [], o
+              | [`Let (b, (tyvars, tc))] ->
                  let var = Var.var_of_binder b in
                  let liveset = IntMap.find var liveness_map in
-                 let f', fb' =
-                   let b = fresh_answer_binder basename in
-                   `Variable (fst b), b
-                 in
-                 let (_, o) = o#binder fb' in
-                 let o = o#add_answer_frame fb' in
-                 let fundefs, o = letbindings (o#with_liveset liveset.before) liveset.after fb' tc bs in
-                 Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset);
-                 let fundef : Ir.fun_def =
-                   let params, _sigma = o#make_param_list liveset.before in
-                   let args = arglist_of_liveset liveset.after in
-                   let body : Ir.computation =
-                     let tc =
-                       let (tc, _, _) = (o#with_liveset liveset.before)#tail_computation tc' in
-                       tc
-                       (* fst3 ((alpha_convert tyenv sigma)#tail_computation tc) *)
-                     in
-                     [`Let (b, (tyvars, tc))], `Apply (f', args)
+                 let fb = o#fresh_frame_binder ~var () in
+                 (* Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset); *)
+                 let o = o#add_frame_binder fb in
+                 let (fb, o) = o#binder fb in
+                 let fb' = o#fresh_frame_binder () in
+                 let o = o#add_frame_binder fb' in
+                 let (fb', o) = o#binder fb' in
+                 let (b, o) = o#binder b in (* b may be used later on *)
+                 let final_frame, o =
+                   let (cont, o) = o#pop_cont in
+                   let st = o#backup in
+                   let (tc, _, o) = (o#with_liveset liveset.after)#tail_computation cont in
+                   let o = o#restore st in
+                   let frame =
+                     let xsb = o#make_parameters (IntSet.to_list liveset.after) in
+                     (fb', ([], xsb, ([], tc)), None, `Unknown)
                    in
-                   (fb, ([], params, body), None, `Unknown)
+                   let cont =
+                     `Apply (`Variable (Var.var_of_binder fb'),
+                             o#make_arguments (IntSet.to_list liveset.after))
+                   in
+                   frame, o#push_cont cont
                  in
-                 fundef :: fundefs, o
-              | _ -> assert false (* Assumes closure conversion *)
-            in
-            let funbinding o : Ir.binding -> Ir.binding * 'self_type = function
-              | `Fun (fb, (tyvars, (params : Ir.binder list), body), (z : Ir.binder option), loc) ->
-                 let z, o =
-                   match z with
-                   | None -> z, o
-                   | Some z -> let z, o = o#binder z in Some z, o
+                 let answer_frame, o =
+                   let (body, o) =
+                     let st = o#backup in
+                     (* let name = o#get_basename in *)
+                     (* (\* let o = (o#reset)#with_basename name in *\) *)
+                     let (tc, _, o) = (o#with_liveset liveset.before)#tail_computation tc in
+                     let o = o#restore st in
+                     let (cont, o) =
+                       let ((cont : Ir.tail_computation), o) = o#pop_cont in
+                       let (tc, _, o) = o#tail_computation cont in
+                       tc, o
+                     in
+                     ([`Let (b, (tyvars, tc))], cont), o
+                   in
+                   let xsb = o#make_parameters (IntSet.to_list liveset.before) in
+                   (fb, ([], xsb, body), None, `Unknown), o
                  in
-                 let ((params : Ir.binder list), o) =
+                 let cont =
+                   `Apply (`Variable (Var.var_of_binder fb),
+                           o#make_arguments (IntSet.to_list liveset.before))
+                 in
+                 let o = o#push_cont cont in
+                 ([answer_frame; final_frame], [], o)
+              | `Let (b, (tyvars, tc)) :: bs ->
+                 let var = Var.var_of_binder b in
+                 let liveset = IntMap.find var liveness_map in
+                 let fb = o#fresh_frame_binder ~var () in
+                 (* Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset); *)
+                 let o = o#add_frame_binder fb in
+                 let (fb, o) = o#binder fb in
+                 let (answer_frames, other, o) =
+                   let (_, o) = o#binder b in (* b may be used later on *)
+                   generate_frames (o#with_liveset liveset.after) bs
+                 in
+                 let answer_frame, o =
+                   let (body, o) =
+                     let st = o#backup in
+                     (* let name = o#get_basename in *)
+                     (* (\* let o = (o#reset)#with_basename name in *\) *)
+                     let (tc, _, o) = (o#with_liveset liveset.before)#tail_computation tc in
+                     let o = o#restore st in
+                     let (cont, o) =
+                       let ((cont : Ir.tail_computation), o) = o#pop_cont in
+                       let (tc, _, o) = o#tail_computation cont in
+                       tc, o
+                     in
+                     ([`Let (b, (tyvars, tc))], cont), o
+                   in
+                   let xsb = o#make_parameters (IntSet.to_list liveset.before) in
+                   (fb, ([], xsb, body), None, `Unknown), o
+                 in
+                 let cont =
+                   `Apply (`Variable (Var.var_of_binder fb),
+                           o#make_arguments (IntSet.to_list liveset.before))
+                 in
+                 let o = o#push_cont cont in
+                 (answer_frame :: answer_frames, other, o)
+              | `Fun (fb, (tyvars, xsb, body), z, loc) :: bs ->
+                 let st = o#backup in
+                 let o = o#reset in
+                 let (f, o) =
+                   let (xsb, o) =
+                     List.fold_right
+                       (fun b (bs, o) ->
+                         let (b, o) = o#binder b in
+                         (b :: bs, o))
+                       xsb ([], o)
+                   in
+                   let (z, o) = o#optionu (fun o -> o#binder) z in
+                   let (body, _, o) =
+                     frame_counter := 0;
+                     (o#with_basename (Var.name_of_binder fb))#computation body
+                   in
+                   let (fb, o) = o#binder fb in
+                   `Fun (fb, (tyvars, xsb, body), z, loc), o
+                 in
+                 let (answer_frames, other, o) = generate_frames (o#restore st) bs in
+                 (answer_frames, f :: other, o)
+              | `Rec defs :: bs ->
+                 let st = o#backup in
+                 let o  = List.fold_left (fun o -> o#fun_binder) o defs in
+                 let (defs, o) =
                    List.fold_left
-                     (fun (ps, o) p ->
-                       let (p, o) = o#binder p in (p :: ps, o))
-                     ([], o) params
-                 in
-                 let o = o#with_basename (Var.name_of_binder fb) in
-                 let liveset = IntMap.find (Var.var_of_binder fb) liveness_map in
-                 let (body, _, o) = (o#with_liveset liveset.after)#computation body in
-                 let ((fb : Ir.binder), o) = o#binder fb in
-                 (`Fun (fb, (tyvars, List.rev params, body), z, loc)), o
-              | `Rec fundefs ->
-                 let o =
-                   List.fold_right
-                     (fun (f, _, _, _) o ->
-                       let _, o = o#binder f in o)
-                     fundefs o
-                 in
-                 let defs, o =
-                   List.fold_right
-                     (fun (fb, (tyvars, (params : Ir.binder list), body), (z : Ir.binder option), loc) (defs, o) ->
-                       let z, o =
+                     (fun (defs, o) (fb, (tyvars, xsb, body), z, loc) ->
+                       (* Printf.eprintf "Visiting: %s\n%!" (Var.name_of_binder fb); *)
+                       (* Printf.eprintf "%s\n%!" (Ir.Show_computation.show body); *)
+                       frame_counter := 0;
+                       let o = o#reset in
+                       let (xsb, o) =
+                         List.fold_right
+                           (fun b (bs, o) ->
+                             let (b, o) = o#binder b in
+                             (b :: bs, o))
+                           xsb ([], o)
+                       in
+                       let (z, o) =
                          match z with
                          | None -> z, o
-                         | Some z -> let z, o = o#binder z in Some z, o
+                         | Some z ->
+                            let (z, o) = o#binder z in
+                            (Some z, o)
                        in
-                       let params, o =
-                         List.fold_right
-                           (fun p (ps, o) ->
-                             let p, o = o#binder p in
-                             (p :: ps, o))
-                           params ([], o)
+                       let (body, _, o) =
+                         (o#with_basename (Var.name_of_binder fb))#computation body
                        in
-                       let o = o#with_basename (Var.name_of_binder fb) in
-                       let liveset = IntMap.find (Var.var_of_binder fb) liveness_map in
-                       let (body, _, o) = (o#with_liveset liveset.after)#computation body in
-                       ((fb, (tyvars, params, body), z, loc) :: defs, o))
-                     fundefs ([], o)
+                       let def = (fb, (tyvars, xsb, body), z, loc) in
+                       (def :: defs, o))
+                     ([], o) defs
                  in
-                 `Rec defs, o#with_liveset IntSet.empty
-              | b -> b, o
+                 let (answer_frames, other, o) = generate_frames (o#restore st) bs in
+                 (answer_frames, (`Rec (List.rev defs)) :: other, o)
+              | b :: bs ->
+                 let (answer_frames, other, o) = generate_frames o bs in
+                 (answer_frames, b :: other, o)
             in
-            let (lets, rest) = split_bindings bs in
-            let initial_f, (initial_fb : Ir.binder) =
-              let b = fresh_answer_binder basename in
-              `Variable (fst b), b
+            let splice other = function
+              | [] -> other
+              | defs -> other @ [`Rec defs]
             in
-            let (_, o) = o#binder initial_fb in
-            let o = o#add_answer_frame initial_fb in
-            let answer_frames, o =
-              letbindings o liveset initial_fb tc lets
-            in
-            let funs, o =
-              List.fold_left
-                (fun (bs, o) b ->
-                  let b, o = funbinding o b in
-                  (b :: bs, o))
-                ([], o) rest
-            in
-            (funs @ [`Rec answer_frames], `Apply (initial_f, arglist_of_liveset o#get_liveset)), `Not_typed, o#with_liveset IntSet.empty
+            let st = o#backup in
+            let o = o#push_cont tc in
+            let (answer_frames, other, o) = generate_frames o bs in
+            let (cont, o) = o#pop_cont in
+            let (cont, dt, o) = o#tail_computation cont in
+            (splice other answer_frames, cont), dt, o#restore st
 
           method! program comp =
-            let o = o#with_basename "_toplevel" in
-            o#computation comp
+            (o#with_basename "_toplevel")#computation comp
         end
       in
-      let (prog, _, o) = fragmentise#program prog in
-      prog, o#get_answer_frames
+      let (prog, _, o) = opt_fragmentise#program prog in
+      prog, o#get_frame_binders
 
   end
 
@@ -2296,23 +2543,27 @@ module StackInspection = struct
          (* Printf.printf "Var: %d\n%!" (Var.var_of_binder b); *)
          (* Printf.printf "Env: %s\n%!" (Show_venv.show env); *)
          let b = safe_name_binder b in
-         let body =
+         let expr =
            match tc with
            | `Return v -> generate_value env v
            | _ ->
-              EApply
-                (EFun {
-                  fname = `Anonymous;
-                  fkind = `Regular;
-                  body = generate_tail_computation env tc;
-                  formal_params = [] },
-                 [])
+              (* HACK, TODO FIX tail_computation -- should return an expression *)
+              match generate_tail_computation env tc with
+              | [], SReturn (EApply _ as appl) -> appl
+              | body ->
+                 EApply
+                   (EFun {
+                     fname = `Anonymous;
+                     fkind = `Regular;
+                     body = body;
+                     formal_params = [] },
+                    [])
          in
          let binding =
            DLet {
              bkind = `Const;
              binder = snd b;
-             expr = body
+             expr
            }
          in
          let env' = VEnv.bind env b in
@@ -2414,9 +2665,8 @@ module StackInspection = struct
          [], SIf (gv v, gc c1, gc c2)
   and generate_special : venv -> Ir.special -> Js.program
     = fun env sp ->
-      let open Ir in
       let open Js in
-      let gv v = generate_value env v in
+      let _gv v = generate_value env v in
       match sp with
       | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
       | _ -> failwith "Unsupported special."
@@ -2565,14 +2815,14 @@ module StackInspection = struct
   let compile : comp_unit -> prog_unit
     = fun u ->
       let open Js in
-      let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
-      let nenv = Ir.NameMap.(compute _tenv u.program) in
+      let (_nenv, venv, tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
+      let nenv = Ir.NameMap.(compute tenv u.program) in
       Printf.eprintf "nenv: %s\n%!" (Ir.NameMap.Show_name_map.show nenv);
       (* Printf.eprintf "%s\n%!" (Ir.Show_program.show u.program); *)
-      (* let lm = Ir.ProcedureFragmentation.liveness _tenv u.program in *)
+      (* let lm = Ir.ProcedureFragmentation.liveness tenv u.program in *)
       (* Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm); *)
       let prog =
-        let prog, answer_frames = ProcedureFragmentation.fragmentise _tenv u.program in
+        let prog, answer_frames = ProcedureFragmentation.opt_fragmentise tenv u.program in
         answer_frame_set := answer_frames; prog
       in
       Printf.eprintf "Fragmented: %s\n%!" (Ir.Show_program.show prog);

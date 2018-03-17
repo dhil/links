@@ -1358,8 +1358,8 @@ struct
       let o = (code_used_directly_by_main tyenv)#program prog in
       o#get_uses
     in
-    Printf.eprintf "Main_uses: %s\n%!" (IntSet.Show_t.show main_uses);
-    Printf.eprintf "Usage map: %s\n%!" (Show_usage_map.show usage_map);
+    (* Printf.eprintf "Main_uses: %s\n%!" (IntSet.Show_t.show main_uses); *)
+    (* Printf.eprintf "Usage map: %s\n%!" (Show_usage_map.show usage_map); *)
     (* All reachable definitions from main (i.e. live code) are
        computed as the least fix point *)
     let rec lfp main_uses usage_map =
