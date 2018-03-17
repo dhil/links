@@ -1986,13 +1986,13 @@ module StackInspection = struct
                IntSet.(remove (Var.var_of_binder b) (union_all [use; after]))
              in
              (o#with_liveset before)#register b before after
-          | `Fun (fb, (_, params, body), z, _) ->
+          | `Fun (fb, (_, params, body), z, _) -> (* add fb to liveness_map *)
              let o = o#computation body in
              let o = o#list (fun o -> o#kill) params in
              o#option (fun o -> o#kill) z
           | `Rec fundefs ->
              o#list
-               (fun o (fb, (_, params, body), z, loc) ->
+               (fun o (fb, (_, params, body), z, loc) -> (* add fb to liveness_map *)
                  let o = o#computation body in
                  let o = o#list (fun o -> o#kill) params in
                  o#option (fun o -> o#kill) z)
@@ -2210,7 +2210,7 @@ module StackInspection = struct
                        ((fb, (tyvars, params, body), z, loc) :: defs, o))
                      fundefs ([], o)
                  in
-                 `Rec defs, o
+                 `Rec defs, o#with_liveset IntSet.empty
               | b -> b, o
             in
             let (lets, rest) = split_bindings bs in
@@ -2328,7 +2328,7 @@ module StackInspection = struct
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
     = fun env tc ->
       let open Js in
-      (* Printf.eprintf "tc: %s\n%!" (Ir.Show_tail_computation.show tc); *)
+      Printf.eprintf "tc: %s\n%!" (Ir.Show_tail_computation.show tc);
       let gv v = generate_value env v in
       let gc c = snd (generate_computation env c) in
       match tc with
