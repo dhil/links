@@ -523,8 +523,9 @@ let compile_js () =
          (* let program = Ir.Inline.program tenv program in *)
          (* Printf.eprintf "Before: %s\n%!" (Ir.Show_program.show program); *)
          let program = Ir.TreeShaking.program tenv program in
-         Printf.eprintf "After: %s\n%!" (Ir.Show_program.show program);
+         (* Printf.eprintf "After: %s\n%!" (Ir.Show_program.show program); *)
          let program = Ir.ElimDeadDefs.program tenv program in
+         let program = Ir.TidyBindings.program tenv program in
          program
        in
        let program =

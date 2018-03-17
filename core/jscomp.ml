@@ -1987,13 +1987,19 @@ module StackInspection = struct
              in
              (o#with_liveset before)#register b before after
           | `Fun (fb, (_, params, body), z, _) -> (* add fb to liveness_map *)
+             let before = IntSet.empty in
              let o = o#computation body in
+             let after = IntSet.remove (Var.var_of_binder fb) o#get_liveset in
+             let o = o#register fb before after in
              let o = o#list (fun o -> o#kill) params in
              o#option (fun o -> o#kill) z
           | `Rec fundefs ->
              o#list
                (fun o (fb, (_, params, body), z, loc) -> (* add fb to liveness_map *)
+                 let before = IntSet.empty in (* assumes closure conversion, i.e. functions are closed *)
                  let o = o#computation body in
+                 let after = IntSet.remove (Var.var_of_binder fb) o#get_liveset in
+                 let o = o#register fb before after in
                  let o = o#list (fun o -> o#kill) params in
                  o#option (fun o -> o#kill) z)
                fundefs
@@ -2107,6 +2113,7 @@ module StackInspection = struct
           val liveset = IntSet.empty
           method with_liveset ls =
             {< liveset = ls >}
+          method get_liveset = liveset
 
           val answer_frames = IntSet.empty
           method add_answer_frame b =
@@ -2148,7 +2155,7 @@ module StackInspection = struct
                  in
                  let (_, o) = o#binder fb' in
                  let o = o#add_answer_frame fb' in
-                 let fundefs, o = letbindings (o#with_liveset liveset.after) liveset.after fb' tc bs in
+                 let fundefs, o = letbindings (o#with_liveset liveset.before) liveset.after fb' tc bs in
                  Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset);
                  let fundef : Ir.fun_def =
                    let params, _sigma = o#make_param_list liveset.before in
@@ -2180,7 +2187,8 @@ module StackInspection = struct
                      ([], o) params
                  in
                  let o = o#with_basename (Var.name_of_binder fb) in
-                 let (body, _, o) = o#computation body in
+                 let liveset = IntMap.find (Var.var_of_binder fb) liveness_map in
+                 let (body, _, o) = (o#with_liveset liveset.after)#computation body in
                  let ((fb : Ir.binder), o) = o#binder fb in
                  (`Fun (fb, (tyvars, List.rev params, body), z, loc)), o
               | `Rec fundefs ->
@@ -2206,7 +2214,8 @@ module StackInspection = struct
                            params ([], o)
                        in
                        let o = o#with_basename (Var.name_of_binder fb) in
-                       let (body, _, o) = o#computation body in
+                       let liveset = IntMap.find (Var.var_of_binder fb) liveness_map in
+                       let (body, _, o) = (o#with_liveset liveset.after)#computation body in
                        ((fb, (tyvars, params, body), z, loc) :: defs, o))
                      fundefs ([], o)
                  in
@@ -2230,7 +2239,7 @@ module StackInspection = struct
                   (b :: bs, o))
                 ([], o) rest
             in
-            (funs @ [`Rec answer_frames], `Apply (initial_f, arglist_of_liveset liveset)), `Not_typed, o#with_liveset IntSet.empty
+            (funs @ [`Rec answer_frames], `Apply (initial_f, arglist_of_liveset o#get_liveset)), `Not_typed, o#with_liveset IntSet.empty
 
           method! program comp =
             let o = o#with_basename "_toplevel" in
@@ -2255,18 +2264,15 @@ module StackInspection = struct
     = fun env (bs,tc) ->
       let open Js in
       let toplevel body =
-        SExpr
-          (EApply
-             (EFun {
-               fname = `Anonymous;
-               fkind = `Regular;
-               body = body;
-               formal_params = [] },
-              []))
+        DFun {
+          fname = `Named "_toplevel";
+          fkind = `Regular;
+          body = body;
+          formal_params = [] }
       in
       let (env', (bs, stmt)) = generate_computation env (bs, tc)
       in
-      (env', (bs, toplevel ([], stmt)))
+      (env', (bs @ [toplevel ([], stmt)], SExpr (EApply (EVar (Ident.of_string "_toplevel"), []))))
 
 
   and generate_computation : venv -> Ir.computation -> venv * Js.program
@@ -2328,7 +2334,7 @@ module StackInspection = struct
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
     = fun env tc ->
       let open Js in
-      Printf.eprintf "tc: %s\n%!" (Ir.Show_tail_computation.show tc);
+      (* Printf.eprintf "tc: %s\n%!" (Ir.Show_tail_computation.show tc); *)
       let gv v = generate_value env v in
       let gc c = snd (generate_computation env c) in
       match tc with

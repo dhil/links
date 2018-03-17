@@ -1384,3 +1384,133 @@ struct
     (* Printf.printf "Liveness: %s\n%!" (ProcedureFragmentation.Show_liveness_map.show liveness_map); *)
     prog
 end
+
+(** In some cases the pattern matching compiler introduces trivial
+    bindings of the form
+
+    fun f(p_0,...,p_n) { var x = p_i; M }, such that p_i \notin FV(M), for some i \in {0,...,n}.
+
+    This pass eliminates some of these bindings by hoisting their
+    binders into the function's parameter list. *)
+module TidyBindings : sig
+  val program : Types.datatype Env.Int.t -> program -> program
+end = struct
+
+  let program tyenv prog =
+    let eliminator tyenv =
+      object (o)
+        inherit Transform.visitor(tyenv) as super
+
+        val sigma : binder IntMap.t = IntMap.empty
+        val binders = IntSet.empty
+
+        method get_sigma = sigma
+        method add_parameter b =
+          let var = Var.var_of_binder b in
+          {< binders = IntSet.add var binders >}
+        method backup = (sigma, binders)
+        method restore (sigma, binders) =
+          {< sigma = sigma; binders = binders; >}
+        method reset =
+          {< sigma = IntMap.empty; binders = IntSet.empty; >}
+        method get_binders = binders
+        method replace var b =
+          if IntMap.mem var o#get_sigma && Var.var_of_binder (IntMap.find var o#get_sigma) <> Var.var_of_binder b
+          then failwith (Printf.sprintf "Unsound binder hoisting: %d has already been replaced." var) (* Should *never* happen *)
+          else {< sigma = IntMap.add var b o#get_sigma >}
+
+        method is_function_parameter = function
+        | `Variable v -> IntSet.mem v o#get_binders
+        | _ -> false
+
+        method get_variable = function
+        | `Variable v -> v
+        | _ -> assert false
+
+        method! binding = function
+        | `Fun (fb, (tyvars, xsb, body), z, loc) ->
+           let envs = o#backup in
+           let o = o#reset in
+           let (xsb, o) =
+             List.fold_left
+               (fun (bs, o) b ->
+                 let (b, o) = o#binder b in
+                 (b :: bs, o#add_parameter b))
+               ([], o) xsb
+           in
+           let (z, o) = o#optionu (fun o -> o#binder) z in
+           let (body, _, o) = o#computation body in
+           let (fb, o) = o#binder fb in
+           let xsb =
+             let replace sigma b =
+               let var = Var.var_of_binder b in
+               if IntMap.mem var sigma then IntMap.find var sigma
+               else b
+             in
+             List.map (replace o#get_sigma) (List.rev xsb)
+           in
+           let o = o#restore envs in
+           `Fun (fb, (tyvars, xsb, body), z, loc), o
+        | `Rec defs ->
+           let envs = o#backup in
+           let o =
+             List.fold_left (fun o (fb,_,_,_) -> snd (o#binder fb)) o defs
+           in
+           let (defs, o) =
+             List.fold_left
+               (fun (defs, o) (fb, (tyvars, (xsb : binder list), body), z, loc) ->
+                 let o = o#reset in
+                 let ((xsb : binder list), o) =
+                   List.fold_left
+                     (fun (bs, o) b ->
+                       let (b, o) = o#binder b in
+                       (b :: bs, o#add_parameter b))
+                     ([], o) xsb
+                 in
+                 let (z, o) =
+                   match z with
+                   | None -> z, o
+                   | Some z -> let (z, o) = o#binder z in Some z, o
+                 in
+                 let (body, _, o) = o#computation body in
+                 let (fb, o) = o#binder fb in
+                 let xsb =
+                   let replace sigma b =
+                     let var = Var.var_of_binder b in
+                     if IntMap.mem var sigma then IntMap.find var sigma
+                     else b
+                   in
+                   List.map (replace o#get_sigma) (List.rev xsb)
+                 in
+                 let def = (fb, (tyvars, xsb, body), z, loc) in
+                 (def :: defs, o))
+               ([], o) defs
+           in
+           let o = o#restore envs in
+           `Rec (List.rev defs), o
+        | e -> super#binding e
+
+        method! bindings = function
+        | [] -> [], o
+        | `Let (b, (tyvars, tc)) :: bs ->
+           begin match tc with
+           | `Return v    when o#is_function_parameter v ->
+              let var = o#get_variable v in
+              let o = o#replace var b in
+              let (_, o) = o#binder b in
+              let (bs, o) = o#bindings bs in
+              (bs, o)
+           | _ ->
+              let (b, o) = super#binding (`Let (b, (tyvars, tc))) in
+              let (bs, o) = o#bindings bs in
+              (b :: bs, o)
+           end
+        | b :: bs ->
+           let (b, o) = o#binding b in
+           let (bs, o) = o#bindings bs in
+           (b :: bs, o)
+      end
+    in
+    fst3 ((eliminator tyenv)#program prog)
+
+end
