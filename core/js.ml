@@ -174,6 +174,8 @@ and statement =
   | SWhile of expression * program
   | SContinue
   | SAssign of Ident.t * expression
+  | STry of program * (Ident.t * program) StringMap.t * bool (* try M catch(e) { if (e instanceof l) N else ... } the boolean flag determines whether the try should rethrow the exception. *)
+  | SThrow of expression
 and decl =
   | DLet of binding
   | DFun of fn
