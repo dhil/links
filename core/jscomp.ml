@@ -2343,6 +2343,9 @@ module StackInspection = struct
 
           (* Now, the actual algorithm *)
           method! computation ((bs, tc) : Ir.computation) =
+            (* the predecessor (pred) argument is a slight hack. It is
+               the name of previous binding, if any. This must be the
+               first argument of the continuation frame. *)
             let rec generate_frames (o : 'self_type) (pred : Ir.var option) : Ir.binding list -> (Ir.fun_def list * Ir.binding list * 'self_type) = function
               | [] -> [], [], o
               | [`Let (b, (tyvars, tc))] ->
@@ -2514,6 +2517,8 @@ module StackInspection = struct
     let var = Var.var_of_binder fb in
     IntSet.mem var !answer_frame_set
 
+  let tyenv = ref Env.Int.empty
+
   (* Translation start *)
   let rec generate_program : venv -> Ir.program -> venv * Js.program
     = fun env (bs,tc) ->
@@ -2536,63 +2541,84 @@ module StackInspection = struct
 
   and generate_computation : venv -> Ir.computation -> venv * Js.program
     = fun env (bs, tc) ->
-      (* let open Js in *)
-      let env', bs = generate_bindings env bs in
-      let bs', tc = generate_tail_computation env' tc in
-      env', (bs @ bs', tc)
-
-  and generate_bindings : venv -> Ir.binding list -> venv * Js.decl list
-    = fun env ->
       let open Js in
-      let gbs env bs = generate_bindings env bs in
-      function
-      | `Module _ :: bs -> gbs env bs
-      | `Alien (bnd, raw_name, _lang) :: bs ->
-         let (a, _a_name) = safe_name_binder bnd in
-         let env' = VEnv.bind env (a, raw_name) in
-         gbs env' bs
-      | `Let (b, (_, tc)) :: bs ->
+      let assign = `Variable (Env.String.lookup Lib.nenv "=Override") in
+      let trycatch m =
+        STry (m, Some (Ident.of_string "_exn",
+                       ([], SIf (EApply (EPrim "%instanceof",
+                                         [EVar "_exn"; EVar "SaveContinuationError"]),
+                                 ([], SBreak),
+                                 ([], SThrow (EVar "_exn"))))))
+      in
+      let rec capture_continuation env b tc =
+        let b' = safe_name_binder b in
+        let binding =
+          DLet {
+            bkind = `Const;
+            binder = snd b';
+            expr =
+              EApply
+                (EFun {
+                  fname = `Anonymous;
+                  fkind = `Regular;
+                  formal_params = [];
+                  body = ([], trycatch (generate_tail_computation env tc)) },
+                 [])
+          }
+        in
+        let env' = VEnv.bind env b' in
+        (* let (bs, tc) = *)
+        (*   Ir.ReplaceReturnWithApply.program !tyenv assign [`Variable (Var.var_of_binder b)] ([], tc) *)
+        (* in *)
+        (* let prog = *)
+        (*         (\* HACK, TODO FIX tail_computation -- should return an expression *\) *)
+        (*   match generate_tail_computation env' tc with *)
+        (*   | [], SReturn (EApply _ as appl) -> ([], SExpr appl) *)
+        (*   | body -> body *)
+        (* in *)
+        env', [binding]
+      and gbs env = function
+        | `Module _ :: bs -> gbs env bs
+        | `Alien (bnd, raw_name, _lang) :: bs ->
+           let (a, _a_name) = safe_name_binder bnd in
+           let env' = VEnv.bind env (a, raw_name) in
+           gbs env' bs
+        | `Let (b, (_, tc)) :: bs ->
          (* Printf.printf "Var: %d\n%!" (Var.var_of_binder b); *)
          (* Printf.printf "Env: %s\n%!" (Show_venv.show env); *)
-         let b = safe_name_binder b in
-         let expr =
-           match tc with
-           | `Return v -> generate_value env v
-           | _ ->
-              (* HACK, TODO FIX tail_computation -- should return an expression *)
-              match generate_tail_computation env tc with
-              | [], SReturn (EApply _ as appl) -> appl
-              | body ->
-                 EApply
-                   (EFun {
-                     fname = `Anonymous;
-                     fkind = `Regular;
-                     body = body;
-                     formal_params = [] },
-                    [])
-         in
-         let binding =
-           DLet {
-             bkind = `Const;
-             binder = snd b;
-             expr
-           }
-         in
-         let env' = VEnv.bind env b in
-         let env'', bindings = gbs env' bs in
-         env'', binding :: bindings
-      | `Fun (fb, xs, z, loc) :: bs ->
-         let fbinding = generate_function env [] (fb, xs, z, loc) in
-         let fb = safe_name_binder fb in
-         let env', bindings = gbs (VEnv.bind env fb) bs in
-         env', fbinding :: bindings
-      | `Rec fundefs :: bs ->
-         let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) fundefs in
-         let defs = List.map (generate_function env fs) fundefs in
-         let env' = List.fold_left VEnv.bind env fs in
-         let env'', bindings = gbs env' bs in
-         env'', defs @ bindings
-      | [] -> env, []
+           let b' = safe_name_binder b in
+           let env', (bindings, stmt) = gbs (VEnv.bind env b') bs in
+           let env'', (bindings', stmt') =
+             match tc with
+             | `Return v ->
+                let binding =
+                  DLet {
+                    bkind = `Const;
+                    binder = snd b';
+                    expr = generate_value env v
+                  }
+                in
+                VEnv.bind env' b', ([binding] @ bindings, stmt)
+             | _ ->
+                let env', bindings' = capture_continuation env' b tc in
+                let bindings', stmt' = Js.eliminate_thunks (bindings', stmt) in
+                env', (bindings' @ bindings, stmt')
+           in
+           env'', (bindings', stmt')
+        | `Fun (fb, xs, z, loc) :: bs ->
+           let fbinding = generate_function env [] (fb, xs, z, loc) in
+           let fb = safe_name_binder fb in
+           let env', (bindings, stmt) = gbs (VEnv.bind env fb) bs in
+           env', (fbinding :: bindings, stmt)
+        | `Rec fundefs :: bs ->
+           let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) fundefs in
+           let defs = List.map (generate_function env fs) fundefs in
+           let env' = List.fold_left VEnv.bind env fs in
+           let env'', (bindings, stmt) = gbs env' bs in
+           env'', (defs @ bindings, stmt)
+        | [] -> env, generate_tail_computation env tc
+      in
+      gbs env bs
 
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
     = fun env tc ->
@@ -2631,6 +2657,8 @@ module StackInspection = struct
                           EApply (EPrim "%assign", [EAccess (gv r, "_contents"); gv v])
                         in
                         [], SSeq (SExpr destructive_update, SReturn (EObj []))
+                     | "=Override", [r; v] ->
+                        [], SExpr (EApply (EPrim "%assign", [gv r; gv v]))
                      | _ ->
                         let expr =
                           try
@@ -2828,14 +2856,15 @@ module StackInspection = struct
     = fun u ->
       let open Js in
       let (_nenv, venv, tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
-      let nenv = Ir.NameMap.(compute tenv u.program) in
+      let tyenv', nenv = Ir.NameMap.(compute tenv u.program) in
       Printf.eprintf "nenv: %s\n%!" (Ir.NameMap.Show_name_map.show nenv);
       (* Printf.eprintf "%s\n%!" (Ir.Show_program.show u.program); *)
       (* let lm = Ir.ProcedureFragmentation.liveness tenv u.program in *)
       (* Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm); *)
       let prog =
         let prog, answer_frames = ProcedureFragmentation.opt_fragmentise tenv u.program in
-        answer_frame_set := answer_frames; prog
+        answer_frame_set := answer_frames;
+        tyenv := tyenv'; prog
       in
       Printf.eprintf "Fragmented: %s\n%!" (Ir.Show_program.show prog);
       let _, prog = generate_program venv prog in

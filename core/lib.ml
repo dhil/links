@@ -229,6 +229,12 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
   "^^", string_op ( ^ ) PURE;
 
   (* References *)
+  "=Override", (p2 (fun r v -> (* HACK *)
+    match r, v with
+    | `Ref r, v -> r := v; Value.box_unit ()
+    | _ -> assert false),
+         datatype "(Ref(a), a) ~> ()",
+        IMPURE);
   ":=", (p2 (fun r v ->
     match r, v with
     | `Ref r, v -> r := v; Value.box_unit ()
