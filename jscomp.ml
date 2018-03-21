@@ -2281,15 +2281,23 @@ module StackInspection = struct
             in
             make_binder (ty, Printf.sprintf "_%s_%d_an%d" basename var !frame_counter)
 
-          method make_parameters vars : Ir.binder list =
+          method make_parameters pred vars : Ir.binder list =
             let binder_of_var v : Ir.binder =
               let ty = Env.Int.lookup tyenv v in
               (v, Var.info_of_type ty)
             in
-            List.map binder_of_var vars
+            match pred with
+            | None -> List.map binder_of_var vars
+            | Some v' ->
+               let vars = List.filter (fun v -> v <> v') vars in
+               (binder_of_var v') :: List.map binder_of_var vars
 
-          method make_arguments (vars : Ir.var list) : Ir.value list =
-            List.map (fun v -> `Variable v) vars
+          method make_arguments pred (vars : Ir.var list) : Ir.value list =
+            match pred with
+            | None -> List.map (fun v -> `Variable v) vars
+            | Some v' ->
+               let vars = List.filter (fun v -> v <> v') vars in
+               (`Variable v') :: List.map (fun v -> `Variable v) vars
 
           (* Keep track of which binders are frame binders *)
           val frame_binders = IntSet.empty
@@ -2335,7 +2343,7 @@ module StackInspection = struct
 
           (* Now, the actual algorithm *)
           method! computation ((bs, tc) : Ir.computation) =
-            let rec generate_frames (o : 'self_type) : Ir.binding list -> (Ir.fun_def list * Ir.binding list * 'self_type) = function
+            let rec generate_frames (o : 'self_type) (pred : Ir.var option) : Ir.binding list -> (Ir.fun_def list * Ir.binding list * 'self_type) = function
               | [] -> [], [], o
               | [`Let (b, (tyvars, tc))] ->
                  let var = Var.var_of_binder b in
@@ -2354,12 +2362,12 @@ module StackInspection = struct
                    let (tc, _, o) = (o#with_liveset liveset.after)#tail_computation cont in
                    let o = o#restore st in
                    let frame =
-                     let xsb = o#make_parameters (IntSet.to_list liveset.after) in
+                     let xsb = o#make_parameters (Some var) (IntSet.to_list liveset.after) in
                      (fb', ([], xsb, ([], tc)), None, `Unknown)
                    in
                    let cont =
                      `Apply (`Variable (Var.var_of_binder fb'),
-                             o#make_arguments (IntSet.to_list liveset.after))
+                             o#make_arguments (Some var) (IntSet.to_list liveset.after))
                    in
                    frame, o#push_cont cont
                  in
@@ -2377,12 +2385,12 @@ module StackInspection = struct
                      in
                      ([`Let (b, (tyvars, tc))], cont), o
                    in
-                   let xsb = o#make_parameters (IntSet.to_list liveset.before) in
+                   let xsb = o#make_parameters pred (IntSet.to_list liveset.before) in
                    (fb, ([], xsb, body), None, `Unknown), o
                  in
                  let cont =
                    `Apply (`Variable (Var.var_of_binder fb),
-                           o#make_arguments (IntSet.to_list liveset.before))
+                           o#make_arguments pred (IntSet.to_list liveset.before))
                  in
                  let o = o#push_cont cont in
                  ([answer_frame; final_frame], [], o)
@@ -2395,7 +2403,7 @@ module StackInspection = struct
                  let (fb, o) = o#binder fb in
                  let (answer_frames, other, o) =
                    let (_, o) = o#binder b in (* b may be used later on *)
-                   generate_frames (o#with_liveset liveset.after) bs
+                   generate_frames (o#with_liveset liveset.after) (Some var) bs
                  in
                  let answer_frame, o =
                    let (body, o) =
@@ -2411,12 +2419,12 @@ module StackInspection = struct
                      in
                      ([`Let (b, (tyvars, tc))], cont), o
                    in
-                   let xsb = o#make_parameters (IntSet.to_list liveset.before) in
+                   let xsb = o#make_parameters pred (IntSet.to_list liveset.before) in
                    (fb, ([], xsb, body), None, `Unknown), o
                  in
                  let cont =
                    `Apply (`Variable (Var.var_of_binder fb),
-                           o#make_arguments (IntSet.to_list liveset.before))
+                           o#make_arguments pred (IntSet.to_list liveset.before))
                  in
                  let o = o#push_cont cont in
                  (answer_frame :: answer_frames, other, o)
@@ -2439,7 +2447,7 @@ module StackInspection = struct
                    let (fb, o) = o#binder fb in
                    `Fun (fb, (tyvars, xsb, body), z, loc), o
                  in
-                 let (answer_frames, other, o) = generate_frames (o#restore st) bs in
+                 let (answer_frames, other, o) = generate_frames (o#restore st) None bs in
                  (answer_frames, f :: other, o)
               | `Rec defs :: bs ->
                  let st = o#backup in
@@ -2472,10 +2480,10 @@ module StackInspection = struct
                        (def :: defs, o))
                      ([], o) defs
                  in
-                 let (answer_frames, other, o) = generate_frames (o#restore st) bs in
+                 let (answer_frames, other, o) = generate_frames (o#restore st) None bs in
                  (answer_frames, (`Rec (List.rev defs)) :: other, o)
               | b :: bs ->
-                 let (answer_frames, other, o) = generate_frames o bs in
+                 let (answer_frames, other, o) = generate_frames o None bs in
                  (answer_frames, b :: other, o)
             in
             let splice other = function
@@ -2484,7 +2492,7 @@ module StackInspection = struct
             in
             let st = o#backup in
             let o = o#push_cont tc in
-            let (answer_frames, other, o) = generate_frames o bs in
+            let (answer_frames, other, o) = generate_frames o None bs in
             let (cont, o) = o#pop_cont in
             let (cont, dt, o) = o#tail_computation cont in
             (splice other answer_frames, cont), dt, o#restore st
