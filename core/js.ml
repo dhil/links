@@ -174,7 +174,7 @@ and statement =
   | SWhile of expression * program
   | SContinue
   | SAssign of Ident.t * expression
-  | STry of program * (Ident.t * program) StringMap.t * bool (* try M catch(e) { if (e instanceof l) N else ... } the boolean flag determines whether the try should rethrow the exception. *)
+  | STry of program * (Ident.t * program) option (* try M catch(e) { M } *)
   | SThrow of expression
 and decl =
   | DLet of binding
@@ -200,3 +200,69 @@ let rec sequence : statement list -> statement = function
   | [stmt] -> stmt
   | stmt :: stmts -> SSeq (stmt, sequence stmts)
   | [] -> failwith "Sequence empty list."
+
+
+let rec replace_return r (decls, stmt) =
+  let rr = replace_return r in
+  let stmt =
+    match stmt with
+    | SReturn e
+    | SExpr e ->
+       SAssign (r, e)
+    | SWhile (e, p) ->
+       SWhile (e, rr p)
+    | STry (p, catch) ->
+       STry (rr p, catch)
+    | SIf (cond, tt, ff) ->
+       SIf (cond, rr tt, rr ff)
+    | SCase (scrutinee, name_map, default) ->
+       let name_map =
+         StringMap.map rr name_map
+       in
+       let default =
+         match default with
+         | None -> None
+         | Some p -> Some (rr p)
+       in
+       SCase (scrutinee, name_map, default)
+    | SSeq (s1, s2) ->
+       let (_, s1) = rr ([], s1) in
+       let (_, s2) = rr ([], s2) in
+       SSeq (s1, s2)
+    | s -> s
+  in
+  (* let decl = function *)
+  (*   | DFun { body; _ } as d -> *)
+  (*      { d with body = rr body } *)
+  (*   | d -> d *)
+  (* in *)
+  decls, stmt
+
+let rec eliminate_thunks (decls, stmt) =
+  let rec bindings = function
+    | [] ->
+       [], statement stmt
+    | DLet {
+      binder;
+      expr = EApply(EFun { fname = `Anonymous; formal_params = []; body; _ }, []);
+      _ } :: bs ->
+       let decl =
+         DLet {
+           bkind = `Let;
+           binder;
+           expr = EVar "undefined";
+         }
+       in
+       let (decls, body) = replace_return binder body in
+       let (decls', body') = bindings bs in
+       decl :: decls @ decls', SSeq (body, body')
+    | (DFun ({ body; _ } as d)) :: bs->
+       let decls, stmt = bindings bs in
+       (DFun { d with body = eliminate_thunks body }) :: decls, stmt
+    | b :: bs ->
+       let decls, stmt = bindings bs in
+       b :: decls, stmt
+  and statement = function
+    | s -> s
+  in
+  bindings decls

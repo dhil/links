@@ -408,7 +408,7 @@ struct
     method binder : binder -> 'self_type =
       fun (var, info) ->
         let tyenv = Env.bind tyenv (var, info_type info) in
-        {< tyenv=tyenv >}
+        {< tyenv = tyenv >}
 
     method program : program -> 'self_type = o#computation
 
@@ -423,17 +423,21 @@ struct
     deriving (Show)
 
   let compute tyenv prog =
-    ((object (o)
-      inherit Iter.visitor(tyenv)
+    let o =
+      object (o)
+        inherit Iter.visitor(tyenv)
 
-      val nenv = IntMap.empty
-      method add var name =
-        {< nenv = IntMap.add var name nenv >}
-      method get_nenv = nenv
+        val nenv = IntMap.empty
+        method add var name =
+          {< nenv = IntMap.add var name nenv >}
+        method get_nenv = nenv
 
-      method! binder (var, (_, name, _)) =
-        o#add var name
-     end)#program prog)#get_nenv
+        method! binder (var, (_, name, _)) =
+          o#add var name
+      end
+    in
+    let o = o#program prog in
+    o#get_type_environment, o#get_nenv
 end
 
 (* Tree shaking includes "live code", i.e. code that will be run
@@ -735,5 +739,27 @@ end = struct
       end
     in
     fst3 ((eliminator tyenv)#program prog)
+end
 
+module ReplaceReturnWithApply = struct
+  let program tyenv f vs prog =
+    let replacer =
+       object (o)
+         inherit Transform.visitor(tyenv)
+
+         method! computation (bs, tc) =
+           let (bs, o) = o#bindings bs in
+           (* let (tc, dt, o) = o#tail_computation tc in *)
+           let bs', tc =
+             match tc with
+             | `Return v -> [], `Apply (f, vs @ [v])
+             | `Apply (g, ws) ->
+                let tmp = Var.fresh_binder (Var.make_local_info (Types.make_pure_function_type [`Not_typed] `Not_typed, "tmp")) in
+                [`Let (tmp, ([], `Apply (g, ws)))], `Apply (g, vs @ [`Variable (Var.var_of_binder tmp)])
+             | _ -> [], tc
+           in
+           ((bs @ bs', tc), `Not_typed, o)
+       end
+    in
+    fst3 (replacer#program prog)
 end

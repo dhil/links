@@ -82,7 +82,7 @@ module type CODEGEN = sig
     val whileloop : js -> program -> js
     val continue : js
     val assign : ident -> js -> js
-    val trycatch : program -> (string * ident * program) list -> bool -> js
+    val trycatch : program -> (ident * program) option -> js
     val throw : js -> js
   end
 
@@ -90,6 +90,7 @@ module type CODEGEN = sig
     val name : string -> js
     val apply_binop : string -> js * js -> js
     val apply_unary : string -> js -> js
+    val instanceof : (js * js) -> js
   end
 end
 
@@ -406,33 +407,8 @@ module CodeGen : CODEGEN = struct
             $/ expr
          $ (text ";"))
 
-    let trycatch m cases rethrow =
+    let trycatch m catch =
       let open PP in
-      let cases exn =
-        let case (label, ident, program) cont =
-          hgrp
-            ((text "if")
-             $/ (text "(")
-             $ (exn $/ (text "instanceof") $/ (text label))
-             $/ (text ")")
-             $/ (text "{")
-             $/ (vgrp
-                   (nest 0
-                      (vgrp
-                         (nest 2
-                            (hgrp ((text "const") $/ (text ident) $/ exn $ (text ";")))
-                          $/ (layout_program program)))))
-             $/ (hgrp ((text "} else ") $ cont)))
-        in
-        let rec layout_cases = function
-          | [] when rethrow -> (hgrp ((text "{ throw") $/ exn $ (text "; }")))
-          | [] -> text "{}"
-          | c :: cs ->
-             let cont = layout_cases cs in
-             case c cont
-        in
-        layout_cases cases
-      in
       hgrp
         ((text "try")
          $/ (text "{")
@@ -440,16 +416,20 @@ module CodeGen : CODEGEN = struct
               (nest 0
                  (vgrp
                     (nest 2
-                       (break $ (layout_program m))))))
-         $/ (text "}")
-         $/ (text "catch(_exn)")
-         $/ (text "{")
-         $  (vgrp
-               (nest 0
-                  (vgrp
-                     (nest 2
-                        (break $ (cases (text "_exn")))))))
-         $/ (text "}"))
+                       (break $ (layout_program m))))
+         $/ (text "}")))
+         $/
+         (match catch with
+         | None -> empty
+         | Some (ident, prog) ->
+            (text (Printf.sprintf "catch(%s)" ident))
+              $/ (text "{")
+              $  (vgrp
+                    (nest 0
+                       (vgrp
+                          (nest 2
+                             (break $ (layout_program prog))))
+              $/ (text "}")))))
 
     let throw expr =
       let open PP in
@@ -466,6 +446,10 @@ module CodeGen : CODEGEN = struct
     let apply_unary op x =
       let open PP in
       hgrp ((text op) $ x)
+
+    let instanceof (o, c) =
+      let open PP in
+      hgrp (o $/ (text "instanceof") $/ c)
   end
 
   (* let (<+>) l r = PP.(l ^^ r) *)
@@ -539,6 +523,7 @@ and expression : Js.expression -> CodeGen.js
      | "%not" -> apply_unary "!" (pop1 args')
      | "%negate" -> apply_unary "-" (pop1 args')
      | "%noop" -> pop1 args'
+     | "%instanceof" -> instanceof (pop2 args')
 
      | p when String.length p > 0 ->
         let ident = Printf.sprintf "_%s" (String.sub p 1 (String.length p - 1)) in
@@ -588,14 +573,14 @@ and statement : Js.statement -> CodeGen.js
      CodeGen.Stmt.assign x (expression expr)
   | SContinue ->
      CodeGen.Stmt.continue
-  | STry (m, cases, rethrow) ->
-     let cases =
-       List.map
-         (fun (label, (ident, prog)) ->
-           (label, ident, program' prog))
-         (Utility.StringMap.to_alist cases)
+  | STry (m, catch) ->
+     let catch =
+       match catch with
+       | None -> None
+       | Some (ident, prog) ->
+          Some (ident, program' prog)
      in
-     CodeGen.Stmt.trycatch (program' m) cases rethrow
+     CodeGen.Stmt.trycatch (program' m) catch
   | SThrow expr ->
      CodeGen.Stmt.throw (expression expr)
 

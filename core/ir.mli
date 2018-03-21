@@ -198,12 +198,17 @@ module NameMap :
 sig
   type name_map = string Utility.IntMap.t
     deriving (Show)
-  val compute : Types.datatype Env.Int.t -> program -> name_map
+  val compute : Types.datatype Env.Int.t -> program -> Types.datatype Env.Int.t * name_map
 end
 
 module TidyBindings :
 sig
   val program : Types.datatype Env.Int.t -> program -> program
+end
+
+module ReplaceReturnWithApply :
+sig
+  val program : Types.datatype Env.Int.t -> value -> value list -> program -> program
 end
 
 type eval_fun_def = var_info * (var list * computation) * Var.var option * location
