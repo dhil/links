@@ -457,6 +457,7 @@ struct
       inherit Iter.visitor(tyenv) as super
 
       val scope_owner = (-1)
+      method get_scope_owner = scope_owner
       method with_scope_owner owner =
         {< scope_owner = owner >}
 
@@ -478,13 +479,14 @@ struct
         {< usage_map = IntMap.add v IntSet.empty usage_map >}
 
       method! var var =
-        o#use scope_owner var
+        o#use o#get_scope_owner var
 
       method! binding = function
       | `Fun (b, (_, _, comp), _, _) ->
          let o = o#binder b in
+         let o = o#use o#get_scope_owner (Var.var_of_binder b) in
          let v = Var.var_of_binder b in
-         let so = scope_owner in
+         let so = o#get_scope_owner in
          let o = o#init v in
          let o = o#with_scope_owner v in
          let o = o#computation comp in
@@ -503,7 +505,8 @@ struct
          List.fold_left
            (fun o (f, (_, _, comp), _, _) ->
              let v = Var.var_of_binder f in
-             let so = scope_owner in
+             let o = o#use o#get_scope_owner v in
+             let so = o#get_scope_owner in
              let o = o#with_scope_owner v in
              let o = o#computation comp in
              o#with_scope_owner so)
