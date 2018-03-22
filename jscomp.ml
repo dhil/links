@@ -2418,6 +2418,12 @@ module StackInspection = struct
                      let (cont, o) =
                        let ((cont : Ir.tail_computation), o) = o#pop_cont in
                        let (tc, _, o) = o#tail_computation cont in
+                       (* let o = *)
+                       (*   match tc with *)
+                       (*   | `Apply (`Variable contv, args) -> *)
+                       (*      o#register_cont b (contv, args) *)
+                       (*   | _ -> assert false *)
+                       (* in *)
                        tc, o
                      in
                      ([`Let (b, (tyvars, tc))], cont), o
@@ -2544,11 +2550,12 @@ module StackInspection = struct
       let open Js in
       let assign = `Variable (Env.String.lookup Lib.nenv "=Override") in
       let trycatch m =
-        STry (m, Some (Ident.of_string "_exn",
+        let exn = Ident.of_string "_exn" in
+        STry (m, Some (exn,
                        ([], SIf (EApply (EPrim "%instanceof",
-                                         [EVar "_exn"; EVar "SaveContinuationError"]),
+                                         [EVar exn; EVar "SaveContinuationError"]),
                                  ([], SBreak),
-                                 ([], SThrow (EVar "_exn"))))))
+                                 ([], SThrow (EVar exn))))))
       in
       let rec capture_continuation env b tc =
         let b' = safe_name_binder b in
