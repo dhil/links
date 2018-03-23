@@ -162,6 +162,8 @@ and expression =
   | EObj       of (label * expression) list
   | EArray     of expression array
   | EYield     of yield
+  | EThrow     of expression
+  | ENew       of expression
 and statement =
   | SIf of expression * program * program  (* if (expr) { stmt1 } else { stmt2 } *)
   | SCase of expression * program litmap * program option (* switch (expr) { case c1: stmt1 break; ... case cN: stmtN break; [default: stmt] } *)
@@ -175,7 +177,7 @@ and statement =
   | SContinue
   | SAssign of Ident.t * expression
   | STry of program * (Ident.t * program) option (* try M catch(e) { M } *)
-  | SThrow of expression
+  | SSkip
 and decl =
   | DLet of binding
   | DFun of fn

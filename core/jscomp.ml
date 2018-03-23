@@ -2525,107 +2525,200 @@ module StackInspection = struct
 
   let tyenv = ref Env.Int.empty
 
+  (* Frame creation *)
+  let new_frame_obj frame_class cont_var args =
+    Js.(ENew (EApply (frame_class, cont_var :: args)))
+
+  let new_initial_frame = new_frame_obj (Js.EVar "GenericInitialContinuationFrame")
+
+  let new_frame = new_frame_obj (Js.EVar "GenericContinuationFrame")
+
+  let extend_cont exn frame =
+    let open Js in
+    let extend = EApply (EAccess (exn, "extend"), [frame]) in
+    SSeq (SExpr extend, SExpr (EThrow exn))
+
+  let trycatch make_frame (cont_var, cont_args) m =
+    let open Js in
+    let exn = Ident.of_string "_exn" in
+    let frame =
+      make_frame cont_var cont_args
+    in
+    STry (m, Some (exn,
+                   ([], SIf (EApply (EPrim "%instanceof",
+                                     [EVar exn; EVar "SaveContinuationError"]),
+                             ([], extend_cont (EVar exn) frame),
+                             ([], SExpr (EThrow (EVar exn)))))))
+
+  let trampoline cont_var cont_args =
+    let open Js in
+    let incr = SAssign ("_callcount", EApply (EPrim "%int_add", [EVar "_callcount"; ELit (LInt 1)])) in
+    let reset = SAssign ("_callcount", ELit (LInt 0)) in
+    let callcc =
+      let identity =
+        EFun {
+          fkind = `Regular;
+          fname = `Anonymous;
+          formal_params = ["cont"];
+          body = ([], SReturn (EVar "null")) }
+      in
+      EApply (EVar "Continuation.CWCC", [identity])
+    in
+    let check =
+      let initiate_bounce =
+        trycatch
+          new_initial_frame
+          (cont_var, cont_args)
+          ([], SReturn callcc)
+      in
+      SIf (EApply (EPrim "%ge", [EVar "_callcount"; EVar "_breakat"]),
+           ([], SSeq (reset, initiate_bounce)),
+           ([], SSkip))
+    in
+    SSeq (incr, check)
+
   (* Translation start *)
   let rec generate_program : venv -> Ir.program -> venv * Js.program
     = fun env (bs,tc) ->
       let open Js in
-      (* let toplevel body = *)
-      (*   DFun { *)
-      (*     fname = `Named "_toplevel"; *)
-      (*     fkind = `Regular; *)
-      (*     body = body; *)
-      (*     formal_params = [] } *)
-      (* in *)
-      (* let (env', (bs, stmt)) = generate_computation env (bs, tc) *)
-      (* in *)
-      (* (env', (bs @ [toplevel ([], stmt)], SExpr (EApply (EVar (Ident.of_string "_toplevel"), [])))) *)
-      (* Hack *)
-      match generate_computation env (bs, tc) with
-      | (env, (decls, SReturn e)) -> env, (decls, SExpr e)
-      | _ -> assert false
+      let toplevel body =
+        EFun {
+          fname = `Anonymous;
+          fkind = `Regular;
+          body = body;
+          formal_params = [] }
+      in
+      let (env', (bs, stmt)) = generate_computation env (bs, tc) in
+      (env', (bs, SExpr (EApply (EVar (Ident.of_string "Continuation.establishInitialContinuation"), [toplevel ([], stmt)]))))
 
 
   and generate_computation : venv -> Ir.computation -> venv * Js.program
     = fun env (bs, tc) ->
-      let open Js in
-      let assign = `Variable (Env.String.lookup Lib.nenv "=Override") in
-      let trycatch m =
-        let exn = Ident.of_string "_exn" in
-        STry (m, Some (exn,
-                       ([], SIf (EApply (EPrim "%instanceof",
-                                         [EVar exn; EVar "SaveContinuationError"]),
-                                 ([], SBreak),
-                                 ([], SThrow (EVar exn))))))
-      in
-      let rec capture_continuation env b tc =
-        let b' = safe_name_binder b in
-        let binding =
-          DLet {
-            bkind = `Const;
-            binder = snd b';
-            expr =
-              EApply
-                (EFun {
-                  fname = `Anonymous;
-                  fkind = `Regular;
-                  formal_params = [];
-                  body = ([], trycatch (generate_tail_computation env tc)) },
-                 [])
-          }
-        in
-        let env' = VEnv.bind env b' in
-        (* let (bs, tc) = *)
-        (*   Ir.ReplaceReturnWithApply.program !tyenv assign [`Variable (Var.var_of_binder b)] ([], tc) *)
-        (* in *)
-        (* let prog = *)
-        (*         (\* HACK, TODO FIX tail_computation -- should return an expression *\) *)
-        (*   match generate_tail_computation env' tc with *)
-        (*   | [], SReturn (EApply _ as appl) -> ([], SExpr appl) *)
-        (*   | body -> body *)
-        (* in *)
-        env', [binding]
-      and gbs env = function
-        | `Module _ :: bs -> gbs env bs
-        | `Alien (bnd, raw_name, _lang) :: bs ->
-           let (a, _a_name) = safe_name_binder bnd in
-           let env' = VEnv.bind env (a, raw_name) in
-           gbs env' bs
-        | `Let (b, (_, tc)) :: bs ->
-         (* Printf.printf "Var: %d\n%!" (Var.var_of_binder b); *)
-         (* Printf.printf "Env: %s\n%!" (Show_venv.show env); *)
-           let b' = safe_name_binder b in
-           let env', (bindings, stmt) = gbs (VEnv.bind env b') bs in
-           let env'', (bindings', stmt') =
-             match tc with
-             | `Return v ->
-                let binding =
-                  DLet {
-                    bkind = `Const;
-                    binder = snd b';
-                    expr = generate_value env v
-                  }
-                in
-                VEnv.bind env' b', ([binding] @ bindings, stmt)
-             | _ ->
-                let env', bindings' = capture_continuation env' b tc in
-                let bindings', stmt' = Js.eliminate_thunks (bindings', stmt) in
-                env', (bindings' @ bindings, stmt')
-           in
-           env'', (bindings', stmt')
-        | `Fun (fb, xs, z, loc) :: bs ->
-           let fbinding = generate_function env [] (fb, xs, z, loc) in
-           let fb = safe_name_binder fb in
-           let env', (bindings, stmt) = gbs (VEnv.bind env fb) bs in
-           env', (fbinding :: bindings, stmt)
-        | `Rec fundefs :: bs ->
-           let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) fundefs in
-           let defs = List.map (generate_function env fs) fundefs in
-           let env' = List.fold_left VEnv.bind env fs in
-           let env'', (bindings, stmt) = gbs env' bs in
-           env'', (defs @ bindings, stmt)
-        | [] -> env, generate_tail_computation env tc
-      in
-      gbs env bs
+      (* let open Js in *)
+      (* let trycatch m = *)
+      (*   let exn = Ident.of_string "_exn" in *)
+      (*   STry (m, Some (exn, *)
+      (*                  ([], SIf (EApply (EPrim "%instanceof", *)
+      (*                                    [EVar exn; EVar "SaveContinuationError"]), *)
+      (*                            ([], SBreak), *)
+      (*                            ([], SThrow (EVar exn)))))) *)
+      (* in *)
+      (* let rec capture_continuation env b tc = *)
+      (*   let b' = safe_name_binder b in *)
+      (*   let binding = *)
+      (*     DLet { *)
+      (*       bkind = `Const; *)
+      (*       binder = snd b'; *)
+      (*       expr = *)
+      (*         EApply *)
+      (*           (EFun { *)
+      (*             fname = `Anonymous; *)
+      (*             fkind = `Regular; *)
+      (*             formal_params = []; *)
+      (*             body = ([], trycatch (generate_tail_computation env tc)) }, *)
+      (*            []) *)
+      (*     } *)
+      (*   in *)
+      (*   let env' = VEnv.bind env b' in *)
+      (*   (\* let (bs, tc) = *\) *)
+      (*   (\*   Ir.ReplaceReturnWithApply.program !tyenv assign [`Variable (Var.var_of_binder b)] ([], tc) *\) *)
+      (*   (\* in *\) *)
+      (*   (\* let prog = *\) *)
+      (*   (\*         (\\* HACK, TODO FIX tail_computation -- should return an expression *\\) *\) *)
+      (*   (\*   match generate_tail_computation env' tc with *\) *)
+      (*   (\*   | [], SReturn (EApply _ as appl) -> ([], SExpr appl) *\) *)
+      (*   (\*   | body -> body *\) *)
+      (*   (\* in *\) *)
+      (*   env', [binding] *)
+      (* and gbs env = function *)
+      (*   | `Module _ :: bs -> gbs env bs *)
+      (*   | `Alien (bnd, raw_name, _lang) :: bs -> *)
+      (*      let (a, _a_name) = safe_name_binder bnd in *)
+      (*      let env' = VEnv.bind env (a, raw_name) in *)
+      (*      gbs env' bs *)
+      (*   | `Let (b, (_, tc)) :: bs -> *)
+      (*    (\* Printf.printf "Var: %d\n%!" (Var.var_of_binder b); *\) *)
+      (*    (\* Printf.printf "Env: %s\n%!" (Show_venv.show env); *\) *)
+      (*      let b' = safe_name_binder b in *)
+      (*      let env', (bindings, stmt) = gbs (VEnv.bind env b') bs in *)
+      (*      let env'', (bindings', stmt') = *)
+      (*        match tc with *)
+      (*        | `Return v -> *)
+      (*           let binding = *)
+      (*             DLet { *)
+      (*               bkind = `Const; *)
+      (*               binder = snd b'; *)
+      (*               expr = generate_value env v *)
+      (*             } *)
+      (*           in *)
+      (*           VEnv.bind env' b', ([binding] @ bindings, stmt) *)
+      (*        | _ -> *)
+      (*           let env', bindings' = capture_continuation env' b tc in *)
+      (*           let bindings', stmt' = Js.eliminate_thunks (bindings', stmt) in *)
+      (*           env', (bindings' @ bindings, stmt') *)
+      (*      in *)
+      (*      env'', (bindings', stmt') *)
+      (*   | `Fun (fb, xs, z, loc) :: bs -> *)
+      (*      let fbinding = generate_function env [] (fb, xs, z, loc) in *)
+      (*      let fb = safe_name_binder fb in *)
+      (*      let env', (bindings, stmt) = gbs (VEnv.bind env fb) bs in *)
+      (*      env', (fbinding :: bindings, stmt) *)
+      (*   | `Rec fundefs :: bs -> *)
+      (*      let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) fundefs in *)
+      (*      let defs = List.map (generate_function env fs) fundefs in *)
+      (*      let env' = List.fold_left VEnv.bind env fs in *)
+      (*      let env'', (bindings, stmt) = gbs env' bs in *)
+      (*      env'', (defs @ bindings, stmt) *)
+      (*   | [] -> env, generate_tail_computation env tc *)
+      (* in *)
+  (* gbs env bs *)
+      let (env, bs) = generate_bindings env bs in
+      let (bs', stmt) = generate_tail_computation env tc in
+      env, (bs @ bs', stmt)
+
+  and generate_bindings env bs =
+    let rec gbs env = function
+      | `Module _ :: bs -> gbs env bs
+      | `Alien (bnd, raw_name, _lang) :: bs ->
+         let (a, _a_name) = safe_name_binder bnd in
+         let env' = VEnv.bind env (a, raw_name) in
+         gbs env' bs
+      | `Let (_b, (_, _tc)) :: _bs -> assert false
+    (*  (\* Printf.printf "Var: %d\n%!" (Var.var_of_binder b); *\) *)
+    (* (\* Printf.printf "Env: %s\n%!" (Show_venv.show env); *\) *)
+    (* let b' = safe_name_binder b in *)
+    (* let env', (bindings, stmt) = gbs (VEnv.bind env b') bs in *)
+    (* let env'', (bindings', stmt') = *)
+    (*   match tc with *)
+    (*   | `Return v -> *)
+    (*      let binding = *)
+    (*        DLet { *)
+    (*          bkind = `Const; *)
+    (*          binder = snd b'; *)
+    (*          expr = generate_value env v *)
+    (*        } *)
+    (*      in *)
+    (*      VEnv.bind env' b', ([binding] @ bindings, stmt) *)
+    (*   | _ -> *)
+    (*      let env', bindings' = capture_continuation env' b tc in *)
+    (*      let bindings', stmt' = Js.eliminate_thunks (bindings', stmt) in *)
+    (*      env', (bindings' @ bindings, stmt') *)
+    (* in *)
+    (* env'', (bindings', stmt') *)
+      | `Fun (fb, xs, z, loc) :: bs ->
+         let fbinding = generate_function env [] (fb, xs, z, loc) in
+         let fb = safe_name_binder fb in
+         let env', bindings = gbs (VEnv.bind env fb) bs in
+         env', (fbinding :: bindings)
+      | `Rec fundefs :: bs ->
+         let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) fundefs in
+         let defs = List.map (generate_function env fs) fundefs in
+         let env' = List.fold_left VEnv.bind env fs in
+         let env'', bindings = gbs env' bs in
+         env'', (defs @ bindings)
+      | [] -> env, []
+    in
+    gbs env bs
 
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
     = fun env tc ->
@@ -2832,7 +2925,74 @@ module StackInspection = struct
 
   and generate_function : venv -> (Var.var * string) list -> Ir.fun_def -> Js.decl =
     fun env fs (fb, (_, xsb, body), zb, location) ->
-      Printf.eprintf "Generating fb (%d, %s)\n%!" (Var.var_of_binder fb) (Var.name_of_binder fb);
+      let open Js in
+      (* let new_frame_obj frame_class cont_var args = *)
+      (*   ENew (EApply (frame_class, cont_var :: args)) *)
+      (* in *)
+      (* let new_initial_frame = new_frame_obj (EVar "GenericInitialContinuationFrame") in *)
+      (* let new_frame = new_frame_obj (EVar "GenericContinuationFrame") in *)
+      (* let extend_cont exn frame = *)
+      (*   let extend = EApply (EAccess (exn, "extend"), [frame]) in *)
+      (*   SSeq (SExpr extend, SExpr (EThrow exn)) *)
+      (* in *)
+      (* let trycatch make_frame (cont_var, cont_args) m = *)
+      (*   let exn = Ident.of_string "_exn" in *)
+      (*   let frame = *)
+      (*     make_frame cont_var cont_args *)
+      (*   in *)
+      (*   STry (m, Some (exn, *)
+      (*                  ([], SIf (EApply (EPrim "%instanceof", *)
+      (*                                    [EVar exn; EVar "SaveContinuationError"]), *)
+      (*                            ([], extend_cont (EVar exn) frame), *)
+      (*                            ([], SExpr (EThrow (EVar exn))))))) *)
+      (* in *)
+      let capture_continuation env (bs,tc) =
+        let rec gbs env = function
+          | [] -> env, []
+          | [(`Let (b, (_, tc')))] ->
+             let b' = safe_name_binder b in
+             let env' = VEnv.bind env b' in
+             let binding =
+               match tc' with
+               | `Return v ->
+                  DLet {
+                    bkind = `Const;
+                    binder = snd b';
+                    expr = generate_value env v }
+               | tc' ->
+                  let cont_var, cont_args =
+                    match tc with
+                    | `Apply (cont_var, args) ->
+                       generate_value env cont_var, List.(map (generate_value env) (tl args))
+                    | _ -> assert false
+                  in
+                  DLet {
+                    bkind = `Const;
+                    binder = snd b';
+                    expr =
+                      EApply
+                        (EFun {
+                          fname = `Anonymous;
+                          fkind = `Regular;
+                          formal_params = [];
+                          body = ([], trycatch new_frame (cont_var, cont_args) (generate_tail_computation env tc')) },
+                         []) }
+             in
+             env', [binding]
+          | `Rec fundefs :: bs ->
+             let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) fundefs in
+             let defs = List.map (generate_function env fs) fundefs in
+             let env' = List.fold_left VEnv.bind env fs in
+             let env'', bindings = gbs env' bs in
+             env'', (defs @ bindings)
+          | _ -> assert false
+        in
+        let (env, decls) = gbs env bs in
+        let (decls', stmt) = generate_tail_computation env tc in
+        let prog = Js.eliminate_thunks (decls @ decls', stmt) in
+        env, prog
+      in
+      Printf.eprintf "Generating fb (%d, %s); answer frame? %s\n%!" (Var.var_of_binder fb) (Var.name_of_binder fb) (if is_answer_frame fb then "True" else "False");
       let open Js in
       let (_f, f_name) = safe_name_binder fb in
       assert (f_name <> "");
@@ -2848,9 +3008,29 @@ module StackInspection = struct
       let body_env = List.fold_left VEnv.bind env (fs @ bs) in
       let body =
         match location with
-        | `Client | `Unknown ->
+
+        | `Client | `Unknown when is_answer_frame fb ->
            (* Printf.eprintf "Generating body: %s\n%!" (Ir.Show_computation.show body); *)
-           snd (generate_computation body_env body)
+           snd (capture_continuation body_env body)
+        | `Client | `Unknown ->
+           begin match body with
+           | (bs, `Apply (cont_var, args)) ->
+              let env', bs = generate_bindings body_env bs in
+              let cont_var, cont_args =
+                generate_value env' cont_var, List.map (generate_value env') args
+              in
+              let trampoline = trampoline cont_var cont_args in
+              (bs, SSeq (trampoline, SReturn (EApply (cont_var, cont_args))))
+           | (bs, `Return v) ->
+              let env', bs = generate_bindings body_env bs in
+              (bs, SReturn (generate_value env' v))
+           | _ ->
+              let cont_var = EVar f_name in
+              let cont_args = List.map (fun v -> EVar v) xs_names in
+              Printf.eprintf "Generating body: %s\n%!" (Ir.Show_computation.show body);
+              let _, (decls, stmt) = generate_computation body_env body in
+              (decls, SSeq (trampoline cont_var cont_args, stmt))
+           end
         | _ -> failwith "Only client side calls are supported."
       in
       DFun {

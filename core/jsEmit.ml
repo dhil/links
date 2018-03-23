@@ -70,6 +70,8 @@ module type CODEGEN = sig
     val object' : (label * js) list -> js
     val array : js array -> js
     val yield : [`Regular | `Star] -> js -> js
+    val throw : js -> js
+    val new' : js -> js
   end
 
   module Stmt: sig
@@ -83,7 +85,7 @@ module type CODEGEN = sig
     val continue : js
     val assign : ident -> js -> js
     val trycatch : program -> (ident * program) option -> js
-    val throw : js -> js
+    val skip : js
   end
 
   module Prim: sig
@@ -314,6 +316,14 @@ module CodeGen : CODEGEN = struct
         | `Regular -> "yield"
       in
       hgrp ((text yield) $/ expr)
+
+    let throw expr =
+      let open PP in
+      hgrp ((text "throw") $/ expr)
+
+    let new' expr =
+      let open PP in
+      hgrp ((text "new" $/ expr))
   end
 
   module Stmt = struct
@@ -325,6 +335,20 @@ module CodeGen : CODEGEN = struct
     let expr e   = Decl.semi e
     let ifthenelse cond tt ff =
       let open PP in
+      let ff =
+        match ff with
+        | ([], s) when s = empty -> empty
+        | _ ->
+           (text " else")
+             $/ (text "{")
+             $ (vgrp
+                  (nest 0
+                     (vgrp
+                        (nest 2
+                           (break
+                              $ (layout_program ff))))
+                     $/ (text "}")))
+      in
       hgrp
         ((text "if")
             $/ (text "(")
@@ -337,16 +361,7 @@ module CodeGen : CODEGEN = struct
                        (nest 2
                           (break
                              $ (layout_program tt))))
-                    $/ (text "}"))
-                 $/ (text "else")
-                 $/ (text "{")
-                 $ (vgrp
-                      (nest 0
-                         (vgrp
-                            (nest 2
-                               (break
-                                  $ (layout_program ff))))
-                         $/ (text "}")))))
+                    $/ (text "}")) $ ff))
 
     let case scrutinee cases default =
       let open PP in
@@ -429,11 +444,9 @@ module CodeGen : CODEGEN = struct
                        (vgrp
                           (nest 2
                              (break $ (layout_program prog))))
-              $/ (text "}")))))
+                       $/ (text "}")))))
 
-    let throw expr =
-      let open PP in
-      hgrp ((text "throw" $/ expr $ (text ";")))
+    let skip = PP.empty
   end
 
   module Prim = struct
@@ -543,6 +556,10 @@ and expression : Js.expression -> CodeGen.js
      CodeGen.Expr.yield ykind (expression yexpr)
   | EArray arr ->
      CodeGen.Expr.array (Array.map expression arr)
+  | EThrow expr ->
+     CodeGen.Expr.throw (expression expr)
+  | ENew expr ->
+     CodeGen.Expr.new' (expression expr)
 
 and statement : Js.statement -> CodeGen.js
   = let open Js in
@@ -581,8 +598,7 @@ and statement : Js.statement -> CodeGen.js
           Some (ident, program' prog)
      in
      CodeGen.Stmt.trycatch (program' m) catch
-  | SThrow expr ->
-     CodeGen.Stmt.throw (expression expr)
+  | SSkip -> CodeGen.Stmt.skip
 
 and primitive : string -> CodeGen.js
   = fun p ->
