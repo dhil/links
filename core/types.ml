@@ -128,6 +128,12 @@ let performance = {
   arity = [];
 }
 
+let array = {
+  Abstype.id = "Array";
+  name = "Array";
+  arity = [`Type, (`Any, `Any)]
+}
+
 type ('t, 'r) session_type_basis =
     [ `Input of 't * 't
     | `Output of 't * 't
