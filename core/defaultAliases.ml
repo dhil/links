@@ -20,4 +20,5 @@ let alias_env : Types.tycon_environment =
       "Location", `Abstract Types.spawn_location;
       "Ref"     , `Abstract Types.reference;
       "Perf"    , `Abstract Types.performance; (* JavaScript performance clock *)
+      "Array"   , `Abstract Types.array;
     ]

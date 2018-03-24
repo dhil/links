@@ -241,6 +241,40 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
             datatype "(Ref(a)) ~> a",
             IMPURE);
 
+  (* Arrays *)
+  "makeArray",
+  (p2 (fun n z ->
+    match n with
+    | (`Int n) -> `Array (Array.make n z)
+    | _ -> assert false),
+   datatype "(Int, a) ~> Array(a)",
+   IMPURE);
+  "arrayLength",
+  (p1 (fun a ->
+    match a with
+    | `Array a -> `Int (Array.length a)
+    | _ -> assert false),
+   datatype "(Array(a)) -> Int",
+   PURE);
+  "arrayGet",
+  (p2 (fun a i ->
+    let a = Value.unbox_array a in
+    let n = Value.unbox_int i in
+    if n < Array.length a
+    then Array.get a n
+    else failwith "Out of bounds"),
+   datatype "(Array(a), Int) ~> a",
+   IMPURE);
+  "arraySet",
+  (p3 (fun a i x ->
+    let a = Value.unbox_array a in
+    let n = Value.unbox_int i in
+    if n < Array.length a
+    then (Array.set a n x; Value.box_unit ())
+    else failwith "Out of bounds"),
+   datatype "(Array(a), Int, a) ~> ()",
+   IMPURE);
+
   (* High resolution clock (JS only) *)
   "perfNow",
   (p1 (fun _ -> assert false),

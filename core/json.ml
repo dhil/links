@@ -78,6 +78,7 @@ let rec jsonize_value' : Value.t -> json_string =
   | `PrimitiveFunction _
   | `Resumption _
   | `Continuation _
+  | `Array _
   | `Ref _
   | `Socket _
       as r ->

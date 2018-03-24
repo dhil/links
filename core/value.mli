@@ -214,6 +214,7 @@ type t = [
 | `Socket of in_channel * out_channel
 | `SpawnLocation of spawn_location
 | `Ref of t ref
+| `Array of t array
 ]
 and continuation = t Continuation.t
 and resumption = t Continuation.resumption
@@ -259,6 +260,8 @@ val box_channel : chan -> t
 val unbox_channel : t -> chan
 val box_access_point : access_point -> t
 val unbox_access_point : t -> access_point
+val box_array : t array -> t
+val unbox_array : t -> t array
 
 val intmap_of_record : t -> t Utility.intmap option
 

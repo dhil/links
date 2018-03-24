@@ -800,6 +800,7 @@ type t = [
 | `Socket of in_channel * out_channel
 | `SpawnLocation of spawn_location
 | `Ref of t ref
+| `Array of t array
 ]
 and continuation = t Continuation.t
 and resumption = t Continuation.resumption
@@ -869,6 +870,7 @@ and compress_val (v : t) : compressed_t =
       | `SessionChannel _ -> assert false (* mmmmm *)
       | `AccessPointID _ -> assert false (* mmmmm *)
       | `SpawnLocation _sl -> assert false (* wheeee! *)
+      | `Array _
       | `Ref _ -> assert false
 
 let uncompress_primitive_value : compressed_primitive_value -> [> primitive_value] =
@@ -970,6 +972,7 @@ let rec p_value (ppf : formatter) : t -> 'a = function
      fprintf ppf "Server access point %s" (AccessPointID.to_string apid)
   | `Pid (`ServerPid i) -> fprintf ppf "Pid Server (%s)" (ProcessID.to_string i)
   | `Pid (`ClientPid (cid, i)) -> fprintf ppf "Pid Client num %s, process %s" (ClientID.to_string cid) (ProcessID.to_string i)
+  | `Array a -> fprintf ppf "[|%a|]" p_array_elements a
   | `Ref _ -> fprintf ppf "Ref"
 and p_record_fields ppf = function
   | [] -> fprintf ppf ""
@@ -988,7 +991,13 @@ and p_list_elements ppf = function
   | [] -> assert false (* We only call this with lists of at least one element *)
   | [v] -> fprintf ppf "%a]@]" p_value v
   | v::vs -> fprintf ppf "%a,@ " p_value v;
-             p_list_elements ppf vs
+    p_list_elements ppf vs
+and p_array_elements ppf a =
+  for i = 0 to Array.length a - 1 do
+    if i+1 < Array.length a
+    then fprintf ppf "%a, " p_value (Array.get a i)
+    else fprintf ppf "%a" p_value (Array.get a i)
+  done
 and p_tuple ppf (fields : (string * t) list) =
   let fields = List.map (function
                           | x, y when numberp x  -> (int_of_string x, y)
@@ -1142,6 +1151,8 @@ and box_unit : unit -> t
   = fun () -> `Record []
 and unbox_unit : t -> unit = function
   | `Record [] -> () | _ -> failwith "Type error unboxing unit"
+and unbox_array : t -> t array = function
+  | `Array a -> a | _ -> failwith "Type error unboxing array"
 
 let box_op : t list -> t -> t =
   fun ps k -> let box = List.fold_left
@@ -1186,6 +1197,9 @@ let intmap_of_record = function
       Some(IntMap.from_alist(
              List.map (fun (k,v) -> int_of_string k, v ) members))
   | _ -> None
+
+let box_array : t array -> t =
+  fun a -> `Array a
 
 type 'a serialiser = {
   save : 'a -> string;
