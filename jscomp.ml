@@ -2042,6 +2042,49 @@ module StackInspection = struct
              (o#with_liveset after_cases)#value scrutinee
           | e -> super#tail_computation e
 
+          method! special = function
+            | `Handle { Ir.ih_comp = m; Ir.ih_return = return; Ir.ih_cases = cases; Ir.ih_depth = depth } ->
+             let lss, o =
+               StringMap.fold
+                 (fun _ (xb, rb, comp) (lss, o) ->
+                   let o = o#binder xb in
+                   let o = o#binder rb in
+                   let o = o#computation comp in
+                   let o = o#kill xb in
+                   let o = o#kill rb in
+                   let after = o#get_liveset in
+                   (after :: lss, o))
+                 cases ([], o)
+             in
+             let o, after_return =
+               let (xb, comp) = return in
+               let o = o#binder xb in
+               let o = o#computation comp in
+               let o = o#kill xb in
+               o, o#get_liveset
+             in
+             let after_cases = IntSet.union_all (after_return :: lss) in
+             let o, _after_comp =
+               let o = (o#with_liveset after_cases)#computation m in
+               o, o#get_liveset
+             in
+             begin match depth with
+             | `Shallow -> o
+             | `Deep _params -> o
+                (* let lss, o = *)
+                (*   List.fold_left *)
+                (*     (fun (lss, o) (v, b) -> *)
+                (*       let o = o#value v in *)
+                (*       let o = o#binder b in *)
+                (*       let o = o#kill b in *)
+                (*       let after = o#get_liveset in *)
+                (*       (after :: lss, o)) *)
+                (*     ([], o#with_liveset ) params *)
+                (* in *)
+                (* let after_params = IntSet.union_all *)
+             end
+            | e -> super#special e
+
           method! computation (bs, tc) =
             let o = (o#with_liveset IntSet.empty)#tail_computation tc in
             List.fold_right
