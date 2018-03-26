@@ -3006,9 +3006,21 @@ module StackInspection = struct
   and generate_special : venv -> Ir.special -> Js.program
     = fun env sp ->
       let open Js in
-      let _gv v = generate_value env v in
+      let gv v = generate_value env v in
       match sp with
       | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
+      | `DoOperation (name, args, _) ->
+         let box = function
+           | [v] -> gv v
+           | vs -> make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
+         in
+         let op =
+           make_dictionary [ ("_label", strlit name)
+                           ; ("_value", make_dictionary [("p", box args)]) ]
+         in
+         [], SExpr (EThrow (ENew (EApply (EVar "PerformOperationError", [op]))))
+      | `Handle { Ir.ih_comp = m; _ } ->
+         snd (generate_computation env m)
       | _ -> failwith "Unsupported special."
 
   and generate_value : venv -> Ir.value -> Js.expression
@@ -3249,7 +3261,8 @@ module StackInspection = struct
       (* let lm = Ir.ProcedureFragmentation.liveness tenv u.program in *)
       (* Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm); *)
       let prog =
-        let prog, answer_frames = ProcedureFragmentation.opt_fragmentise tenv u.program in
+        let prog = Ir.EtaTailDos.program tenv u.program in
+        let prog, answer_frames = ProcedureFragmentation.opt_fragmentise tenv prog in
         answer_frame_set := answer_frames;
         tyenv := tyenv'; prog
       in
