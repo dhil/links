@@ -528,6 +528,7 @@ let compile_js () =
          let program = Ir.TidyBindings.program tenv program in
          program
        in
+       (* Printf.eprintf "IR: %s\n%!" (Ir.Show_program.show (globals @ locals, main)); *)
        let program =
          if Settings.get_value BS.optimise
          then (optimise_program tenv' (prelude @ globals @ locals, main))
