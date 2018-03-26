@@ -454,11 +454,11 @@ module CodeGen : CODEGEN = struct
 
     let apply_binop op (x,y) =
       let open PP in
-      hgrp (x $/ (text op) $/ y)
+      hgrp ((text "(") $ x $/ (text op) $/ y $ (text ")"))
 
     let apply_unary op x =
       let open PP in
-      hgrp ((text op) $ x)
+      hgrp ((text "(") $ (text op) $ x $ (text ")"))
 
     let instanceof (o, c) =
       let open PP in
