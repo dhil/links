@@ -226,7 +226,7 @@ module CodeGen : CODEGEN = struct
       let open PP in
       semi
         (hgrp
-           ((text kind) $/ (text binder) $/ (text "=") $/ expr))
+           ((text kind) $/ (text binder) $/ (text "=") $/ expr)) $ break
 
     let fun_binding kind binder params prog =
       layout_function kind (Some binder) params prog
@@ -532,16 +532,18 @@ and expression : Js.expression -> CodeGen.js
      | "%int_add"  | "%float_add"  -> apply_binop "+" (pop2 args')
      | "%int_sub"  | "%float_sub"  -> apply_binop "-" (pop2 args')
      | "%int_mult" | "%float_mult" -> apply_binop "*" (pop2 args')
+     | "%float_div"  -> apply_binop "/" (pop2 args')
      | "%assign" -> apply_binop "=" (pop2 args')
      | "%not" -> apply_unary "!" (pop1 args')
      | "%negate" -> apply_unary "-" (pop1 args')
      | "%noop" -> pop1 args'
      | "%instanceof" -> instanceof (pop2 args')
 
-     | p when String.length p > 0 ->
+     | p when String.length p > 0 && String.get p 0 = '%' ->
         let ident = Printf.sprintf "_%s" (String.sub p 1 (String.length p - 1)) in
         apply (name ident) args'
-     | _ -> assert false
+     | _ ->
+        apply (name p) args'
      end
   | EApply (f, args) ->
      let open CodeGen in

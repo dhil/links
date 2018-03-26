@@ -103,7 +103,7 @@ module Prim_Arithmetic : PRIM_DESC = struct
     | "+" -> "%int_add",2  | "+." -> "%float_add",2
     | "-"  -> "%int_sub",2 | "-." -> "%float_sub",2
     | "*" -> "%int_mult",2 | "*." -> "%float_mult",2
-    | "/" -> "%int_div",2  | "/." -> "%float_div",2
+    | "/" -> "%Number.integerDivision",2  | "/." -> "%float_div",2
     | "^" -> "%int_pow",2  | "^." -> "%float_pow",2
     | "mod" -> "%mod",2
     | _ -> raise Not_found
@@ -137,6 +137,11 @@ module Prim_Functions : PRIM_DESC = struct
     | "perfElapsed" -> "%Performance.elapsed", 2
     | "intToString" | "floatToString" -> "%String.ofNumber",1
     | "floatToInt" -> "%Number.toInt",1 | "intToFloat" -> "%Number.toFloat",1
+    | "makeArray" -> "%Array.make",2
+    | "arrayGet" -> "%Array.get", 2
+    | "arraySet" -> "%Array.set", 3
+    | "arrayLength" -> "%Array.length", 1
+    | "sqrt" -> "Math.sqrt", 1
     | _ -> raise Not_found
 end
 
@@ -146,6 +151,9 @@ module CPSFunctions = struct
     match String.split_on_char '.' name with
     | ["%List"; "head"] -> "%ListCPS.head", arity
     | ["%List"; "tail"] -> "%ListCPS.tail", arity
+    | ["%Array"; "get"] -> "%ArrayCPS.get", arity
+    | ["%Array"; "set"] -> "%ArrayCPS.set", arity
+    | ["%Array"; "make"] -> "%ArrayCPS.make", arity
     | _ -> name, arity
 
   let is : string -> bool
@@ -809,6 +817,23 @@ module CPS = struct
   let compile : comp_unit -> prog_unit
     = fun u ->
       let open Js in
+      let trampoline stmt =
+        let cont =
+          K.reflect
+            (EApply
+               (EVar "_List.cons",
+                [EFun {
+                  fkind = `Regular;
+                  fname = `Anonymous;
+                  formal_params = ["_x"; "_y"];
+                  body = ([], stmt) };
+                EApply
+                  (EVar "_List.cons", [EVar "_K.absurd"; EVar "_List.nil"])]))
+        in
+        EApply
+          (EVar "_Trampoline.run",
+           [K.reify cont; EObj []])
+      in
       let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
       (* Printf.printf "nenv:\n%s\n%!" (string_of_nenv u.envs.nenv); *)
       (* Printf.printf "venv:\n%s\n%!" (string_of_venv venv); *)
@@ -823,9 +848,9 @@ module CPS = struct
                expr = ELit (LString "CPS");
              }
            in
-           mode :: decls, stmt
+           mode :: decls, SExpr (trampoline stmt)
       in
-      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "performance.js"; "cps.js"] in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "array.js"; "performance.js"; "cps.js"] in
       { u with program = prog; includes = u.includes @ dependencies }
 end
 
@@ -1987,21 +2012,21 @@ module StackInspection = struct
              in
              (o#with_liveset before)#register b before after
           | `Fun (fb, (_, params, body), z, _) ->
-             let before = IntSet.empty in
-             let o = o#computation body in
+             let o = (o#with_liveset IntSet.empty)#computation body in
              let after = IntSet.remove (Var.var_of_binder fb) o#get_liveset in
-             let o = o#register fb before after in
              let o = o#list (fun o -> o#kill) params in
-             o#option (fun o -> o#kill) z
+             let o = o#option (fun o -> o#kill) z in
+             let before = o#get_liveset in
+             o#register fb before after
           | `Rec fundefs ->
              o#list
                (fun o (fb, (_, params, body), z, _loc) ->
-                 let before = IntSet.empty in (* assumes closure conversion, i.e. functions are closed *)
-                 let o = o#computation body in
+                 let o = (o#with_liveset IntSet.empty)#computation body in
                  let after = IntSet.remove (Var.var_of_binder fb) o#get_liveset in
-                 let o = o#register fb before after in
                  let o = o#list (fun o -> o#kill) params in
-                 o#option (fun o -> o#kill) z)
+                 let o = o#option (fun o -> o#kill) z in
+                 let before = o#get_liveset in
+                 o#register fb before after)
                fundefs
           | e -> super#binding e
 
@@ -2406,14 +2431,19 @@ module StackInspection = struct
                    let (cont, o) = o#pop_cont in
                    let st = o#backup in
                    let (tc, _, o) = (o#with_liveset liveset.after)#tail_computation cont in
+                   let liveset' =
+                     match tc with
+                     | `Apply (`Variable f, _) -> Printf.eprintf "appl: %d\n%!" f; IntMap.find f liveness_map
+                     | _ -> liveset
+                   in
                    let o = o#restore st in
                    let frame =
-                     let xsb = o#make_parameters (Some var) (IntSet.to_list liveset.after) in
+                     let xsb = o#make_parameters (Some var) (IntSet.to_list liveset'.after) in
                      (fb', ([], xsb, ([], tc)), None, `Unknown)
                    in
                    let cont =
                      `Apply (`Variable (Var.var_of_binder fb'),
-                             o#make_arguments (Some var) (IntSet.to_list liveset.after))
+                             o#make_arguments (Some var) (IntSet.to_list liveset'.after))
                    in
                    frame, o#push_cont cont
                  in
@@ -2480,7 +2510,95 @@ module StackInspection = struct
                  in
                  let o = o#push_cont cont in
                  (answer_frame :: answer_frames, other, o)
+              (* | `Fun (fb, (tyvars, xsb, body), z, loc) :: bs -> *)
+              (*    let liveset = IntMap.find (Var.var_of_binder fb) liveness_map in *)
+              (*    let st = o#backup in *)
+              (*    let o = o#reset in *)
+              (*    let (f, o) = *)
+              (*      let (xsb, o) = *)
+              (*        List.fold_right *)
+              (*          (fun b (bs, o) -> *)
+              (*            let (b, o) = o#binder b in *)
+              (*            (b :: bs, o)) *)
+              (*          xsb ([], o) *)
+              (*      in *)
+              (*      let (z, o) = *)
+              (*        match z with *)
+              (*        | None -> None, o *)
+              (*        | Some z -> *)
+              (*           let (z, o) = o#binder z in *)
+              (*           (Some z, o) *)
+              (*      in *)
+              (*      let (body, _, o) = *)
+              (*        frame_counter := 0; *)
+              (*        (o#with_basename (Var.name_of_binder fb))#computation body *)
+              (*      in *)
+              (*      let (fb, o) = o#binder fb in *)
+              (*      let xsb' = o#make_parameters None (IntSet.to_list liveset.before) in *)
+              (*      `Fun (fb, (tyvars, xsb' @ xsb, body), z, loc), o *)
+              (*    in *)
+              (*    let (answer_frames, other, o) = generate_frames (o#restore st) None bs in *)
+              (*    (answer_frames, f :: other, o) *)
+              (* | `Rec defs :: bs -> *)
+              (*    let st = o#backup in *)
+              (*    let o  = List.fold_left (fun o -> o#fun_binder) o defs in *)
+              (*    let (defs, o) = *)
+              (*      List.fold_left *)
+              (*        (fun (defs, o) (fb, (tyvars, xsb, body), z, loc) -> *)
+              (*          (\* Printf.eprintf "Visiting: %s\n%!" (Var.name_of_binder fb); *\) *)
+              (*          (\* Printf.eprintf "%s\n%!" (Ir.Show_computation.show body); *\) *)
+              (*          frame_counter := 0; *)
+              (*          let o = o#reset in *)
+              (*          let (xsb, o) = *)
+              (*            List.fold_right *)
+              (*              (fun b (bs, o) -> *)
+              (*                let (b, o) = o#binder b in *)
+              (*                (b :: bs, o)) *)
+              (*              xsb ([], o) *)
+              (*          in *)
+              (*          let (z, o) = *)
+              (*            match z with *)
+              (*            | None -> z, o *)
+              (*            | Some z -> *)
+              (*               let (z, o) = o#binder z in *)
+              (*               (Some z, o) *)
+              (*          in *)
+              (*          let (body, _, o) = *)
+              (*            (o#with_basename (Var.name_of_binder fb))#computation body *)
+              (*          in *)
+              (*          let def = (fb, (tyvars, xsb, body), z, loc) in *)
+              (*          (def :: defs, o)) *)
+              (*        ([], o) defs *)
+              (*    in *)
+              (*    let (answer_frames, other, o) = generate_frames (o#restore st) None bs in *)
+              (*    (answer_frames, (`Rec (List.rev defs)) :: other, o) *)
+              | `Fun _ :: _ | `Rec _ :: _ -> assert false
+              | b :: bs ->
+                 let (answer_frames, other, o) = generate_frames o None bs in
+                 (answer_frames, b :: other, o)
+            in
+            let splice other = function
+              | [] -> other
+              | defs -> other @ [`Rec defs]
+            in
+            let st = o#backup in
+            let o = o#push_cont tc in
+            let (answer_frames, other, o) = generate_frames o None bs in
+            let (cont, o) = o#pop_cont in
+            let (cont, dt, o) = o#tail_computation cont in
+            (splice other answer_frames, cont), dt, o#restore st
+
+          method! program (bs, tc) =
+            let rec gbs o = function
+              | `Let (b, (tyvars, tc)) :: bs ->
+                 let envs = o#backup in
+                 let (tc, _, o) = o#tail_computation tc in
+                 let (b, o) = o#binder b in
+                 let (bs, o) = gbs o bs in
+                 let o = o#restore envs in
+                 `Let (b, (tyvars, tc)) :: bs, o
               | `Fun (fb, (tyvars, xsb, body), z, loc) :: bs ->
+                 (* let liveset = IntMap.find (Var.var_of_binder fb) liveness_map in *)
                  let st = o#backup in
                  let o = o#reset in
                  let (f, o) =
@@ -2491,7 +2609,13 @@ module StackInspection = struct
                          (b :: bs, o))
                        xsb ([], o)
                    in
-                   let (z, o) = o#optionu (fun o -> o#binder) z in
+                   let (z, o) =
+                     match z with
+                     | None -> z, o
+                     | Some z ->
+                        let (z, o) = o#binder z in
+                        (Some z, o)
+                   in
                    let (body, _, o) =
                      frame_counter := 0;
                      (o#with_basename (Var.name_of_binder fb))#computation body
@@ -2499,8 +2623,8 @@ module StackInspection = struct
                    let (fb, o) = o#binder fb in
                    `Fun (fb, (tyvars, xsb, body), z, loc), o
                  in
-                 let (answer_frames, other, o) = generate_frames (o#restore st) None bs in
-                 (answer_frames, f :: other, o)
+                 let (bs, o) = gbs (o#restore st) bs in
+                 (f :: bs, o)
               | `Rec defs :: bs ->
                  let st = o#backup in
                  let o  = List.fold_left (fun o -> o#fun_binder) o defs in
@@ -2532,25 +2656,18 @@ module StackInspection = struct
                        (def :: defs, o))
                      ([], o) defs
                  in
-                 let (answer_frames, other, o) = generate_frames (o#restore st) None bs in
-                 (answer_frames, (`Rec (List.rev defs)) :: other, o)
-              | b :: bs ->
-                 let (answer_frames, other, o) = generate_frames o None bs in
-                 (answer_frames, b :: other, o)
+                 let (bs, o) = gbs (o#restore st) bs in
+                 ((`Rec (List.rev defs)) :: bs, o)
+              | `Alien (b,name,lang) :: bs ->
+                 let (b, o) = o#binder b in
+                 let (bs, o) = gbs o bs in
+                 (`Alien (b, name, lang) :: bs, o)
+              | `Module _ :: _ -> assert false
+              | [] -> [], o
             in
-            let splice other = function
-              | [] -> other
-              | defs -> other @ [`Rec defs]
-            in
-            let st = o#backup in
-            let o = o#push_cont tc in
-            let (answer_frames, other, o) = generate_frames o None bs in
-            let (cont, o) = o#pop_cont in
-            let (cont, dt, o) = o#tail_computation cont in
-            (splice other answer_frames, cont), dt, o#restore st
-
-          method! program comp =
-            (o#with_basename "_toplevel")#computation comp
+            let (bs, o) = gbs o bs in
+            let (tc, dt, o) = o#tail_computation tc in
+            ((bs, tc), dt, o)
         end
       in
       let (prog, _, o) = opt_fragmentise#program prog in
@@ -2625,14 +2742,54 @@ module StackInspection = struct
     = fun env (bs,tc) ->
       let open Js in
       let toplevel body =
-        EFun {
-          fname = `Anonymous;
-          fkind = `Regular;
-          body = body;
-          formal_params = [] }
+        EApply
+          (EVar (Ident.of_string "Continuation.establishInitialContinuation"),
+           [EFun {
+             fname = `Anonymous;
+             fkind = `Regular;
+             body = body;
+             formal_params = [] }])
       in
-      let (env', (bs, stmt)) = generate_computation env (bs, tc) in
-      (env', (bs, SExpr (EApply (EVar (Ident.of_string "Continuation.establishInitialContinuation"), [toplevel ([], stmt)]))))
+      let rec gbs env = function
+        | `Module _ :: bs -> gbs env bs
+        | `Alien (bnd, raw_name, _lang) :: bs ->
+           let (a, _a_name) = safe_name_binder bnd in
+           let env' = VEnv.bind env (a, raw_name) in
+           gbs env' bs
+        | `Let (b, (_, tc)) :: bs ->
+           let b' = safe_name_binder b in
+           let expr =
+             match tc with
+             | `Return v ->
+                generate_value env v
+             | _ ->
+                toplevel (generate_tail_computation env tc)
+           in
+           let decl =
+             DLet {
+               bkind = `Const;
+               binder = snd b';
+               expr
+             }
+           in
+           let (env, decls) = gbs (VEnv.bind env b') bs in
+           (env, decl :: decls)
+        | `Fun (fb, xs, z, loc) :: bs ->
+           let fbinding = generate_function env [] (fb, xs, z, loc) in
+           let fb = safe_name_binder fb in
+           let env', bindings = gbs (VEnv.bind env fb) bs in
+           env', (fbinding :: bindings)
+        | `Rec fundefs :: bs ->
+           let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) fundefs in
+           let defs = List.map (generate_function env fs) fundefs in
+           let env' = List.fold_left VEnv.bind env fs in
+           let env'', bindings = gbs env' bs in
+           env'', (defs @ bindings)
+        | [] -> env, []
+      in
+      let (env, decls) = gbs env bs in
+      let body = generate_tail_computation env tc in
+      (env, (decls, SExpr (toplevel body)))
 
 
   and generate_computation : venv -> Ir.computation -> venv * Js.program
@@ -3070,7 +3227,7 @@ module StackInspection = struct
            | _ ->
               let cont_var = EVar f_name in
               let cont_args = List.map (fun v -> EVar v) xs_names in
-              Printf.eprintf "Generating body: %s\n%!" (Ir.Show_computation.show body);
+              (* Printf.eprintf "Generating body: %s\n%!" (Ir.Show_computation.show body); *)
               let _, (decls, stmt) = generate_computation body_env body in
               (decls, SSeq (trampoline cont_var cont_args, stmt))
            end
@@ -3098,7 +3255,7 @@ module StackInspection = struct
       in
       Printf.eprintf "Fragmented: %s\n%!" (Ir.Show_program.show prog);
       let _, prog = generate_program venv prog in
-      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "performance.js"; "stack.js"] in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "array.js"; "performance.js"; "stack.js"] in
       { u with program = prog; includes = u.includes @ dependencies }
 end
 
