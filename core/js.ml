@@ -228,7 +228,7 @@ let rec replace_return r (decls, stmt) =
        in
        SCase (scrutinee, name_map, default)
     | SSeq (s1, s2) ->
-       let (_, s1) = rr ([], s1) in
+       (* let (_, s1) = rr ([], s1) in *)
        let (_, s2) = rr ([], s2) in
        SSeq (s1, s2)
     | s -> s
@@ -240,31 +240,31 @@ let rec replace_return r (decls, stmt) =
   (* in *)
   decls, stmt
 
-let rec eliminate_thunks (decls, stmt) = (decls, stmt)
-  (* let rec bindings = function *)
-  (*   | [] -> *)
-  (*      [], statement stmt *)
-  (*   | DLet { *)
-  (*     binder; *)
-  (*     expr = EApply(EFun { fname = `Anonymous; formal_params = []; body; _ }, []); *)
-  (*     _ } :: bs -> *)
-  (*      let decl = *)
-  (*        DLet { *)
-  (*          bkind = `Let; *)
-  (*          binder; *)
-  (*          expr = EVar "undefined"; *)
-  (*        } *)
-  (*      in *)
-  (*      let (decls, body) = replace_return binder body in *)
-  (*      let (decls', body') = bindings bs in *)
-  (*      decl :: decls @ decls', SSeq (body, body') *)
-  (*   | (DFun ({ body; _ } as d)) :: bs-> *)
-  (*      let decls, stmt = bindings bs in *)
-  (*      (DFun { d with body = eliminate_thunks body }) :: decls, stmt *)
-  (*   | b :: bs -> *)
-  (*      let decls, stmt = bindings bs in *)
-  (*      b :: decls, stmt *)
-  (* and statement = function *)
-  (*   | s -> s *)
-  (* in *)
-  (* bindings decls *)
+let rec eliminate_thunks (decls, stmt) =
+  let rec bindings = function
+    | [] ->
+       [], statement stmt
+    | DLet {
+      binder;
+      expr = EApply(EFun { fname = `Anonymous; formal_params = []; body; _ }, []);
+      _ } :: bs ->
+       let decl =
+         DLet {
+           bkind = `Let;
+           binder;
+           expr = EVar "undefined";
+         }
+       in
+       let (decls, body) = replace_return binder body in
+       let (decls', body') = bindings bs in
+       decl :: decls @ decls', SSeq (body, body')
+    | (DFun ({ body; _ } as d)) :: bs->
+       let decls, stmt = bindings bs in
+       (DFun { d with body = eliminate_thunks body }) :: decls, stmt
+    | b :: bs ->
+       let decls, stmt = bindings bs in
+       b :: decls, stmt
+  and statement = function
+    | s -> s
+  in
+  bindings decls
