@@ -192,7 +192,7 @@ let make_dictionary : (string * Js.expression) list -> Js.expression
 
 let make_array : Js.expression list -> Js.expression
   = fun elements ->
-    make_dictionary @@ List.mapi (fun i e -> (string_of_int i, e)) elements
+    Js.EArray (Array.of_list elements)
 
 let strlit : Ir.name -> Js.expression
   = fun s -> Js.(ELit (LString s))
