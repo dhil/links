@@ -24,176 +24,6 @@ fun updateBody(body, vx, vy, vz) {
   (body with vx = vx, vy = vy, vz = vz)
 }
 
-# # Some predefined bodies
-# var sun = makeBody(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, solarmass);
-# var jupiter =
-#   makeBody(4.84143144246472090e0, -.1.16032004402742839e0, -.1.03622044471123109e-1,
-#            1.66007664274403694e-3, 7.69901118419740425e-3, -.6.90460016972063023e-5,
-#            9.54791938424326609e-4);
-# var saturn =
-#   makeBody(8.34336671824457987e0, 4.12479856412430479e0, -.4.03523417114321381e-1,
-#            -.2.76742510726862411e-3, 4.99852801234917238e-3, 2.30417297573763929e-5,
-#            2.85885980666130812e-4);
-
-# var uranus =
-#   makeBody(1.28943695621391310e1, -.1.51111514016986312e1, -.2.23307578892655734e-1,
-#            2.96460137564761618e-3, 2.37847173959480950e-3, -.2.96589568540237556e-5,
-#            4.36624404335156298e-5);
-
-# var neptune =
-#   makeBody(1.53796971148509165e1, -.2.59193146099879641e1, 1.79258772950371181e-1,
-#            2.68067772490389322e-3, 1.62824170038242295e-3, -.9.51592254519715870e-5,
-#            5.15138902046611451e-5);
-
-# sig iteri : ((Int, a) ~e~> (), Array(a)) ~e~> ()
-# fun iteri(f, a) {
-#   fun iteri_aux(f, i, a) {
-#      if (i < arrayLength(a)) {
-#        f(i, arrayGet(a, i)); iteri_aux(f, i+1, a)
-#      } else { () }
-#   }
-#   iteri_aux(f, 0, a)
-# }
-
-# sig iterate : ((Int) ~e~> (), Int, Int) ~e~> ()
-# fun iterate(f, i, n) {
-#   if (i < n) { f(i); iterate(f, i+1, n) }
-#   else ()
-# }
-
-# fun foldArray(f,z,a) {
-#   var acc = ref(z);
-#   iterate(fun(i) {
-#      acc := f(deref(acc), arrayGet(a, i))
-#   }, 0, arrayLength(a));
-#   deref(acc)
-# }
-
-# var bodies = {
-#   var a = makeArray(5, sun);
-#   arraySet(a, 1, jupiter);
-#   arraySet(a, 2, saturn);
-#   arraySet(a, 3, uranus);
-#   arraySet(a, 4, neptune);
-#   a
-# };
-
-# var pairs = {
-#   var n = arrayLength(bodies) * (arrayLength(bodies) - 1) / 2;
-#   var pi = ref(0);
-#   var pairs = makeArray(n, (bi=sun,bj=sun));
-#   iterate(fun(i) {
-#      iterate(fun(j) {
-#         var bi = arrayGet(bodies, i);
-#         var bj = arrayGet(bodies, j);
-#         arraySet(pairs, deref(pi), (bi=bi, bj=bj));
-#         pi := deref(pi) + 1
-#      }, i+1, arrayLength(bodies))
-#   }, 0, arrayLength(bodies) - 1);
-
-#   var (px, py, pz) =
-#     foldArray(fun((px, py, pz), b) {
-#        (px +. b.vx *. b.mass, py +. b.vy *. b.mass, pz +. b.vz *. b.mass)
-#     }, (0.0, 0.0, 0.0), bodies);
-
-#   var sun = arrayGet(bodies, 0);
-#   arraySet(bodies, 0, updateBody(sun, -.px /. solarmass, -.py /. solarmass, -.pz /. solarmass));
-#   pairs
-# };
-
-# sig advance : (Array(Body), Array(BodyPair), Float) ~> ()
-# fun advance(bodies, pairs, dt) {
-#   fun advancePair(i) {
-#     var bi = arrayGet(pairs, i).bi;
-#     var bj = arrayGet(pairs, i).bj;
-
-#     var dx = bi.x -. bj.x;
-#     var dy = bi.y -. bj.y;
-#     var dz = bi.z -. bj.z;
-#     var d2 = dx *. dx +. dy *. dy +. dz *. dz;
-#     var mag = dt /. (d2 *. sqrt(d2));
-
-#     var bi = updateBody(bi, bi.vx -. dx *. bj.mass *. mag,
-#                             bi.vy -. dy *. bj.mass *. mag,
-#                             bi.vz -. dz *. bj.mass *. mag);
-
-#     var bj = updateBody(bj, bj.vx +. dx *. bi.mass *. mag,
-#                             bj.vy +. dy *. bi.mass *. mag,
-#                             bj.vz +. dz *. bi.mass *. mag);
-
-#     arraySet(pairs, i, (bi=bi,bj=bj))
-#   }
-
-#   fun advanceBody(i) {
-#     var b = arrayGet(bodies, i);
-
-#     var x = b.x +. dt *. b.vx;
-#     var y = b.y +. dt *. b.vy;
-#     var z = b.z +. dt *. b.vz;
-#     arraySet(bodies, i, (b with x = x, y = y, z = z))
-#   }
-
-#   iterate(advancePair, 0, arrayLength(pairs));
-#   iterate(advanceBody, 0, arrayLength(bodies))
-# }
-
-# sig energy : (Array(Body)) ~> Float
-# fun energy(bodies) {
-#   var bodyLen = arrayLength(bodies);
-#   var e = ref(0.0);
-#   iterate(fun(i) {
-#     var bi = arrayGet(bodies, i);
-
-#     e := deref(e) +. 0.5 *. bi.mass *. (bi.vx *. bi.vx +. bi.vy *. bi.vy +. bi.vz *. bi.vz);
-
-#     iterate(fun(j) {
-#        var bj = arrayGet(bodies, j);
-
-#        var dx = bi.x -. bj.x;
-#        var dy = bi.y -. bj.y;
-#        var dz = bi.z -. bj.z;
-
-#        e := deref(e) -. (bi.mass *. bj.mass) /. sqrt(dx *. dx +. dy *. dy +. dz *. dz)
-#     }, i+1, bodyLen)
-#   }, 0, bodyLen);
-
-#   deref(e)
-# }
-
-# fun main(bodies, pairs, n) {
-#   print(floatToString(energy(bodies)));
-#   iterate(fun(_) {
-#      advance(bodies, pairs, 0.01)
-#   }, 0, n);
-#   print(floatToString(energy(bodies)))
-# }
-
-# main(bodies, pairs, 10000)
-
-sig iteri : ((Int, a) ~e~> (), Array(a)) ~e~> ()
-fun iteri(f, a) {
-  fun iteri_aux(f, i, a) {
-     if (i < arrayLength(a)) {
-       f(i, arrayGet(a, i)); iteri_aux(f, i+1, a)
-     } else { () }
-  }
-  iteri_aux(f, 0, a)
-}
-
-sig iterate : ((Int) ~e~> (), Int, Int) ~e~> ()
-fun iterate(f, i, n) {
-  if (i < n) { f(i); iterate(f, i+1, n) }
-  else ()
-}
-
-fun foldArray(f,z,a) {
-  var acc = ref(z);
-  iterate(fun(i) {
-     acc := f(deref(acc), arrayGet(a, i))
-  }, 0, arrayLength(a));
-  deref(acc)
-}
-
 fun advance(bodies, dt) {
   var n = arrayLength(bodies);
 
@@ -205,27 +35,27 @@ fun advance(bodies, dt) {
       var dy = bi.y -. bj.y;
       var dz = bi.z -. bj.z;
 
-      var dist2 = dx *. dx +. dy *. dy +. dz *. dz;
+      var dist2 = (dx *. dx) +. (dy *. dy) +. (dz *. dz);
       var mag = dt /. (dist2 *. sqrt(dist2));
 
-      var bi = updateBody(bi, bi.vx -. dx *. bj.mass *. mag,
-                              bi.vy -. dy *. bj.mass *. mag,
-                              bi.vz -. dz *. bj.mass *. mag);
+      var bi = updateBody(bi, bi.vx -. (dx *. bj.mass *. mag),
+                              bi.vy -. (dy *. bj.mass *. mag),
+                              bi.vz -. (dz *. bj.mass *. mag));
       arraySet(bodies, i, bi);
 
-      var bj = updateBody(bj, bj.vx +. dx *. bi.mass *. mag,
-                              bj.vy +. dy *. bi.mass *. mag,
-                              bj.vz +. dz *. bi.mass *. mag);
+      var bj = updateBody(bj, bj.vx +. (dx *. bi.mass *. mag),
+                              bj.vy +. (dy *. bi.mass *. mag),
+                              bj.vz +. (dz *. bi.mass *. mag));
       arraySet(bodies, j, bj)
     }, i+1, n)
   }, 0, n);
 
   iterate(fun(i) {
-    var b = arrayGet(bodies, i);
-    var b = updateBody(b, b.x +. dt *. b.vx,
-                          b.y +. dt *. b.vy,
-                          b.z +. dt *. b.vz);
-    arraySet(bodies, i, b)
+    var bi = arrayGet(bodies, i);
+    var bi = (bi with x = bi.x +. (dt *. bi.vx),
+                      y = bi.y +. (dt *. bi.vy),
+                      z = bi.z +. (dt *. bi.vz));
+    arraySet(bodies, i, bi)
   }, 0, n)
 }
 
@@ -234,14 +64,14 @@ fun energy(bodies) {
   var e = ref(0.0);
   iterate(fun(i) {
     var bi = arrayGet(bodies, i);
-    e := deref(e) +. 0.5 *. bi.mass *. (bi.vx *. bi.vx +. bi.vy *. bi.vy +. bi.vz *. bi.vz);
+    e := deref(e) +. ((0.5 *. bi.mass) *. ((bi.vx *. bi.vx) +. (bi.vy *. bi.vy) +. (bi.vz *. bi.vz)));
     iterate(fun(j) {
       var bj = arrayGet(bodies, j);
       var dx = bi.x -. bj.x;
       var dy = bi.y -. bj.y;
       var dz = bi.z -. bj.z;
-      var distance = sqrt(dx *. dx +. dy *. dy +. dz *. dz);
-      e := deref(e) -. (bi.mass *. bj.mass) /. distance;
+      var distance = sqrt((dx *. dx) +. (dy *. dy) +. (dz *. dz));
+      e := deref(e) -. ((bi.mass *. bj.mass) /. distance);
     }, i+1, n)
   }, 0, n);
   deref(e)
@@ -260,9 +90,9 @@ fun offsetMomentum(bodies) {
     pz := deref(pz) +. bi.vz *. bi.mass;
   }, 0, arrayLength(bodies));
 
-  var sun = (arrayGet(bodies, 0) with vx = -.deref(px) /. solarmass,
-                                      vy = -.deref(py) /. solarmass,
-                                      vz = -.deref(pz) /. solarmass);
+  var sun = (arrayGet(bodies, 0) with vx = (-.deref(px)) /. solarmass,
+                                      vy = (-.deref(py)) /. solarmass,
+                                      vz = (-.deref(pz)) /. solarmass);
   arraySet(bodies, 0, sun)
 }
 
@@ -317,8 +147,8 @@ fun main() {
   offsetMomentum(bodies);
   print(floatToString(energy(bodies)));
   iterate(fun(i) {
-    advance(bodies, 0.01)
-  }, 1, n);
+    advance(bodies, 0.01);
+  }, 0, n);
   print(floatToString(energy(bodies)))
 }
 
