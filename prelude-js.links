@@ -76,3 +76,28 @@ fun sortBy (f, l) {
 
 sig sortByBase : ((a) ~b~> (| _::Base), [a]) ~b~> [a]
 fun sortByBase(f, l) {sortBy(f, l)}
+
+sig iteri : ((Int, a) ~e~> (), Array(a)) ~e~> ()
+fun iteri(f, a) {
+  fun iteri_aux(f, i, a) {
+     if (i < arrayLength(a)) {
+       f(i, arrayGet(a, i)); iteri_aux(f, i+1, a)
+     } else { () }
+  }
+  iteri_aux(f, 0, a)
+}
+
+sig iterate : ((Int) ~e~> (), Int, Int) ~e~> ()
+fun iterate(f, i, n) {
+  if (i < n) { f(i); iterate(f, i+1, n) }
+  else ()
+}
+
+fun foldArray(f,z,a) {
+  var acc = ref(z);
+  iterate(fun(i) {
+     acc := f(deref(acc), arrayGet(a, i))
+  }, 0, arrayLength(a));
+  deref(acc)
+}
+
