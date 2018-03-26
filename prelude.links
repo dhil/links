@@ -1385,3 +1385,9 @@ fun serveThese(routes) {
   servePages()
 }
 
+
+sig iterate : ((Int) ~e~> (), Int, Int) ~e~> ()
+fun iterate(f, i, n) {
+  if (i < n) { f(i); iterate(f, i+1, n) }
+  else ()
+}
