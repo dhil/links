@@ -70,7 +70,6 @@ module type CODEGEN = sig
     val object' : (label * js) list -> js
     val array : js array -> js
     val yield : [`Regular | `Star] -> js -> js
-    val throw : js -> js
     val new' : js -> js
   end
 
@@ -85,6 +84,7 @@ module type CODEGEN = sig
     val continue : js
     val assign : ident -> js -> js
     val trycatch : program -> (ident * program) option -> js
+    val throw : js -> js
     val skip : js
   end
 
@@ -317,10 +317,6 @@ module CodeGen : CODEGEN = struct
       in
       hgrp ((text yield) $/ expr)
 
-    let throw expr =
-      let open PP in
-      hgrp ((text "throw") $/ expr)
-
     let new' expr =
       let open PP in
       hgrp ((text "new" $/ expr))
@@ -446,6 +442,10 @@ module CodeGen : CODEGEN = struct
                              (break $ (layout_program prog))))
                        $/ (text "}")))))
 
+    let throw expr =
+      let open PP in
+      hgrp ((text "throw") $/ expr $ (text ";"))
+
     let skip = PP.empty
   end
 
@@ -558,8 +558,6 @@ and expression : Js.expression -> CodeGen.js
      CodeGen.Expr.yield ykind (expression yexpr)
   | EArray arr ->
      CodeGen.Expr.array (Array.map expression arr)
-  | EThrow expr ->
-     CodeGen.Expr.throw (expression expr)
   | ENew expr ->
      CodeGen.Expr.new' (expression expr)
 
@@ -600,6 +598,8 @@ and statement : Js.statement -> CodeGen.js
           Some (ident, program' prog)
      in
      CodeGen.Stmt.trycatch (program' m) catch
+  | SThrow expr ->
+     CodeGen.Stmt.throw (expression expr)
   | SSkip -> CodeGen.Stmt.skip
 
 and primitive : string -> CodeGen.js

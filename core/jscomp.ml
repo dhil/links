@@ -2696,7 +2696,7 @@ module StackInspection = struct
   let extend_cont exn frame =
     let open Js in
     let extend = EApply (EAccess (exn, "extend"), [frame]) in
-    SSeq (SExpr extend, SExpr (EThrow exn))
+    SSeq (SExpr extend, SThrow exn)
 
   let trycatch make_frame (cont_var, cont_args) m =
     let open Js in
@@ -2708,7 +2708,7 @@ module StackInspection = struct
                    ([], SIf (EApply (EPrim "%instanceof",
                                      [EVar exn; EVar "SaveContinuationError"]),
                              ([], extend_cont (EVar exn) frame),
-                             ([], SExpr (EThrow (EVar exn)))))))
+                             ([], SThrow (EVar exn))))))
 
   let trampoline cont_var cont_args =
     let open Js in
@@ -3018,9 +3018,61 @@ module StackInspection = struct
            make_dictionary [ ("_label", strlit name)
                            ; ("_value", make_dictionary [("p", box args)]) ]
          in
-         [], SExpr (EThrow (ENew (EApply (EVar "PerformOperationError", [op]))))
-      | `Handle { Ir.ih_comp = m; _ } ->
-         snd (generate_computation env m)
+         [], SThrow (ENew (EApply (EVar "PerformOperationError", [op])))
+      | `Handle { Ir.ih_comp = m; Ir.ih_return = return; Ir.ih_cases = cases; Ir.ih_depth = depth } ->
+        if depth = `Shallow then failwith "Compilation of shallow handlers is not supported.";
+        let tryhandle m eff_cases return =
+          let exn = Ident.of_string "_exn" in
+          let op = EAccess (EVar exn, "op") in
+          let resume =
+            let resumption =
+              EAccess (EApply (EAccess (EVar exn, "toContinuation"), []), "reload")
+            in
+            EFun {
+              fkind = `Regular;
+              fname = `Anonymous;
+              formal_params = ["x"];
+              body = ([], SReturn (EApply (resumption, [EVar "x"])))
+            }
+          in
+          let cases = eff_cases op resume in
+          STry (m, Some (exn,
+                         ([], SIf (EApply (EPrim "%instanceof",
+                                           [EVar exn; EVar "PerformOperationError"]),
+                                   ([], SCase (EAccess (op, "_label"), cases, Some return)),
+                                   ([], SSkip)))))
+        in
+        let m = snd (generate_computation env m) in
+        let return =
+          let xb = fst return in
+          let xb' = safe_name_binder xb in
+          snd (generate_computation (VEnv.bind env xb') (snd return))
+        in
+        let cases op resume =
+          StringMap.fold
+            (fun label (xb, rb, body) acc ->
+              let xb', rb' = safe_name_binder xb, safe_name_binder rb in
+              let env' = VEnv.bind (VEnv.bind env xb') rb' in
+              let xdecl =
+                DLet {
+                  bkind = `Const;
+                  binder = snd (xb');
+                  expr = EAccess (EAccess (op, "_value"), "p")
+                }
+              in
+              let rdecl =
+                DLet {
+                  bkind = `Const;
+                  binder = snd (rb');
+                  expr = resume
+                }
+              in
+              let _, (decls,stmt) = generate_computation env' body in
+              let comp = (xdecl :: rdecl :: decls, stmt) in
+              StringMap.add label comp acc)
+            cases StringMap.empty
+        in
+        [], tryhandle m cases return
       | _ -> failwith "Unsupported special."
 
   and generate_value : venv -> Ir.value -> Js.expression
