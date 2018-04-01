@@ -277,7 +277,20 @@ class FrameList {
         return result;
     }
 
+    static clone(fs) {
+        let result = null;
+        let ptr = fs;
+        while (ptr !== null) {
+            result = new FrameList(ptr.first, result);
+            ptr = ptr.rest;
+        }
+        return FrameList.reverse(result);
+    }
+
     static splice(frames0, frames1) {
+        if (frames0 === frames1) {
+            frames1 = FrameList.clone(frames1);
+        }
         let ptr = frames0;
         while (ptr.rest !== null) ptr = ptr.rest;
         ptr.rest = frames1;
@@ -417,7 +430,7 @@ const Continuation = (function() {
             while (new_frames !== null) {
                 const new_frame = new_frames.first; /* ContinuationFrame */
                 new_frames = new_frames.rest;
-                if (new_frame.continuation !== null && new_frame.continuation !== frames)
+                if (new_frame.continuation !== null)
                     FrameList.splice(new_frame.continuation, frames);//throw "Continuation not empty?";
                 else
                     new_frame.continuation = frames;
@@ -732,7 +745,7 @@ function reader_414(m_404) {
     function _handle(f) {
         let v;
         try {
-            v = f();
+            v = value(f());
         } catch(_exn) {
             if (_exn instanceof PerformOperationError) {
                 switch (_exn.op._label) {
@@ -794,7 +807,7 @@ function reader_414(m_404) {
                 throw _exn;
             }
         }
-        return value(v);
+        return v;
     }
     return _handle(m_404);
 }

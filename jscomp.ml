@@ -1962,16 +1962,16 @@ end
 
 (* Generalised Stack Inspection compiler *)
 module StackInspection = struct
-  module ProcedureFragmentation = struct
-    open Utility
-
-    type liveset = IntSet.t
-    and continuation_point = {
+  type liveset = IntSet.t
+  and continuation_point = {
       before: liveset;
       after: liveset
     }
-    and liveness_map = continuation_point IntMap.t
-      deriving (Show)
+  and liveness_map = continuation_point IntMap.t
+                       deriving (Show)
+
+  module ProcedureFragmentation = struct
+    open Utility
 
     let liveness tyenv prog =
       let analysis tyenv =
@@ -2074,19 +2074,22 @@ module StackInspection = struct
                  (fun _ (xb, rb, comp) (lss, o) ->
                    let o = o#binder xb in
                    let o = o#binder rb in
-                   let o = o#computation comp in
-                   let o = o#kill xb in
+                   let o = (o#with_liveset IntSet.empty)#computation comp in
                    let o = o#kill rb in
+                   let o = o#kill xb in
                    let after = o#get_liveset in
+                   let o = o#register xb IntSet.empty after in (* hack *)
                    (after :: lss, o))
                  cases ([], o)
              in
              let o, after_return =
                let (xb, comp) = return in
                let o = o#binder xb in
-               let o = o#computation comp in
+               let o = (o#with_liveset IntSet.empty)#computation comp in
                let o = o#kill xb in
-               o, o#get_liveset
+               let ls = o#get_liveset in
+               let o = o#register xb IntSet.empty ls in (* hack *)
+               o, ls
              in
              let after_cases = IntSet.union_all (after_return :: lss) in
              let o, _after_comp =
@@ -2095,18 +2098,19 @@ module StackInspection = struct
              in
              begin match depth with
              | `Shallow -> o
-             | `Deep _params -> o
-                (* let lss, o = *)
-                (*   List.fold_left *)
-                (*     (fun (lss, o) (v, b) -> *)
-                (*       let o = o#value v in *)
-                (*       let o = o#binder b in *)
-                (*       let o = o#kill b in *)
-                (*       let after = o#get_liveset in *)
-                (*       (after :: lss, o)) *)
-                (*     ([], o#with_liveset ) params *)
-                (* in *)
-                (* let after_params = IntSet.union_all *)
+             | `Deep params ->
+                let (_lss, o) =
+                  List.fold_left
+                    (fun (lss, o) (b, v) ->
+                      let o = (o#with_liveset IntSet.empty)#value v in
+                      let o = o#binder b in
+                      let o = o#kill b in
+                      let before = o#get_liveset in
+                      let o = o#register b before IntSet.empty in (* hack *)
+                      (before :: lss, o))
+                    ([], o) params
+                in o
+                     (* let after_params = IntSet.union_all *)
              end
             | e -> super#special e
 
@@ -2317,8 +2321,7 @@ module StackInspection = struct
     (*   let (prog, _, o) = fragmentise#program prog in *)
     (*   prog, o#get_answer_frames *)
 
-    let opt_fragmentise (tyenv : Types.datatype Env.Int.t) prog =
-      let liveness_map = liveness tyenv prog in
+    let opt_fragmentise (tyenv : Types.datatype Env.Int.t) liveness_map prog =
       (* Printf.eprintf "Liveness_map: %s\n" (Show_liveness_map.show liveness_map); *)
       let frame_counter = ref 0 in
       let opt_fragmentise =
@@ -2684,6 +2687,7 @@ module StackInspection = struct
     IntSet.mem var !answer_frame_set
 
   let tyenv = ref Env.Int.empty
+  let liveness_map = ref IntMap.empty
 
   (* Frame creation *)
   let new_frame_obj frame_class cont_var args =
@@ -3020,33 +3024,78 @@ module StackInspection = struct
          in
          [], SThrow (ENew (EApply (EVar "PerformOperationError", [op])))
       | `Handle { Ir.ih_comp = m; Ir.ih_return = return; Ir.ih_cases = cases; Ir.ih_depth = depth } ->
-        if depth = `Shallow then failwith "Compilation of shallow handlers is not supported.";
-        let tryhandle m eff_cases return =
-          let exn = Ident.of_string "_exn" in
+         if depth = `Shallow then failwith "Compilation of shallow handlers is not supported.";
+         let comp_name = Ident.of_string (gensym ~prefix:"_f" ()) in
+         let tryhandle handle_name eff_cases return =
+          let exn = Ident.of_string (gensym ~prefix:"_exn" ()) in
           let op = EAccess (EVar exn, "op") in
-          let resume =
-            let resumption =
-              EAccess (EApply (EAccess (EVar exn, "toContinuation"), []), "reload")
-            in
-            EFun {
-              fkind = `Regular;
-              fname = `Anonymous;
-              formal_params = ["x"];
-              body = ([], SReturn (EApply (resumption, [EVar "x"])))
-            }
+          let resume_binder, resume_decl =
+            let binder = gensym ~prefix:"_resume" () in
+            binder, DLet {
+                        bkind = `Const;
+                        binder = binder;
+                        expr = EApply (EAccess (EVar "_Resumption", "makeDeep"), [EVar exn; EVar handle_name]) }
           in
-          let cases = eff_cases op resume in
-          STry (m, Some (exn,
-                         ([], SIf (EApply (EPrim "%instanceof",
-                                           [EVar exn; EVar "PerformOperationError"]),
-                                   ([], SCase (EAccess (op, "_label"), cases, Some return)),
-                                   ([], SSkip)))))
+          let forward =
+            let exn = EVar exn in
+            let instantiate = SExpr (EApply (EAccess (exn, "instantiateTrapPoint"), [EVar handle_name])) in
+            let new_trap = SExpr (EApply (EAccess (exn, "setAbstractTrapPoint"), [])) in
+            [], SSeq (instantiate, SSeq (new_trap, SThrow exn))
+          in
+          let cases = eff_cases op (EVar resume_binder) in
+          let result = gensym ~prefix:"_result" () in
+          let eval_m =
+            DLet {
+                bkind = `Const;
+                binder = result;
+                expr = EApply (EVar comp_name, [])
+              }
+          in
+          let body =
+            [eval_m], SReturn (return (EVar result))
+          in
+          STry (body, Some (exn,
+                            ([], SIf (EApply (EPrim "%instanceof",
+                                              [EVar exn; EVar "PerformOperationError"]),
+                                      ([resume_decl], SCase (EAccess (op, "_label"), cases, Some forward)),
+                                      ([], SIf (EApply (EPrim "%instanceof",
+                                                        [EVar exn; EVar "SaveContinuationError"]),
+                                                forward,
+                                                ([], SThrow (EVar exn))))))))
         in
-        let m = snd (generate_computation env m) in
-        let return =
+        let m_name, m_decl =
+          let m_name = Ident.of_string (gensym ~prefix:"_comp" ()) in
+          m_name, DLet {
+                      bkind = `Const;
+                      binder = m_name;
+                      expr =
+                        EFun {
+                            fkind = `Regular;
+                            fname = `Anonymous;
+                            formal_params = [];
+                            body = snd (generate_computation env m) }
+                    }
+        in
+        let ident_of_var v = Printf.sprintf "_%d" v in
+        let return_decl, return =
           let xb = fst return in
+          let (liveness : continuation_point) = IntMap.find (Var.var_of_binder xb) !liveness_map in
+          let live_names = List.map ident_of_var (IntSet.to_list liveness.after) in
           let xb' = safe_name_binder xb in
-          snd (generate_computation (VEnv.bind env xb') (snd return))
+          let fname = Ident.of_string (gensym ~prefix:"_value" ()) in
+          let decl =
+            DLet {
+                bkind = `Const;
+                binder = fname;
+                expr =
+                  EFun {
+                      fkind = `Regular;
+                      fname = `Anonymous;
+                      formal_params = snd xb' :: live_names;
+                      body = snd (generate_computation (VEnv.bind env xb') (snd return))
+              } }
+          in
+          decl, (fun result -> EApply (EVar fname, result :: (List.map (fun v -> EVar v) live_names)))
         in
         let cases op resume =
           StringMap.fold
@@ -3072,7 +3121,16 @@ module StackInspection = struct
               StringMap.add label comp acc)
             cases StringMap.empty
         in
-        [], tryhandle m cases return
+        let handle_name = Ident.of_string (gensym ~prefix:"_handle" ()) in
+        let handle_decl =
+          DFun {
+              fkind = `Regular;
+              fname = `Named handle_name;
+              formal_params = [comp_name];
+              body = [], tryhandle handle_name cases return
+            }
+        in
+        [m_decl; return_decl; handle_decl], SExpr (EApply (EVar handle_name, [EVar m_name]))
       | _ -> failwith "Unsupported special."
 
   and generate_value : venv -> Ir.value -> Js.expression
@@ -3314,7 +3372,8 @@ module StackInspection = struct
       (* Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm); *)
       let prog =
         let prog = Ir.EtaTailDos.program tenv u.program in
-        let prog, answer_frames = ProcedureFragmentation.opt_fragmentise tenv prog in
+        liveness_map := ProcedureFragmentation.liveness tenv prog;
+        let prog, answer_frames = ProcedureFragmentation.opt_fragmentise tenv !liveness_map prog in
         answer_frame_set := answer_frames;
         tyenv := tyenv'; prog
       in
