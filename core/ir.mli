@@ -245,7 +245,7 @@ module NameMap :
 sig
   type name_map = string Utility.IntMap.t
     deriving (Show)
-  val compute : Types.datatype Env.Int.t -> program -> Types.datatype Env.Int.t * name_map
+  val compute : (Var.var -> string) -> Types.datatype Env.Int.t -> program -> Types.datatype Env.Int.t * name_map
 end
 
 module TidyBindings :
