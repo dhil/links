@@ -422,10 +422,10 @@ struct
   type name_map = string IntMap.t
     deriving (Show)
 
-  let compute tyenv prog =
+  let compute primitive_name tyenv prog =
     let o =
       object (o)
-        inherit Iter.visitor(tyenv)
+        inherit Iter.visitor(tyenv) as super
 
         val nenv = IntMap.empty
         method add var name =
@@ -434,6 +434,14 @@ struct
 
         method! binder (var, (_, name, _)) =
           o#add var name
+
+        method! var var =
+          if not (IntMap.mem var o#get_nenv) then
+            try
+              let name = primitive_name var in
+              o#add var name
+            with NotFound _ -> super#var var
+          else o
       end
     in
     let o = o#program prog in
