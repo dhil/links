@@ -2042,6 +2042,7 @@ module StackInspection = struct
              let o = o#computation ff in
              let after_ff = o#get_liveset in
              let before_if = IntSet.union_all [after_tt; after_ff] in
+             Printf.eprintf "Liveset before if:%s\n%!" (Show_liveset.show before_if);
              (o#with_liveset before_if)#value cond
           | `Case (scrutinee, cases, default) ->
              let lss, o =
@@ -2423,7 +2424,7 @@ module StackInspection = struct
                  let var = Var.var_of_binder b in
                  let liveset = IntMap.find var liveness_map in
                  let fb = o#fresh_frame_binder ~var () in
-                 (* Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset); *)
+                 Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset);
                  let o = o#add_frame_binder fb in
                  let (fb, o) = o#binder fb in
                  let fb' = o#fresh_frame_binder () in
@@ -2436,7 +2437,7 @@ module StackInspection = struct
                    let (tc, _, o) = (o#with_liveset liveset.after)#tail_computation cont in
                    let liveset' =
                      match tc with
-                     | `Apply (`Variable f, _) -> Printf.eprintf "appl: %d\n%!" f; IntMap.find f liveness_map
+                     (* | `Apply (`Variable f, _) -> Printf.eprintf "appl: %d\n%!" f; IntMap.find f liveness_map *)
                      | _ -> liveset
                    in
                    let o = o#restore st in
@@ -2477,7 +2478,7 @@ module StackInspection = struct
                  let var = Var.var_of_binder b in
                  let liveset = IntMap.find var liveness_map in
                  let fb = o#fresh_frame_binder ~var () in
-                 (* Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset); *)
+                 Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset);
                  let o = o#add_frame_binder fb in
                  let (fb, o) = o#binder fb in
                  let (answer_frames, other, o) =
@@ -2693,13 +2694,13 @@ module StackInspection = struct
   let new_frame_obj frame_class cont_var args =
     Js.(ENew (EApply (frame_class, cont_var :: args)))
 
-  let new_initial_frame = new_frame_obj (Js.EVar "GenericInitialContinuationFrame")
+  let new_initial_frame = new_frame_obj (Js.EVar "GenericInitialPureContinuationFrame")
 
-  let new_frame = new_frame_obj (Js.EVar "GenericContinuationFrame")
+  let new_frame = new_frame_obj (Js.EVar "GenericPureContinuationFrame")
 
   let extend_cont exn frame =
     let open Js in
-    let extend = EApply (EAccess (exn, "extend"), [frame]) in
+    let extend = EApply (EAccess (exn, "continuation.augment"), [frame]) in
     SSeq (SExpr extend, SThrow exn)
 
   let trycatch make_frame (cont_var, cont_args) m =
@@ -3038,11 +3039,11 @@ module StackInspection = struct
           in
           let forward =
             let exn = EVar exn in
-            let instantiate = SExpr (EApply (EAccess (exn, "instantiateTrapPoint"), [EVar handle_name])) in
-            let new_trap = SExpr (EApply (EAccess (exn, "setAbstractTrapPoint"), [])) in
+            let instantiate = SExpr (EApply (EAccess (exn, "continuation.instantiateTrapPoint"), [EVar handle_name])) in
+            let new_trap = SExpr (EApply (EAccess (exn, "continuation.setAbstractTrapPoint"), [])) in
             [], SSeq (instantiate, SSeq (new_trap, SThrow exn))
           in
-          let cases = eff_cases op (EVar resume_binder) in
+          let cases = eff_cases op (EApply (EAccess (EVar "_Resumption", "makeDeep"), [EVar exn; EVar handle_name])) in
           let result = gensym ~prefix:"_result" () in
           let eval_m =
             DLet {
@@ -3057,7 +3058,7 @@ module StackInspection = struct
           STry (body, Some (exn,
                             ([], SIf (EApply (EPrim "%instanceof",
                                               [EVar exn; EVar "PerformOperationError"]),
-                                      ([resume_decl], SCase (EAccess (op, "_label"), cases, Some forward)),
+                                      ([], SCase (EAccess (op, "_label"), cases, Some forward)),
                                       ([], SIf (EApply (EPrim "%instanceof",
                                                         [EVar exn; EVar "SaveContinuationError"]),
                                                 forward,
@@ -3130,7 +3131,7 @@ module StackInspection = struct
               body = [], tryhandle handle_name cases return
             }
         in
-        [m_decl; return_decl; handle_decl], SExpr (EApply (EVar handle_name, [EVar m_name]))
+        [m_decl; return_decl; handle_decl], SReturn (EApply (EVar handle_name, [EVar m_name]))
       | _ -> failwith "Unsupported special."
 
   and generate_value : venv -> Ir.value -> Js.expression
@@ -3355,6 +3356,7 @@ module StackInspection = struct
            end
         | _ -> failwith "Only client side calls are supported."
       in
+      Printf.eprintf "Done (%d, %s)\n%!" (Var.var_of_binder fb) (Var.name_of_binder fb);
       DFun {
         fname = `Named (Ident.of_string f_name);
         fkind = `Regular;
@@ -3365,9 +3367,9 @@ module StackInspection = struct
     = fun u ->
       let open Js in
       let (_nenv, venv, tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
-      let tyenv', nenv = Ir.NameMap.(compute tenv u.program) in
+      let tyenv', nenv = Ir.NameMap.(compute Lib.primitive_name tenv u.program) in
       Printf.eprintf "nenv: %s\n%!" (Ir.NameMap.Show_name_map.show nenv);
-      (* Printf.eprintf "%s\n%!" (Ir.Show_program.show u.program); *)
+      Printf.eprintf "Before fragmentation: %s\n%!" (Ir.Show_program.show u.program);
       (* let lm = Ir.ProcedureFragmentation.liveness tenv u.program in *)
       (* Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm); *)
       let prog =
