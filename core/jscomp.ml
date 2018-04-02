@@ -2734,7 +2734,7 @@ module StackInspection = struct
         trycatch
           new_initial_frame
           (cont_var, cont_args)
-          ([], SReturn callcc)
+          ([], SThrow (ENew (EApply (EVar "SaveContinuationError", []))))
       in
       SIf (EApply (EPrim "%ge", [EVar "_callcount"; EVar "_breakat"]),
            ([], SSeq (reset, initiate_bounce)),
