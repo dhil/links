@@ -1,14 +1,14 @@
 # Deep encoding of pipes
 # Adapted from Kammar et al. (2013)
 
-typename Comp(e::Row,a) = () ~e~> a;
+typename Comp(e::Eff,a) = () ~e~> a;
 
-typename Producer(e::Row, a) = (()) ~e~> (Consumer(e, a)) ~e~> ();
-typename Consumer(e::Row, a) = (a)  ~e~> (Producer(e, a)) ~e~> ();
+typename Producer(e::Eff, a) = (()) ~e~> (Consumer(e, a)) ~e~> ();
+typename Consumer(e::Eff, a) = (a)  ~e~> (Producer(e, a)) ~e~> ();
 
-typename Pump(e::Row,o)     = Comp({Yield:(o) {}-> () |e}, ());
-typename Sink(e::Row,i)     = Comp({Await:i           |e}, ());
-typename Pipe(e::Row,i,o)   = Comp({ |e}, ());
+typename Pump(e::Eff,o)     = Comp({Yield:(o) {}-> () |e}, ());
+typename Sink(e::Eff,i)     = Comp({Await:i           |e}, ());
+typename Pipe(e::Eff,i,o)   = Comp({ |e}, ());
 
 # Yield an element
 sig yield : (a) {Yield:(a) {}-> ()|_}-> ()
@@ -100,8 +100,11 @@ fun sumTo(n)() {
 #sig skip : (Int) -> Comp({Await:s, Yield:(s) {}-> () |_}, ())
 sig skip : (Int) -> Pipe({ Await:s, Yield:(s) {}-> () |_}, s, s)
 fun skip(n)() {
-   if (n <= 0) { yield(await()); skip(0)() }
-   else {
+   if (n <= 0) {
+     var x = await();
+     var _ = yield(x);
+     skip(0)()
+   } else {
      var _ = await();
      skip(n-1)()
    }
@@ -176,7 +179,9 @@ fun unitTest(n) {
   }
 }
 
-alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%e~> Bool, %a, () ~%e~> %a) ~%e~> ();
+#alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%e~> Bool, %a, () ~%e~> %a) ~%e~> ();
 
-benchmark("Deep pipes", (==), "199", fun() { unitTest(0) })
+#benchmark("Deep pipes", (==), "199", fun() { unitTest(0) })
+
+print(unitTest(0))
 
