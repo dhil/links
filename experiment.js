@@ -179,7 +179,7 @@ const _Performance = (function() {
 /* Generalised Stack Inspection runtime */
 
 let _callcount = 0;
-let _breakat   = 2;
+let _breakat   = 100;
 
 /* IO operations */
 const _IO = (function() {
@@ -199,158 +199,40 @@ const _IO = (function() {
 }());
 
 /* Continuations */
-class ContinuationFrame {
-    get continuation() { /* type FrameList */
-        return this._continuation;
-    }
-
-    set continuation(cont) {
-        this._continuation = cont;
-    }
-
-    /*
-     * Each frame invokes the loader for the frame above it, thereby
-     * effectively reconstructing the stack. The topmost frame gets
-     * the restart value passed into its continuation.
-     */
-    reload(/* FrameList */ framesAbove, /* generic object */ resumeValue) {
-        /*
-         * The continuation for the call to `reload' is the expression
-         * continuation of this assignment followed by the subsequent
-         * try/catch block.
-         *
-         * This call does _not_ have to be protected by a try/catch
-         * because we have not made nay progress at this point. When
-         * we `apply' the continuation function, we need to establish
-         * a try/catch in order to tie this continuation in to the new
-         * frames about to be created.
-         */
-        const value =
-              framesAbove === null
-              ? resumeValue
-              : framesAbove.first.reload(framesAbove.rest, resumeValue);
-
-        try {
-            return this.apply(value);
-        } catch(e) {
-            if (e instanceof SaveContinuationError) {
-                e.append(this.continuation);
-                throw e;
-            } else {
-                throw e;
-            }
-        }
-    }
-
-    /* Must be implemented by any subclass */
-    apply(returnValue) {
-        throw "abstract function invocation error: `apply'.";
+function _absurd(f) {
+    try {
+        return f();
+    } catch (e) {
+        throw e;
     }
 }
-// Initialise public fields
-ContinuationFrame.prototype._continuation = null;
-
-class FrameList {
-    get first() { /* type ContinuationFrame */
-        return this._first;
+/** "Errors" **/
+class WithinInitialContinuationError extends Error {
+    get thunk() {
+        return this._thunk;
     }
 
-    get rest() { /* type FrameList */
-        return this._rest;
-    }
-
-    set rest(r) {
-        this._rest = r;
-    }
-
-    constructor(/* ContinuationFrame */ first, /* FrameList */ rest) {
-        this._first = first;
-        this._rest = rest;
-    }
-
-    static reverse(/* FrameList */ fs) { /* type FrameList */
-        let result = null; /* type FrameList */
-        while (fs !== null) {
-            result = new FrameList(fs.first, result);
-            fs = fs.rest;
-        }
-        return result;
-    }
-
-    static clone(fs) {
-        let result = null;
-        let ptr = fs;
-        while (ptr !== null) {
-            result = new FrameList(ptr.first, result);
-            ptr = ptr.rest;
-        }
-        return FrameList.reverse(result);
-    }
-
-    static splice(frames0, frames1) {
-        if (frames0 === frames1) {
-            frames1 = FrameList.clone(frames1);
-        }
-        let ptr = frames0;
-        while (ptr.rest !== null) ptr = ptr.rest;
-        ptr.rest = frames1;
-        return frames0;
-    }
-}
-// Initialise public fields
-FrameList.prototype._first = null;
-FrameList.prototype._rest = null;
-
-class SaveContinuationError extends Error {
-    /*
-     * A list of frames that have not yet been fully assembled into
-     * the continuation. Each frame has saved its own state.
-     */
-    get newFrames() {
-        return this._new_frames;
-    }
-
-    /*
-     * A list of frames that already have been assembled into the
-     * continuation. When unwinding the stack we do not need to unwind
-     * these frames.
-     */
-    get oldFrames() {
-        return this._old_frames;
-    }
-
-    /*
-     * Push a newly created heap frame onto the list of frames that
-     * need to be assembled into the continuation. This should be done
-     * in the exception handler that protects the initial subroutine
-     * call.
-     */
-    extend(/* ContinuationFrame */ extension) { /* unit */
-        this._new_frames = new FrameList(extension, this.newFrames);
-        return;
-    }
-
-    /*
-     * Append the tail of the current continuation to the exception
-     * object so that the (exception) handler can assemble the new
-     * frames onto it.
-     */
-    append(/* FrameList */ oldFrames) { /* unit */
-        this._old_frames = oldFrames;
-        return;
-    }
-
-    toContinuation() { /* Continuation */
-        return new Continuation(this._new_frames, this._old_frames);
-    }
-
-    constructor(...args) {
+    constructor(/* Thunk */ thunk, ...args) {
         super(...args);
+        this._thunk = thunk;
     }
 }
 // Initialise public members
-SaveContinuationError.prototype._new_frames = null;
-SaveContinuationError.prototype._old_frames = null;
+WithinInitialContinuationError.prototype._thunk = null;
+
+class SaveContinuationError extends Error {
+
+    get continuation() { return this._continuation; }
+    set continuation(cont) { this._continuation = cont; }
+
+    get handler() { return this._continuation.newFrames.head; }
+
+    constructor() {
+        super();
+        this._continuation = new Continuation();
+    }
+}
+SaveContinuationError.prototype._continuation = null;
 
 class PerformOperationError extends SaveContinuationError {
 
@@ -361,195 +243,384 @@ class PerformOperationError extends SaveContinuationError {
 }
 PerformOperationError.prototype.op = {"_label": "NoOp"}
 
-class ResumeError extends Error {
-    constructor(f, arg) {
-        super();
-        this.f = f;
-        this.arg = arg;
+/** Continuations **/
+class ZipperContinuation {
+    get newFrames() { return this._newFrames; }
+    set newFrames(fs) { this._newFrames = fs; }
+
+    get oldFrames() { return this._oldFrames; }
+    set oldFrames(fs) { this._oldFrames = fs; }
+
+    constructor(newFrames = null, oldFrames = null) {
+        this._newFrames = newFrames;
+        this._oldFrames = oldFrames;
+    }
+
+    assemble() {
+        return FrameList.concat(FrameList.reverse(this._newFrames), this._oldFrames);
+    }
+
+    append(oldFrames) {
+        this._oldFrames = FrameList.concat(this._oldFrames, oldFrames);
+    }
+
+    augment(frame) {
+        throw "error";
+    }
+
+    compose(other) {
+        this._newFrames = FrameList.concat(other.newFrames, this._newFrames);
+        this.append(other.oldFrames);
+    }
+
+    invoke(_x) {
+        throw "ZipperContinuation: method `invoke' must be implemented by any subclass";
     }
 }
-ResumeError.prototype.f = null;
-ResumeError.prototype.arg = null;
+ZipperContinuation.prototype._newFrames = null;
+ZipperContinuation.prototype._oldFrames = null;
 
+class PureContinuation extends ZipperContinuation {
 
-const Continuation = (function() {
-    // Nested classes
-    class CWCC_frame0 extends ContinuationFrame {
-        get receiver() {
-            return this._reciever;
-        }
-
-        constructor(/* ContinuationReceiver */ receiver) {
-            super();
-            this._receiver = receiver;
-        }
-
-        apply(/* generic object */ resumeValue) {
-            return this._receiver.apply(resumeValue);
-        }
-    }
-    // Initialise public members
-    CWCC_frame0.prototype._receiver = null;
-
-    class WithinInitialContinuationError extends Error {
-        get thunk() {
-            return this._thunk;
-        }
-
-        constructor(/* Thunk */ thunk, ...args) {
-            super(...args);
-            this._thunk = thunk;
-        }
-    }
-    // Initialise public members
-    WithinInitialContinuationError.prototype._thunk = null;
-
-    function beginUnwind() {
-        throw new SaveContinuationError();
+    constructor(newFrames = null, oldFrames = null) {
+        super(newFrames, oldFrames);
     }
 
-    return class {
-       /*
-        * Holds the list of frames in order from most recent to least
-        * recent. This is the direction we want for sharing, but the
-        * reverse direction for loading.
-        */
-        get frames() { /* FrameList */
-            return this._frames;
-        }
-
-        constructor(/* FrameList */ newFrames, /* FrameList */ oldFrames) {
-           /*
-            * The new frames do not know what the continuation is below
-            * them. We take them one by one and push them onto the old
-            * frames while setting their continuation to the list of
-            * frames below.
-            */
-            let new_frames  = newFrames; /* FrameFrame */
-            let frames = oldFrames; /* FrameList */
-            while (new_frames !== null) {
-                const new_frame = new_frames.first; /* ContinuationFrame */
-                new_frames = new_frames.rest;
-                if (new_frame.continuation !== null)
-                    FrameList.splice(new_frame.continuation, frames);//throw "Continuation not empty?";
-                else
-                    new_frame.continuation = frames;
-                frames = new FrameList(new_frame, frames);
+    invoke(x) {
+        let frames = this.assemble();
+        let result = x;
+        try {
+            while (frames !== null) {
+                //console.log("FrameList.length = " + FrameList.length(frames));
+                result = frames.head.invoke(result);
+                frames = frames.tail;
             }
-            this._frames = frames;
+        } catch (e) {
+            if (e instanceof SaveContinuationError) { /* PerformOperationError is a subtype of SaveContinuationError */
+                //frames = FrameList.reverse(frames.tail);
+                e.handler.pureContinuation.append(frames.tail);
+                throw e;
+            } else {
+                throw e;
+            }
+        }
+        return result;
+    }
+
+    augment(frame) {
+        this._newFrames = FrameList.cons(frame, this._newFrames);
+        return;
+    }
+}
+
+class Continuation extends ZipperContinuation {
+
+    constructor() {
+        super(FrameList.singleton(new AbstractHandleFrame()), FrameList.nil());
+    }
+
+    invoke(x) {
+        let handlers = this.assemble();
+        let result = x;
+        let exn = new Error();
+        let discontinue = false;
+        try {
+            while (handlers !== null) {
+                if (discontinue) {
+                    result = handlers.head.discontinue(exn);
+                    handlers = handlers.tail;
+                    discontinue = false;
+                } else {
+                    result = handlers.head.invoke(result);
+                    handlers = handlers.tail;
+                }
+            }
+        } catch (e) {
+            if (e instanceof PerformOperationError) {
+                if (discontinue) {
+                    // Merge back in the original pure continuation
+                    e.handler.pureContinuation.compose(handlers.head.pureContinuation);
+                }
+                // discontinue handlers.tail with e
+                discontinue = true;
+                handlers = handlers.tail;
+                exn = e;
+            } else if (e instanceof SaveContinuationError) {
+                if (discontinue) {
+                    // Merge e.handler with handlers.head
+                    e.handler.pureContinuation.compose(handlers.head.pureContinuation);
+                }
+                // merge with handlers.tail
+                e.continuation.append(handlers.tail);
+                throw e;
+            } else {
+                throw e;
+            }
         }
 
-        reload(/* generic object */ resumeValue) { /* generic object */
-            /*
-             * Reverse the frames in order to reload them.
-             */
-            const rev = FrameList.reverse(this._frames);
-            return rev.first.reload(rev.rest, resumeValue);
+        return result;
+    }
+
+    instantiateTrapPoint(handleFn) {
+        const head = this.newFrames.head.instantiate(handleFn);
+        this.newFrames = FrameList.cons(head, this.newFrames.tail);
+        return;
+    }
+
+    setAbstractTrapPoint() {
+        this.newFrames = FrameList.cons(new AbstractHandleFrame(), this.newFrames);
+        return;
+    }
+
+    static CWCC(/* ContinuationReceiver */ receiver) { /* generic object */
+        try {
+            throw new SaveContinuationError(); // begin unwind
+        } catch (e) {
+            if (e instanceof SaveContinuationError) {
+                e.handler.augment(new CWCC_frame0(receiver));
+                throw e;
+            } else {
+                throw e;
+            }
         }
 
-        static CWCC(/* ContinuationReceiver */ receiver) { /* generic object */
+        return null; // should never be reached
+    }
+
+    static establishInitialContinuation(/* Thunk */ _thunk) { /* generic object */
+        let thunk = _thunk;
+        while (true) {
             try {
-                beginUnwind();
+                return Continuation.initialContinuationAux(thunk);
             } catch (e) {
-                if (e instanceof SaveContinuationError) {
-                    e.extend(new CWCC_frame0(receiver));
-                    throw e;
+                if (e instanceof WithinInitialContinuationError) {
+                    thunk = e.thunk;
                 } else {
                     throw e;
                 }
             }
-
-            return null; // should never be reached
         }
-
-        static establishInitialContinuation(/* Thunk */ _thunk) { /* generic object */
-            let thunk = _thunk;
-            while (true) {
-                try {
-                    return Continuation.initialContinuationAux(thunk);
-                } catch (e) {
-                    if (e instanceof WithinInitialContinuationError) {
-                        thunk = e.thunk;
-                    } else {
-                        throw e;
-                    }
-                }
-            }
-            return;
-        }
-
-        static initialContinuationAux(/* Thunk */ thunk) {
-            try {
-                return thunk.apply();
-            } catch (e) {
-                if (e instanceof PerformOperationError) {
-                    _print("Unhandled operation: " + e.op._label);
-                    throw e;
-                } else if (e instanceof SaveContinuationError) {
-                    const k = e.toContinuation(); /* Continuation */
-                    throw new WithinInitialContinuationError(function() {
-                        return k.reload(k);
-                    });
-                } else {
-                    throw e;
-                }
-            }
-            return;
-        }
+        return;
     }
-}());
 
-class GenericContinuationFrame extends ContinuationFrame {
+    static initialContinuationAux(/* Thunk */ thunk) {
+        try {
+            return thunk();
+        } catch (e) {
+            if (e instanceof PerformOperationError) {
+                _print("Unhandled operation: " + e.op._label);
+                throw e;
+            } else if (e instanceof SaveContinuationError) {
+                e.continuation.instantiateTrapPoint(_absurd);
+                const k = e.continuation;
+                throw new WithinInitialContinuationError(function() {
+                    return k.invoke(undefined); // argument is unused
+                });
+            } else {
+                throw e;
+            }
+        }
+        return;
+    }
+
+    augment(frame) {
+        this.newFrames.head.augment(frame);
+        return;
+    }
+}
+
+/** Frames **/
+class HandleFrame {
+    get pureContinuation() { return this._pureCont; }
+    set pureContinuation(pureCont) { this._pureCont = pureCont; }
+
+    constructor(pureContinuation = null) {
+        if (pureContinuation === null)
+            this._pureCont = new PureContinuation();
+        else
+            this._pureCont = pureContinuation;
+    }
+
+    invoke(_x) {
+        throw "error: Cannot invoke a raw handle frame.";
+    }
+
+    augment(frame) {
+        this._pureCont.augment(frame);
+    }
+}
+HandleFrame.prototype._pureCont = null;
+
+class AbstractHandleFrame extends HandleFrame {
+
+    constructor() {
+        super();
+    }
+
+    instantiate(handleFn) {
+        return new GenericHandleFrame(handleFn, this.pureContinuation);
+    }
+
+    invoke(_x) {
+        throw "error: Cannot invoke an abstract handler.";
+    }
+}
+
+class GenericHandleFrame extends HandleFrame {
+
+    get handleFn() { return this._handleFn; }
+    set handleFn(f) { this._handleFn = f; }
+
+    constructor(handle, pureCont) {
+        super(pureCont);
+        this._handleFn = handle;
+    }
+
+    discontinue(/* PerformOperationError */ exn) {
+        return this._handleFn.call(null, function() { throw exn; });
+    }
+
+    invoke(x) {
+        const pureCont = this.pureContinuation;
+        return this._handleFn.call(null, function() { return pureCont.invoke(x); });
+    }
+
+    // extend(pureCont) {
+    //     this._pureCont.compose(pureCont);
+    // }
+
+    // static splice(handleFrame0, handleFrame1) {
+    //     return new GenericHandleFrame(handleFrame0.handleFn, FrameList.concat(handleFrame0.frames, handleFrame1.frames));
+    // }
+}
+GenericHandleFrame.prototype._handleFn = function(_f) { throw "error: No handle provided"; };
+
+class GenericPureContinuationFrame {
+    get frameFn() { return this._frameFn; }
+    set frameFn(f) { this._frameFn = f; }
+    get args() { return this._args; }
+    set args(xs) { this._args = xs; }
 
     constructor(frameFn, ...args) {
-        super();
-        this.frameFn = frameFn;
-        this.args = args;
+        this._frameFn = frameFn;
+        this._args = args;
     }
 
-    /* Override */
-    apply(/* generic object */ resumeValue) { /* generic object */
-        const args = this.args;
-        return this.frameFn.call(null, resumeValue, ...args);
-    }
-
-    /* Dummy frame */
-    noContinuationFrameError() {
-        throw "No continuation frame has been provided";
+    invoke(x) {
+        const args = this._args;
+        return this._frameFn.call(null, x, ...args);
     }
 }
-GenericContinuationFrame.prototype.frameFn = GenericContinuationFrame.noContinuationFrameError;
-GenericContinuationFrame.prototype.args = [];
+GenericPureContinuationFrame.prototype._frameFn = function(...args) { throw "error: No frame provided."; }
+GenericPureContinuationFrame.prototype._args = [];
 
-class GenericInitialContinuationFrame extends GenericContinuationFrame {
-    constructor(...args) {
-        super(...args);
+class GenericInitialPureContinuationFrame extends GenericPureContinuationFrame {
+    constructor(frameFn, ...args) {
+        super(frameFn, ...args);
     }
 
-    // Initial continuation frames are generated by the
-    // trampoline. They are created before any let bindings have been
-    // evaluated.
-    /* Override */
-    apply(_resumeValue) {
+    invoke(_x) {
         return this.frameFn.apply(null, this.args);
     }
 }
 
-class GenericHandleFrame extends ContinuationFrame {
-    constructor(handle, f) {
-        super();
-        this.handle = handle;
-        this.f = f;
+class CWCC_frame0 extends GenericPureContinuationFrame {
+    get receiver() {
+        return this._reciever;
     }
 
-    apply(resumeValue) {
-        const f = this.f;
-        return this.handle.call(null, function() { return f.reload(resumeValue); });
+    constructor(/* ContinuationReceiver */ receiver) {
+        super();
+        this._receiver = receiver;
+    }
+
+    invoke(/* generic object */ resumeValue) {
+        return this._receiver(resumeValue);
     }
 }
-GenericHandleFrame.prototype.handle = null;
-GenericHandleFrame.prototype.f = null;
+// Initialise public members
+CWCC_frame0.prototype._receiver = null;
 
+/** List **/
+class FrameList {
+
+    get head() { return this._head; }
+    set head(f) { this._head = f; }
+
+    get tail() { return this._tail; }
+    set tail(fs) { this._tail = fs; }
+
+    static nil() { return null; }
+    static cons(frame, frames) {
+        return new FrameList(frame, frames);
+    }
+    static singleton(frame) {
+        return FrameList.cons(frame, FrameList.nil());
+    }
+
+    static reverse(frames) {
+        let result = FrameList.nil();
+        let ptr = frames;
+        while (ptr !== FrameList.nil()) {
+            result = FrameList.cons(ptr.head, result);
+            ptr = ptr.tail;
+        }
+        return result;
+    }
+
+    static concat(first, rest) {
+        if (first === FrameList.nil()) return rest;
+        else if (rest === FrameList.nil()) return first;
+        else {
+            let result = rest;
+            let ptr = FrameList.reverse(first);
+            while (ptr !== FrameList.nil()) {
+                result = FrameList.cons(ptr.head, result);
+                ptr = ptr.tail;
+            }
+            return result;
+        }
+    }
+
+    static length(frames) {
+        let i = 0;
+        while (frames !== null) {
+            i++;
+            frames = frames.tail;
+        }
+        return i;
+    }
+
+    constructor(head, tail) {
+        this._head = head;
+        this._tail = tail;
+    }
+
+    append(fs) {
+        let result = rest;
+        let ptr = tail;
+        while (ptr !== FrameList.nil()) {
+            result = FrameList.cons(ptr.head, result);
+            ptr = ptr.tail;
+        }
+        return result;
+    }
+}
+FrameList.prototype._head = null;
+FrameList.prototype._tail = null;
+
+const _Resumption = (function() {
+    return {
+        'makeDeep': function(exn, handleFn) {
+            exn.continuation.instantiateTrapPoint(handleFn);
+            const k = exn.continuation;
+            exn.continuation.setAbstractTrapPoint();
+            return function(x) {
+                return k.invoke(x);
+            };
+        }
+    };
+})();
 /* [End] Include /home/dhil/projects/links/my-links/lib/js/stack.js */
 
 /* [Begin] Bindings */
@@ -561,7 +632,7 @@ function get_391() {
       throw new PerformOperationError({ "_label": "Get", "_value": { "p": {} } });
     } catch(_exn) {
       if (_exn instanceof SaveContinuationError) {
-          _exn.extend(new GenericContinuationFrame(_get_422_an2_423));
+          _exn.continuation.augment(new GenericPureContinuationFrame(_get_422_an2_423));
             throw _exn;
         } else {
           throw _exn;
@@ -583,7 +654,7 @@ function get_391() {
           });
       } catch(_exn) {
         if (_exn instanceof SaveContinuationError) {
-            _exn.extend(new GenericInitialContinuationFrame(_get_420_an1_421));
+            _exn.continuation.augment(new GenericInitialPureContinuationFrame(_get_420_an1_421));
               throw _exn;
           } else {
             throw _exn;
@@ -600,7 +671,7 @@ function main_394() {
       s_392 = get_391();
     } catch(_exn) {
       if (_exn instanceof SaveContinuationError) {
-          _exn.extend(new GenericContinuationFrame(_main_393_an2_425));
+          _exn.continuation.augment(new GenericPureContinuationFrame(_main_393_an2_425));
             throw _exn;
         } else {
           throw _exn;
@@ -616,7 +687,7 @@ function main_394() {
       throw new PerformOperationError({ "_label": "Ask", "_value": { "p": {} } });
     } catch(_exn) {
       if (_exn instanceof SaveContinuationError) {
-          _exn.extend(new GenericContinuationFrame(_main_426_an3_427, _392));
+          _exn.continuation.augment(new GenericPureContinuationFrame(_main_426_an3_427, _392));
             throw _exn;
         } else {
           throw _exn;
@@ -638,7 +709,7 @@ function main_394() {
           });
       } catch(_exn) {
         if (_exn instanceof SaveContinuationError) {
-            _exn.extend(new GenericInitialContinuationFrame(_main_392_an1_424));
+            _exn.continuation.augment(new GenericInitialPureContinuationFrame(_main_392_an1_424));
               throw _exn;
           } else {
             throw _exn;
@@ -658,7 +729,7 @@ function reader2_403(m_395) {
             });
         } catch(_exn) {
           if (_exn instanceof SaveContinuationError) {
-              _exn.extend(new GenericInitialContinuationFrame(reader2_403, m_395));
+              _exn.continuation.augment(new GenericInitialPureContinuationFrame(reader2_403, m_395));
                 throw _exn;
             } else {
               throw _exn;
@@ -685,12 +756,11 @@ function reader2_403(m_395) {
             v = f();
         } catch(_exn) {
             if (_exn instanceof PerformOperationError) {
+                const _resume = _Resumption.makeDeep(_exn, _handle);
                 switch (_exn.op._label) {
                 case 'Ask': {
                     const _399 = _exn.op._value.p;
-                    const resume1_396 = function(x) {
-                        return _handle(function() { return _exn.toContinuation().reload(x); });
-                    };
+                    const resume1_396 = _resume;
                     return resume1_396(0);
                 }
                 default: {
@@ -698,9 +768,9 @@ function reader2_403(m_395) {
                 }
                 }
             } else if (_exn instanceof SaveContinuationError) {
-                const e = new SaveContinuationError();
-                e.extend(new GenericHandleFrame(_handle, _exn.toContinuation()));
-                throw e;
+                _exn.continuation.instantiateTrapPoint(_handle);
+                _exn.continuation.setAbstractTrapPoint();
+                throw _exn;
             } else {
                 throw _exn;
             }
@@ -720,7 +790,7 @@ function reader_414(m_404) {
             });
         } catch(_exn) {
           if (_exn instanceof SaveContinuationError) {
-              _exn.extend(new GenericInitialContinuationFrame(reader_414, m_404));
+              _exn.continuation.augment(new GenericInitialPureContinuationFrame(reader_414, m_404));
                 throw _exn;
             } else {
               throw _exn;
@@ -748,13 +818,12 @@ function reader_414(m_404) {
             v = value(f());
         } catch(_exn) {
             if (_exn instanceof PerformOperationError) {
+                const _resume = _Resumption.makeDeep(_exn, _handle);
                 switch (_exn.op._label) {
                 case 'Get': {
                     const _408 = _exn.op._value.p;
                     
-                    const resume0_405 = function(x) {
-                        return _handle(function() { return _exn.toContinuation().reload(x); });
-                    };
+                    const resume0_405 = _resume;
                     
                     function _reader_410_an1_431(_405) {
                         let _410 = undefined;
@@ -763,7 +832,7 @@ function reader_414(m_404) {
                             _410 = _405(1);
                         } catch(_exn) {
                             if (_exn instanceof SaveContinuationError) {
-                                _exn.extend(new GenericContinuationFrame(_reader_409_an2_432, _405));
+                                _exn.continuation.augment(new GenericPureContinuationFrame(_reader_409_an2_432, _405));
                                 throw _exn;
                             } else {
                                 throw _exn;
@@ -779,7 +848,7 @@ function reader_414(m_404) {
                             _409 = _405(2);
                         } catch(_exn) {
                             if (_exn instanceof SaveContinuationError) {
-                                _exn.extend(new GenericContinuationFrame(_reader_433_an3_434, _410));
+                                _exn.continuation.augment(new GenericPureContinuationFrame(_reader_433_an3_434, _410));
                                 throw _exn;
                             } else {
                                 throw _exn;
@@ -794,15 +863,15 @@ function reader_414(m_404) {
                 }
                 default: {
                     // forward
-                    const e = new PerformOperationError(_exn.op);
-                    e.extend(new GenericHandleFrame(_handle, _exn.toContinuation()));
-                    throw e;
+                    _exn.continuation.instantiateTrapPoint(_handle);
+                    _exn.continuation.setAbstractTrapPoint();
+                    throw _exn;
                 }
                 }
             } else if (_exn instanceof SaveContinuationError) {
-                const e = new SaveContinuationError();
-                e.extend(new GenericHandleFrame(_handle, _exn.toContinuation()));
-                throw e;
+                _exn.continuation.instantiateTrapPoint(_handle);
+                _exn.continuation.setAbstractTrapPoint();
+                throw _exn;
             } else {
                 throw _exn;
             }
@@ -820,7 +889,7 @@ function _fun__g5_416() {
       _415 = reader_414(main_394);
     } catch(_exn) {
       if (_exn instanceof SaveContinuationError) {
-          _exn.extend(new GenericContinuationFrame(__fun__g5_439_an2_440));
+          _exn.continuation.augment(new GenericPureContinuationFrame(__fun__g5_439_an2_440));
             throw _exn;
         } else {
           throw _exn;
@@ -842,7 +911,7 @@ function _fun__g5_416() {
           });
       } catch(_exn) {
         if (_exn instanceof SaveContinuationError) {
-            _exn.extend(new GenericInitialContinuationFrame(__fun__g5_415_an1_438));
+            _exn.continuation.augment(new GenericInitialPureContinuationFrame(__fun__g5_415_an1_438));
               throw _exn;
           } else {
             throw _exn;
@@ -856,7 +925,7 @@ function run() {
 const _417 = Continuation.establishInitialContinuation(function() {
   return reader2_403(_fun__g5_416);
 });
-
+ 
 /* [End] Bindings */
 
 /* [Begin] Main computation */
