@@ -161,6 +161,13 @@ fun example2() {
 #sig end : Sink({Await:a |e}, a)
 fun end() {await()}
 
+fun forward() {
+  var x = do Await;
+  print("Received " ^^ intToString(x));
+  print("Yielding " ^^ intToString(x));
+  do Yield(x)
+}
+
 fun unitTest(n) {
   handle(
    ( produceFrom(n)            # yields INT
