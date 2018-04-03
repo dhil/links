@@ -3027,7 +3027,7 @@ module StackInspection = struct
       | `Handle { Ir.ih_comp = m; Ir.ih_return = return; Ir.ih_cases = cases; Ir.ih_depth = depth } ->
          if depth = `Shallow then failwith "Compilation of shallow handlers is not supported.";
          let comp_name = Ident.of_string (gensym ~prefix:"_f" ()) in
-         let tryhandle handle_name eff_cases return =
+         let tryhandle result_binder handle_name eff_cases return : Js.statement =
           let exn = Ident.of_string (gensym ~prefix:"_exn" ()) in
           let op = EAccess (EVar exn, "op") in
           let resume_binder, resume_decl =
@@ -3038,22 +3038,15 @@ module StackInspection = struct
                         expr = EApply (EAccess (EVar "_Resumption", "makeDeep"), [EVar exn; EVar handle_name]) }
           in
           let forward =
+            let new_handle_frame = ENew (EApply (EVar "GenericHandleFrame", [EVar handle_name])) in
             let exn = EVar exn in
-            let instantiate = SExpr (EApply (EAccess (exn, "continuation.instantiateTrapPoint"), [EVar handle_name])) in
+            let instantiate = SExpr (EApply (EAccess (exn, "continuation.instantiateTrapPoint"), [new_handle_frame])) in
             let new_trap = SExpr (EApply (EAccess (exn, "continuation.setAbstractTrapPoint"), [])) in
             [], SSeq (instantiate, SSeq (new_trap, SThrow exn))
           in
           let cases = eff_cases op (EApply (EAccess (EVar "_Resumption", "makeDeep"), [EVar exn; EVar handle_name])) in
-          let result = gensym ~prefix:"_result" () in
-          let eval_m =
-            DLet {
-                bkind = `Const;
-                binder = result;
-                expr = EApply (EVar comp_name, [])
-              }
-          in
           let body =
-            [eval_m], SReturn (return (EVar result))
+            [], SAssign (result_binder, EApply (EVar comp_name, []))
           in
           STry (body, Some (exn,
                             ([], SIf (EApply (EPrim "%instanceof",
@@ -3123,12 +3116,20 @@ module StackInspection = struct
             cases StringMap.empty
         in
         let handle_name = Ident.of_string (gensym ~prefix:"_handle" ()) in
+        let result = gensym ~prefix:"_result" () in
+        let result_decl =
+            DLet {
+                bkind = `Let;
+                binder = result;
+                expr = EVar "undefined";
+              }
+          in
         let handle_decl =
           DFun {
               fkind = `Regular;
               fname = `Named handle_name;
               formal_params = [comp_name];
-              body = [], tryhandle handle_name cases return
+              body = [result_decl], SSeq (tryhandle result handle_name cases return, SReturn (return (EVar result)))
             }
         in
         [m_decl; return_decl; handle_decl], SReturn (EApply (EVar handle_name, [EVar m_name]))
