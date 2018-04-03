@@ -125,6 +125,7 @@ end
 
 module Prim_Functions : PRIM_DESC = struct
   let prim_desc = function
+    | "random" -> "Math.random",1
     | "debug" -> "%IO.debug",1
     | "not"   -> "%not",1
     | "negatef" | "negate" -> "%negate",1
