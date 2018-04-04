@@ -47,5 +47,19 @@ fun mySecret(secret, m) {
 }
 
 fun example() {
-  mySecret(42, fun() { input([64,32,48,40,44,42], guess) });
+  mySecret(42, fun() { input([64,32,48,40,44,42], guess) })
+}
+
+sig history : (Comp({Guess:(Int) -> Answer|e}, a)) {Guess:(Int) -> Answer|e}~> [(Int,Answer)]
+fun history(m) {
+  handle(m())([] -> hist) {
+    case Return(_) -> hist
+    case Guess(n, resume) ->
+       var an = do Guess(n);
+       resume(an, (n, an) :: hist)
+  }
+}
+
+fun example2() {
+  mySecret(42, fun() {history(fun() { input([64,32,48,40,44,42], guess) })})
 }
