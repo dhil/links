@@ -8,11 +8,11 @@ fun readInt() {var n = do Read; print(intToString(n)); n}
 sig guess : () {Read:Int,Guess:(Int) -> Answer|_}~> ()
 fun guess() {
   print("Take a guess>");
-  var number = readInt();
+  var number = do Read;
   switch (do Guess(number)) {
-    case Low -> print("Your guess is too low."); guess()
-    case Correct -> print("Correct!!")
-    case High -> print("Your guess is too high."); guess()
+    case Low -> print("Wrong: Your guess is too low.\n"); guess()
+    case Correct -> print("Correct!!\n")
+    case High -> print("Wrong: Your guess is too high.\n"); guess()
   }
 }
 
@@ -30,7 +30,7 @@ fun input(guesses, m) {
     case Read(resume) ->
        switch(guesses) {
          case [] -> ()
-         case g :: gs -> resume(g, gs)
+         case g :: gs -> print(intToString(g)); resume(g, gs)
        }
   }
 }
