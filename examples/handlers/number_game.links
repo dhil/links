@@ -13,9 +13,9 @@ fun game() {
   print("Take a guess>");
   var number = do Read;
   switch (do Guess(number)) {
-    case Low -> print("Wrong: Your guess is too low.\n"); guess()
+    case Low -> print("Wrong: Your guess is too low.\n"); game()
     case Correct -> print("Correct!!\n")
-    case High -> print("Wrong: Your guess is too high.\n"); guess()
+    case High -> print("Wrong: Your guess is too high.\n"); game()
   }
 }
 
@@ -43,7 +43,7 @@ fun mySecret(secret, m)() {
 }
 
 fun example() {
-  mySecret(42, input([64,32,48,40,44,42], guess))()
+  mySecret(42, input([64,32,48,40,44,42], game))()
 }
 
 sig history : (Comp({Guess:(Int) -> Answer|e}, a)) -> Comp({Guess:(Int) -> Answer|e}, [(Int,Answer)])
@@ -57,5 +57,5 @@ fun history(m)() {
 }
 
 fun example2() {
-  mySecret(42, history(input([64,32,48,40,44,42], guess)))()
+  mySecret(42, history(input([64,32,48,40,44,42], game)))()
 }
