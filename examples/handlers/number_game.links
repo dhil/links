@@ -5,8 +5,11 @@ typename Answer = [|Low|Correct|High|];
 sig readInt : () {Read:Int|_}~> Int
 fun readInt() {var n = do Read; print(intToString(n)); n}
 
-sig guess : () {Read:Int,Guess:(Int) -> Answer|_}~> ()
-fun guess() {
+sig guess : (Int) {Guess:(Int) -> Answer |_}-> Answer
+fun guess(n) {do Guess(n)}
+
+sig game : () {Read:Int,Guess:(Int) -> Answer|_}~> ()
+fun game() {
   print("Take a guess>");
   var number = do Read;
   switch (do Guess(number)) {
@@ -16,15 +19,8 @@ fun guess() {
   }
 }
 
-fun isNil(xs) {
-  switch (xs) {
-    case [] -> true
-    case _  -> false
-  }
-}
-
-sig input : ([Int], Comp({Read:Int |e}, a)) {Read{_} |e}~> ()
-fun input(guesses, m) {
+sig input : ([Int], Comp({Read:Int |e}, a)) -> Comp({Read{_} |e}, ())
+fun input(guesses, m)() {
   handle(m())(guesses -> guesses) {
     case Return(x) -> ()
     case Read(resume) ->
@@ -35,8 +31,8 @@ fun input(guesses, m) {
   }
 }
 
-sig mySecret : (Int, Comp({Guess:(Int) -> Answer|e}, a)) {Guess{_} |e}~> a
-fun mySecret(secret, m) {
+sig mySecret : (Int, Comp({Guess:(Int) -> Answer|e}, a)) -> Comp({Guess{_} |e}, a)
+fun mySecret(secret, m)() {
   handle(m()) {
     case Return(x) -> x
     case Guess(n,resume) ->
@@ -47,11 +43,11 @@ fun mySecret(secret, m) {
 }
 
 fun example() {
-  mySecret(42, fun() { input([64,32,48,40,44,42], guess) })
+  mySecret(42, input([64,32,48,40,44,42], guess))()
 }
 
-sig history : (Comp({Guess:(Int) -> Answer|e}, a)) {Guess:(Int) -> Answer|e}~> [(Int,Answer)]
-fun history(m) {
+sig history : (Comp({Guess:(Int) -> Answer|e}, a)) -> Comp({Guess:(Int) -> Answer|e}, [(Int,Answer)])
+fun history(m)() {
   handle(m())([] -> hist) {
     case Return(_) -> hist
     case Guess(n, resume) ->
@@ -61,5 +57,5 @@ fun history(m) {
 }
 
 fun example2() {
-  mySecret(42, fun() {history(fun() { input([64,32,48,40,44,42], guess) })})
+  mySecret(42, history(input([64,32,48,40,44,42], guess)))()
 }
