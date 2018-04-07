@@ -1,230 +1,241 @@
 'use strict';
 
-// List
-const _List = (function() {
-    const nil = null;
-    function cons(x, xs) {
-        return {'_head': x, '_tail': xs};
-    }
-
-    function head(xs) { return xs['_head']; }
-    function tail(xs) { return xs['_tail']; }
-    function singleton(x) { return cons(x, nil) };
-    function length(xs) {
-        let acc = 0;
-        let ys = xs;
-        while (ys !== nil) {
-            acc = acc + 1;
-            ys = tail(ys);
-        }
-        return acc;
-    }
-
-    const NIL = 0, CONS = 1;
+const _Inst = (function() {
+    /* Instruction kinds */
+    const INSTALL = 0, TRAP = 1, RETURN = 2, RESUME = 3, BIND_RESUMPTION = 4;
+    const make = function(kind, data) {
+        return {"kind": kind, "data": data};
+    };
 
     return {
-        'NIL': NIL,
-        'CONS': CONS,
-        'nil': nil,
-        'cons': cons,
-        'head': head,
-        'tail': tail,
-        'length': length,
-        'singleton': singleton,
-        'revAppend': function(xs, ys) {
-            var out = ys;
-            while (xs !== nil) {
-                out = cons(head(xs), out);
-                xs = tail(xs);
-            }
-            return out;
+        "INSTALL": INSTALL,
+        "TRAP": TRAP,
+        "RETURN": RETURN,
+        "RESUME": RESUME,
+        "BIND_RESUMPTION": BIND_RESUMPTION,
+        "isInstruction": function(inst) {
+            return inst !== (void 0) && inst.hasOwnProperty("kind");
         },
-        'concat': function(xs, ys) {
-            let ws = ys;
-            let vs = nil;
-            let zs = xs;
-            // Copy xs into vs
-            while (zs !== nil) {
-                vs = cons(head(zs), vs);
-                zs = tail(zs);
-            }
-            // Copy vs onto ys (safe to share ys between (xs ++ ys) and ys)
-            while (vs !== nil) {
-                ws = cons(head(vs), ws);
-                vs = tail(vs);
-            }
-            return ws;
+        "match": function(inst) {
+            return inst !== (void 0) && inst.hasOwnProperty("kind") ? inst.kind : (function() { throw "error: cannot match on non-instruction"; })();
         },
-        'match': function(xs) {
-            return xs.size === 0 ? NIL : CONS;
+        "make": make,
+        "setTrapPoint": function(handler) {
+            return make(INSTALL, {"handler": handler});
         },
-    }
-}());
-
-// Machine for generators and iterators
-function isGenerator(obj){
-    return String(obj) === '[object Generator]'
-}
-
-function isCommand(obj) {
-    return obj !== undefined && obj.hasOwnProperty("command");
-}
-
-function makeOperation(label, arg) {
-    return {"kind": "op", "label": label, "arg": arg};
-}
-
-function isOperation(obj) {
-    return isCommand(obj.value) && obj.value.command === "perform";
-}
-
-function isReturn(obj) {
-    return isCommand(obj) && obj.command === "return";
-}
-
-function setTrapPoint(h) {
-    return {'command': 'install', 'handler': h};
-}
-
-function* identityHandler(f) {
-    let result = yield setTrapPoint(f());
-
-    while (!result.done) {
-        // if (isGenerator(result.value)) {
-        //     let x = yield {'command': 'augment', 'frame': result.value};
-        //     result = it.next(x);
-        // } else if (isOperation(result.value)) {
-        //     let x = yield {'command': 'forward', 'data': result.value};
-        //     result = it.next(x);
-        // } else if (isCommand(result.value)) {
-        //     let x = yield result.value;
-        //     result = it.next(x);
-        // } else { // value yielded
-        //     let x = yield {'command': 'return', 'data': result.value};
-        //     result = it.next(x);
-        // }
-        result = yield result.value;
-    }
-    return result;
-}
-
-var _K = (function() {
-    function makeContinuationFrame(handler, frames) {
-        return {'handler': handler, 'frames': frames};
-    }
-
-    return {
-        'empty': _List.nil,
-        'augment': function(kappa, it) {
-            let k;
-            switch (_List.match(kappa)) {
-            case _List.NIL:
-                k = List.cons({'handler': identityHandler, 'frames': List.cons(it, _List.nil)}, _List.nil);
-                break;
-            case _List.CONS:
-                const {handler, frames} = List.head(kappa);
-                k = List.cons(makeContinuationFrame(handler, List.cons(it, frames)), _List.tail(kappa));
-                break;
-            }
-            return k;
+        "value": function(value) {
+            return make(RETURN, {"value": value});
         },
-        'setTrapPoint': function(kappa, it) {
-            const top = makeContinuationFrame(it, _List.nil);
-            return _List.cons(top, kappa);
+        "trap": function(label, arg) {
+            return make(TRAP, {"label": label, "argument": arg});
         },
-        'compose': function(kappa0, kappa1) {
-            return _List.concat(kappa0, kappa1);
+        "resume": function(resumption, argument) {
+            // console.log("RESUME INST " + JSON.stringify(resumption));
+            return make(RESUME, {"resumption": resumption, "argument": argument});
         },
-        'popFrame': function(kappa) {
-            switch (List.match(kappa)) {
-            case _List.NIL:
-                throw "Empty continuation";
-                break;
-            case _List.CONS:
-                const {handler, frames} = List.head(kappa);
-                k = List.cons(makeContinuationFrame(handler, List.cons(it, frames)), _List.tail(kappa));
-                break;
-            }
-            const top = makeContinuationFrame(handler, _List.cons(it, frames));
-            return _List.cons(top, _List.tail(kappa));
+        "bindResumption": function() {
+            return make(BIND_RESUMPTION);
         }
     };
 })();
 
-function run(f) {
-    var kappa = [{"handler": absurd, "frames": []}];
-    var cur = f();
-    var cur_is_handler = false;
-    var result = cur.next();
-    var resumption = [];
-    // Machine loop
-    while (true) {
-        //console.log(isGenerator(result.value));
-        if (isGenerator(result.value)) {
-            if (kappa.length > 0) {
-                const {handler, frames} = kappa.pop();
-                if (!cur_is_handler)
-                    frames.push(cur);
-                else
-                    cur_is_handler = false;
-                kappa.push({"handler": handler, "frames": frames});
-                cur = result.value;
-                //console.log(result.value);
-                result = result.value.next();
-            } else {
-                throw "Empty continuation stack";
-            }
-        } else if (isCommand(result.value)) {
-            //console.log("IS COMMAND");
-            //console.log(JSON.stringify(result.value));
-            if (result.value.command === "install") {
-                kappa.push({"handler": result.value.handler, "frames": []});
-                result = cur.next({});
-            } else if (result.value.command === "perform") {
-                const {handler, frames} = kappa.pop();
-                frames.push(cur);
-                resumption.push({"handler": handler,"frames":frames});
-                cur = handler(result);
-                result = cur.next();
-                cur_is_handler = true;
-            } else if (result.value.command === "resume") {
-                //console.log("Resume: " + JSON.stringify(resumption) + JSON.stringify(kappa));
-                kappa = kappa.concat(result.value.resumption.reverse());
-                const {handler, frames} = kappa.pop();
-                //console.log("frames: " + frames.length);
-                cur = frames.pop();
-                kappa.push({"handler":handler, "frames": frames});
-                result = cur.next(result.value.argument);
-            } else if (result.value.command === "bind_resume") {
-                result = cur.next(function(x) { return {"command": "resume", "resumption": resumption, "argument": x}; });
-                resumption = [];
-            } else {
-                throw "Unknown command";
-            }
-        } else { // value
-            const resumeVal = result.value;
-            //console.log("Continuing with " + resumeVal);
-            if (kappa.length > 0) {
-                const {handler, frames} = kappa.pop();
-                //console.log("Frames " + frames.length);
-                if (frames.length > 0) {
-                    cur = frames.pop();
-                    kappa.push({"handler": handler, "frames": frames});
-                    if (cur.done) continue;
-                    result = cur.next(resumeVal);
-                } else {
-                    //console.log("Invoking return " + resumeVal);
-                    cur = handler({"command": "return", "value": resumeVal});
-                    cur_is_handler = true;
-                    result = cur.next();
-                }
-            } else {
-                return resumeVal;
-            }
+class PureContinuation {
+    constructor() {
+        this._frames = [];
+    }
+
+    // Number of frames that the continuation contains
+    get length() {
+        return this._frames.length;
+    }
+
+    // Pops a frame from the continuation
+    pop() {
+        if (this.length > 0)
+            return this._frames.pop();
+        else
+            throw "Empty pure continuation";
+    }
+
+    // Pushes a frame onto the continuation
+    push(f) {
+        this._frames.push(f);
+    }
+}
+PureContinuation.prototype._frames = [];
+
+class ContinuationFrame {
+    constructor(handler, pureCont = new PureContinuation()) {
+        if (handler === (void 0) || handler === null)
+            throw "null handler";
+        this._handler = handler;
+        this._pureCont = pureCont;
+    }
+
+    get pureContinuation() { return this._pureCont; }
+    get handler() { return this._handler; }
+}
+ContinuationFrame.prototype._handler = null;
+ContinuationFrame.prototype._pureCont = null;
+
+class ZipperContinuation {
+    constructor() {
+        this._active = [];
+        this._passive = [];
+    }
+
+    // Number of active continuation frames
+    get activeLength() {
+        return this._active.length;
+    }
+
+    get passiveLength() {
+        return this._passive.length;
+    }
+
+    // A pointer to the current pure continuation
+    get pureContinuation() {
+        const len = this.activeLength;
+        if (len > 0) {
+            return this._active[len - 1].pureContinuation;
+        } else {
+            throw "empty continuation";
         }
     }
-    return result;
+
+    // A pointer to the current handler
+    get handler() {
+        const len = this.activeLength;
+        if (len > 0)
+            return this._active[len - 1].handler;
+        else
+            throw "empty continuation";
+    }
+
+    // Installs a new handler on the front
+    setTrapPoint(handler) {
+        this._active.push(new ContinuationFrame(handler, new PureContinuation()));
+    }
+
+    // Pops a continuation frame to the back
+    unwind() {
+        if (this.activeLength > 0) {
+            const f = this._active.pop();
+            this._passive.push(f);
+        } else {
+            throw "empty continuation";
+        }
+    }
+
+    // Pops an active continuation frame
+    pop() {
+        if (this.activeLength > 0)
+            return this._active.pop();
+        else
+            throw "empty continuation";
+    }
+
+    // Makes a list of passive frames active, by reverse appending them onto the current list of active frames
+    activatePassives(fs) {
+        this._active = this._active.concat(fs.reverse());
+    }
+
+    // Reify passive continuation frames
+    popPassives() {
+        const passive = this._passive;
+        this._passive = [];
+        return passive;
+    }
+
 }
+ZipperContinuation.prototype._active = [];
+ZipperContinuation.prototype._passive = [];
+
+const _CK = (function() {
+    const isGenerator = function(g) {
+        return String(g) === '[object Generator]'
+    };
+
+    return {
+        "run": function(f) {
+            let kappa = new ZipperContinuation();
+            kappa.setTrapPoint(absurd);
+            let cur = f();
+            let cur_is_handler = false;
+            let result = cur.next();
+            // Machine loop
+            while (true) {
+                //console.log(isGenerator(result.value));
+                if (isGenerator(result.value)) {
+                    if (!cur_is_handler)
+                        kappa.pureContinuation.push(cur);
+                    else
+                        cur_is_handler = false;
+                    cur = result.value;
+                    //console.log(result.value);
+                    result = cur.next();
+                } else if (_Inst.isInstruction(result.value)) {
+                    const inst = result.value;
+                    //console.log("IS COMMAND");
+                    // console.log(JSON.stringify(result.value));
+                    switch (_Inst.match(inst)) {
+                    case _Inst.INSTALL:
+                        kappa.setTrapPoint(inst.data.handler);
+                        result = cur.next({});
+                        break;
+                    case _Inst.TRAP: {
+                        kappa.pureContinuation.push(cur);
+                        const handler = kappa.handler;
+                        kappa.unwind();
+                        cur = handler(inst);
+                        cur_is_handler = true;
+                        result = cur.next();
+                        break;
+                    }
+                    case _Inst.RESUME: {
+                        // console.log("Resume: " + JSON.stringify(inst.data.resumption));
+                        // console.log(JSON.stringify(kappa));
+                        kappa.pureContinuation.push(cur);
+                        kappa.activatePassives(inst.data.resumption);
+                        // console.log("frames: " + frames.length);
+                        cur = kappa.pureContinuation.pop();
+                        cur_is_handler = false;
+                        result = cur.next(inst.data.argument);
+                        break;
+                    }
+                    case _Inst.BIND_RESUMPTION: {
+                        //JSON.stringify(resumption);
+                        const frames = kappa.popPassives();
+                        result = cur.next(function(x) { return _Inst.resume(frames, x); });
+                        break;
+                    }
+                    default:
+                        throw "error: unknown instruction " + JSON.stringify(inst);
+                    }
+                } else { // value
+                    const resumeVal = result.value;
+                    //console.log("Continuing with " + resumeVal);
+                    if (kappa.activeLength > 0) {
+                        if (kappa.pureContinuation.length > 0) {
+                            cur = kappa.pureContinuation.pop();
+                            if (cur.done) continue;
+                            result = cur.next(resumeVal);
+                        } else {
+                            const handler = kappa.handler;
+                            kappa.pop();
+                            cur = handler(_Inst.value(resumeVal));
+                            cur_is_handler = true;
+                            result = cur.next();
+                        }
+                    } else {
+                        return resumeVal;
+                    }
+                }
+            }
+            return result;
+        }
+    };
+})();
 
 function* count(n) {
     console.log(n);
@@ -233,11 +244,11 @@ function* count(n) {
 }
 
 function* count2() {
-    const n = yield {"command": "perform", "op": {"label": "Get", "value": {}}};
+    const n = yield _Inst.trap("Get", {});
     console.log(n);
     if (n <= 0) return n;
     else {
-        yield {"command": "perform", "op": {"label": "Put", "value": n-1}};
+        yield _Inst.trap("Put", n-1);
         return yield count2();
     }
 }
@@ -252,21 +263,22 @@ function resume(x) {
 
 function* state(s, f) {
     var st = s;
-    function* _handle(result) {
-        //console.log("HANDLING: " + JSON.stringify(result));
-        if (isReturn(result)) {
-            return result.value;
-        } else if (isOperation(result)) {
-            switch (result.value.op.label) {
+    let i = 0;
+    function* _handle(inst) {
+        switch (_Inst.match(inst)) {
+        case _Inst.RETURN:
+            return inst.data.value;
+        case _Inst.TRAP:
+            switch (inst.data.label) {
             case "Get": {
-                const resume = yield bindresume();
+                const resume = yield _Inst.bindResumption();
                 let res = yield resume(st);
                 return res;
                 break;
             }
             case "Put": {
-                let p = result.value.op.value;
-                const resume = yield bindresume();
+                let p = inst.data.argument;
+                const resume = yield _Inst.bindResumption();
                 st = p;
                 let res = yield resume({});
                 return res;
@@ -275,30 +287,34 @@ function* state(s, f) {
             default:
                 throw "Forwarding";
             }
-        } else {
-            console.log(JSON.stringify(result));
-            throw "Unknown";
+        default:
+            throw "error: unknown handler instruction " + JSON.stringify(result);
         }
     }
-    yield setTrapPoint(_handle);
+    yield _Inst.setTrapPoint(_handle);
     return yield f();
 }
 
-function* absurd(result) {
+function* absurd(inst) {
     //console.log("absurd result: " + JSON.stringify(result));
     // let result = yield setTrapPoint(f);
-    if (isOperation(result)) throw "Unhandled operation";
-    else if (isReturn(result)) {
-        //console.log("Returning absurd");
-        return result.value;
+    switch (_Inst.match(inst)) {
+    case _Inst.RETURN:
+        return inst.data.value;
+    case _Inst.TRAP:
+        throw "Unhandled operation " + inst.data.label;
+    default:
+        throw "error: unknown handler instruction " + JSON.stringify(inst);
     }
-    else throw "I don't know what to do!";
 }
 
 
 //var f = function*() { return yield count(300000); };
 //var f = function*() { return yield count(30000); };
-var f = function*() { return yield state(10000000, count2); };
-var x = run(f);
-print(JSON.stringify(x));
+var f = function*() { return yield state(1000, count2); };
+// function _run() {
+    var x = _CK.run(f);
+    print(JSON.stringify(x));
+    // return;
+// }
 
