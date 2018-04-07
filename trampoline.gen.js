@@ -237,6 +237,25 @@ const _CK = (function() {
     };
 })();
 
+const _Handle = (function() {
+    return {
+        "make": function(val, eff) {
+            return function* _handle(inst) {
+                switch (_Inst.match(inst)) {
+                case _Inst.RETURN:
+                    return val(inst.data.value);
+                    break;
+                case _Inst.TRAP:
+                    return eff(inst.data);
+                    break;
+                default:
+                    throw "error: unknown handler instruction";
+                }
+            }
+        }
+    };
+})();
+
 function* count(n) {
     console.log(n);
     if (n <= 0) return n;
@@ -295,18 +314,19 @@ function* state(s, f) {
     return yield f();
 }
 
-function* absurd(inst) {
-    //console.log("absurd result: " + JSON.stringify(result));
-    // let result = yield setTrapPoint(f);
-    switch (_Inst.match(inst)) {
-    case _Inst.RETURN:
-        return inst.data.value;
-    case _Inst.TRAP:
-        throw "Unhandled operation " + inst.data.label;
-    default:
-        throw "error: unknown handler instruction " + JSON.stringify(inst);
-    }
-}
+// function* absurd(inst) {
+//     //console.log("absurd result: " + JSON.stringify(result));
+//     // let result = yield setTrapPoint(f);
+//     switch (_Inst.match(inst)) {
+//     case _Inst.RETURN:
+//         return inst.data.value;
+//     case _Inst.TRAP:
+//         throw "Unhandled operation " + inst.data.label;
+//     default:
+//         throw "error: unknown handler instruction " + JSON.stringify(inst);
+//     }
+// }
+const absurd = _Handle.make(x => x, op => { throw "Unhandled operation " + op.label; });
 
 function* printer(f) {
     function* _handle(inst) {
@@ -334,10 +354,30 @@ function* printer(f) {
     return yield f();
 }
 
+function* printer2(f) {
+    const eff = function*(op) {
+        switch (op.label) {
+        case "Print": {
+            const p = op.argument;
+            const resume = yield _Inst.bindResumption();
+            console.log(p);
+            return yield resume({});
+        }
+        default:
+            return yield _Inst.trap(inst.data.label, inst.data.argument);
+        }
+    };
+
+    const val = function*(x) { return [x]; };
+
+    yield _Inst.setTrapPoint(_Handle.make(val, eff));
+    return yield f();
+}
+
 
 //var f = function*() { return yield count(300000); };
 //var f = function*() { return yield count(30000); };
-var f = function*() { return yield printer(function*(){ return yield state(100000, count2); }); };
+var f = function*() { return yield printer2(function*(){ return yield state(100000, count2); }); };
 // function _run() {
     var x = _CK.run(f);
     print(JSON.stringify(x));
