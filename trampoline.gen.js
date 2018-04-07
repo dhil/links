@@ -245,7 +245,7 @@ function* count(n) {
 
 function* count2() {
     const n = yield _Inst.trap("Get", {});
-    console.log(n);
+    yield _Inst.trap("Print", n);
     if (n <= 0) return n;
     else {
         yield _Inst.trap("Put", n-1);
@@ -285,7 +285,7 @@ function* state(s, f) {
                 break;
             }
             default:
-                throw "Forwarding";
+                return yield _Inst.trap(inst.data.label, inst.data.argument);
             }
         default:
             throw "error: unknown handler instruction " + JSON.stringify(result);
@@ -308,10 +308,36 @@ function* absurd(inst) {
     }
 }
 
+function* printer(f) {
+    function* _handle(inst) {
+        switch (_Inst.match(inst)) {
+        case _Inst.RETURN:
+            return [inst.data.value];
+            break;
+        case _Inst.TRAP:
+            switch (inst.data.label) {
+            case "Print": {
+                const p = inst.data.argument;
+                const resume = yield _Inst.bindResumption();
+                console.log(p);
+                return yield resume({});
+            }
+            default:
+                return yield _Inst.trap(inst.data.label, inst.data.argument);
+            }
+        default:
+            throw "error: unknown handler instruction";
+        }
+    }
+
+    yield _Inst.setTrapPoint(_handle);
+    return yield f();
+}
+
 
 //var f = function*() { return yield count(300000); };
 //var f = function*() { return yield count(30000); };
-var f = function*() { return yield state(1000, count2); };
+var f = function*() { return yield printer(function*(){ return yield state(100000, count2); }); };
 // function _run() {
     var x = _CK.run(f);
     print(JSON.stringify(x));
