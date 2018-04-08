@@ -1453,6 +1453,465 @@ module GenIter = struct
       { u with program = prog; includes = u.includes @ dependencies }
 end
 
+(* GenIter trampolined *)
+                   (** Generator / Iterator compiler **)
+module TrampolinedGenIter = struct
+
+  let yield e =
+    Js.(EYield { ykind = `Regular; yexpr = e; })
+
+  let run f =
+    Js.(EApply
+          (EPrim "%CK.run", [f]))
+
+  module Inst = struct
+    open Js
+    let inst = EVar "_Inst"
+    let trap label argument =
+      EApply (EAccess (inst, "trap"),  [label; argument])
+
+    let set_trap_point handler =
+      EApply (EAccess (inst, "setTrapPoint"), [handler])
+
+    let return value =
+      EApply (EAccess (inst, "value"), [value])
+
+    let make_resumption =
+      EApply (EAccess (inst, "bindResumption"), [])
+
+    let forward op =
+      EApply (EAccess (inst, "trap"), [EAccess (op, "label"); EAccess (op, "argument")])
+  end
+
+  let rec generate_program : venv -> Ir.program -> venv * Js.program
+    = fun env (bs,tc) ->
+      let open Js in
+      let env', decls = generate_bindings ~toplevel:true env bs in
+      let body = generate_tail_computation env' tc in
+      let toplevel =
+        let f =
+          EFun {
+              fkind = `Generator;
+              fname = `Anonymous;
+              formal_params = [];
+              body
+            }
+        in
+        SExpr (run f)
+      in
+      env', (decls, toplevel)
+
+  and generate_computation : venv -> Ir.computation -> venv * Js.program
+    = fun env (bs, tc) ->
+    let env', decls = generate_bindings env bs in
+    let (decls', stmt) = generate_tail_computation env' tc in
+    env', (decls @ decls', stmt)
+
+  and generate_bindings : ?toplevel:bool -> venv -> Ir.binding list -> venv * Js.decl list
+    = fun ?(toplevel=false) env ->
+      let open Js in
+      let gv v = generate_value env v in
+      let gbs env bs = generate_bindings ~toplevel env bs in
+      function
+      | `Module _ :: bs -> gbs env bs
+      | `Alien (bnd, raw_name, _lang) :: bs ->
+         let (a, _a_name) = safe_name_binder bnd in
+         let env' = VEnv.bind env (a, raw_name) in
+         gbs env' bs
+      | `Let (b, (_, tc)) :: bs ->
+         let b = safe_name_binder b in
+         let env', decls = gbs (VEnv.bind env b) bs in
+         let expr =
+           match tc with
+           | `Return v -> gv v
+           | tc ->
+              let body = generate_tail_computation env tc in
+              let f =
+                EFun {
+                    fkind = `Generator;
+                    fname = `Anonymous;
+                    formal_params = [];
+                    body }
+              in
+              if toplevel
+              then run f
+              else yield (EApply (f, []))
+         in
+         let decl =
+           DLet {
+               bkind = `Const;
+               binder = snd b;
+               expr }
+         in
+         env', decl :: decls
+      | `Fun ((fb, _, _zs, _location) as def) :: bs->
+         let (f, f_name) = safe_name_binder fb in
+         let env' = VEnv.bind env (f, f_name) in
+         let decl = generate_function env [] def in
+         let env'', decls = gbs env' bs in
+         env'', decl :: decls
+      | `Rec defs :: bs->
+         let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) defs in
+         let env' = List.fold_left VEnv.bind env fs in
+         let defs = List.map (generate_function env fs) defs in
+         let env'', decls = gbs env' bs in
+         env'', defs @ decls
+      | [] -> env, []
+
+  and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
+    = fun env tc ->
+      let open Js in
+      let gv v = generate_value env v in
+      let gc c = snd (generate_computation env c) in
+      match tc with
+      | `Return v ->
+         [], SReturn (gv v)
+      | `Apply (f, vs) ->
+         let f = strip_poly f in
+         begin
+           match f with
+           | `Variable f ->
+              let f_name = VEnv.lookup env f in
+              begin
+                match vs with
+                | [l; r] when Arithmetic.is f_name ->
+                   [], SReturn (Arithmetic.gen ~op:f_name ~args:[gv l; gv r] ())
+                | [l; r] when StringOp.is f_name ->
+                   [], SReturn (StringOp.gen ~op:f_name ~args:[gv l; gv r] ())
+                | [l; r] when Comparison.is f_name ->
+                   [], SReturn (Comparison.gen ~op:f_name ~args:[gv l; gv r] ())
+                | _ ->
+                   if Lib.is_primitive f_name
+                     && Lib.primitive_location f_name <> `Server
+                   then
+                     match f_name, vs with
+                     | "deref", [v] ->
+                        [], SReturn (EAccess (gv v, "_contents"))
+                     | "ref", [v] ->
+                        [], SReturn (EObj [("_contents", gv v)])
+                     | ":=", [r; v] ->
+                        let destructive_update =
+                          EApply (EPrim "%assign", [EAccess (gv r, "_contents"); gv v])
+                        in
+                        [], SSeq (SExpr destructive_update, SReturn (EObj []))
+                     | _ ->
+                        let expr =
+                          try
+                            let args = List.map gv vs in
+                            Functions.gen ~op:f_name ~args ()
+                          with Not_found -> failwith (Printf.sprintf "Unsupported primitive (tc): %s.\n" f_name)
+                        in
+                        [], SReturn expr (* SExpr (EYield { ykind = `Star; yexpr = expr; }) *)
+                   else
+                     (* let x_name = Ident.make ~prefix:"_x" () in *)
+                     (* let x_binding = *)
+                     (*   DLet { *)
+                     (*     bkind = `Const; *)
+                     (*     binder = x_name; *)
+                     (*     expr = EYield { ykind = `Star; yexpr = EApply (gv (`Variable f), List.map gv vs) }; *)
+                     (*   } *)
+                     (* in *)
+                     [], SReturn (yield (EApply (gv (`Variable f), List.map gv vs)))
+                     (* [x_binding], SReturn (EVar x_name) *)
+              end
+           | _ ->
+              [], SReturn (yield (EApply (gv f, List.map gv vs)))
+         end
+      | `Special special ->
+         generate_special env special
+      | `Case (v, cases, default) ->
+         let v = gv v in
+         let scrutineeb = Ident.make ~prefix:"_scrutinee" () in
+         let bind_scrutinee scrutinee =
+           DLet {
+             bkind = `Const;
+             binder = scrutineeb;
+             expr = scrutinee; }
+         in
+         let open Utility in
+         let (decls, prog) =
+           let translate_case (xb, c) =
+             let (x, x_name) = safe_name_binder xb in
+             let value_binding =
+               DLet { bkind = `Const;
+                      binder = Ident.of_string x_name;
+                      expr = EAccess (EVar scrutineeb, "_value"); }
+             in
+             let (_, (decls, stmt)) = generate_computation (VEnv.bind env (x, x_name)) c in
+             value_binding :: decls, stmt
+           in
+           let cases = StringMap.map translate_case cases in
+           let default = opt_map translate_case default in
+           [], SCase (EAccess (EVar scrutineeb, "_label"), cases, default)
+         in
+         decls @ [bind_scrutinee v], prog
+      | `If (v, c1, c2) ->
+         [], SIf (gv v, gc c1, gc c2)
+  and generate_special : venv -> Ir.special -> Js.program
+    = fun env sp ->
+      let open Ir in
+      let open Js in
+      let gv v = generate_value env v in
+      match sp with
+      | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
+      | `DoOperation (name, args, _) ->
+         let box = function
+           | [v] -> gv v
+           | vs -> make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
+         in
+         [], SReturn (yield (Inst.trap (strlit name) (box args)))
+      | `Handle { ih_comp = m; ih_return = return; ih_cases = cases; ih_depth = depth } ->
+         let open Utility in
+         if depth = `Shallow then failwith "Compilation of shallow handlers is currently not supported.";
+         let f =
+           EFun {
+               fname = `Anonymous;
+               fkind = `Generator;
+               formal_params = [];
+               body = snd (generate_computation env m)
+             }
+         in
+         let return =
+           let (xb, body) = return in
+           let xb = safe_name_binder xb in
+           let _, body = generate_computation (VEnv.bind env xb) body in
+           EFun {
+               fkind = `Generator;
+               fname = `Anonymous;
+               formal_params = [Ident.of_string (snd xb)];
+               body
+             }
+         in
+         let returnb = Ident.of_string (Utility.gensym ~prefix:"_return" ()) in
+         let return_decl =
+           DLet {
+               bkind = `Const;
+               binder = returnb;
+               expr = return
+             }
+         in
+         let eff =
+           let case op (xb, rb, body) =
+             let xb = safe_name_binder xb in
+             let rb = safe_name_binder rb in
+             let x_decl =
+               DLet {
+                   bkind = `Const;
+                   binder = snd xb;
+                   expr = EAccess (op, "argument") }
+             in
+             let resume_decl =
+               DLet {
+                   bkind = `Const;
+                   binder = snd rb;
+                   expr = yield Inst.make_resumption }
+             in
+             let env' = VEnv.bind (VEnv.bind env xb) rb in
+             let _, (decls, stmt) = generate_computation env' body in
+             x_decl :: resume_decl :: decls, stmt
+           in
+           let op = Ident.of_string "op" in
+           let cases =
+             StringMap.map (case (EVar op)) cases
+           in
+           let forward =
+             [], SReturn (yield (Inst.forward (EVar op)))
+           in
+           let body = [], SCase (EAccess (EVar op, "label"),
+                                 cases, Some forward)
+           in
+           EFun {
+               fkind = `Generator;
+               fname = `Anonymous;
+               formal_params = [op];
+               body }
+         in
+         let effb = Ident.of_string (Utility.gensym ~prefix:"_eff" ()) in
+         let eff_decl =
+           DLet {
+               bkind = `Const;
+               binder = effb;
+               expr = eff
+             }
+         in
+         let handle = EApply (EAccess (EVar "_Handle", "make"), [EVar returnb; EVar effb]) in
+         let install = SExpr (yield (Inst.set_trap_point handle)) in
+         [return_decl; eff_decl], SSeq (install, SReturn (yield (EApply (f, []))))
+      | _ -> failwith "Unsupported special."
+
+  and generate_value : venv -> Ir.value -> Js.expression
+    = fun env ->
+      let open Js in
+      let open Utility in
+      let gv v = generate_value env v in
+      function
+      | `Constant c ->
+         ELit (
+           match c with
+           | `Int v  -> LInt v
+           | `Float v  -> LFloat v
+           | `Bool v   -> LBool v
+           | `Char v   -> LChar v
+           | `String v -> LString v)
+      | `Variable var ->
+       (* HACK *)
+         let name = VEnv.lookup env var in
+         if Arithmetic.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Generator;
+                  formal_params = [x; y];
+                  body = [], SReturn (Arithmetic.gen ~op:name ~args:[EVar x; EVar y] ()) }
+         else if StringOp.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Generator;
+                  formal_params = [x; y];
+                  body = [], SReturn (StringOp.gen ~op:name ~args:[EVar x; EVar y] ()) }
+         else if Comparison.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Generator;
+                  formal_params = [x; y];
+                  body = [], SReturn (Comparison.gen ~op:name ~args:[EVar x; EVar y] ()) }
+         else if Functions.is name then
+           let rec replicate x = function
+             | 0 -> []
+             | n -> x :: (replicate x (n - 1))
+           in
+           let arity = Functions.arity ~op:name () in
+           let formal_params = List.map (fun _ -> Ident.make ()) (replicate () arity) in
+           let actual_params = List.map (fun i -> EVar i) formal_params in
+           EFun { fname = `Anonymous;
+                  fkind = `Generator;
+                  formal_params = formal_params;
+                  body = [], SReturn (Functions.gen ~op:name ~args:actual_params ()) }
+         else
+           begin match name with
+           | "Nil" -> EPrim "%List.nil"
+           |  _ -> EVar name
+           end
+      | `Extend (field_map, rest) ->
+         let dict =
+           make_dictionary
+             (StringMap.fold
+                (fun name v dict ->
+                  (name, gv v) :: dict)
+                field_map [])
+         in
+         begin
+           match rest with
+           | None -> dict
+           | Some v ->
+              EApply (EPrim "%Record.union", [gv v; dict])
+         end
+      | `Project (name, v) ->
+         EAccess (gv v, name)
+      | `Erase (names, v) ->
+         EApply (EPrim "%Record.erase",
+                 [gv v; make_array (List.map strlit (StringSet.elements names))])
+      | `Inject (name, v, _t) ->
+         make_dictionary [("_label", strlit name); ("_value", gv v)]
+    (* erase polymorphism *)
+      | `TAbs (_, v)
+      | `TApp (v, _) -> gv v
+      | `ApplyPure (f, vs) ->
+         let f = strip_poly f in
+         begin
+           match f with
+           | `Variable f ->
+              let f_name = VEnv.lookup env f in
+              begin
+                match vs with
+                | [l; r] when Arithmetic.is f_name ->
+                   Arithmetic.gen ~op:f_name ~args:[gv l; gv r] ()
+                | [l; r] when StringOp.is f_name ->
+                   StringOp.gen ~op:f_name ~args:[gv l; gv r] ()
+                | [l; r] when Comparison.is f_name ->
+                   Comparison.gen ~op:f_name ~args:[gv l; gv r] ()
+                | _ ->
+                   if Lib.is_primitive f_name
+                     && Lib.primitive_location f_name <> `Server
+                   then
+                     try
+                       Functions.gen ~op:f_name ~args:(List.map gv vs) ()
+                     with Not_found -> failwith (Printf.sprintf "Unsupported primitive (val): %s.\n" f_name)
+                   else
+                     EApply (gv (`Variable f), (List.map gv vs))
+              end
+           | _ ->
+              EApply (gv f, List.map gv vs)
+         end
+      | `Closure (f, v) ->
+         EApply (EPrim "%Closure.apply", [gv (`Variable f); gv v]) (* The closure needs to be generator? *)
+      | `Coerce (v, _) ->
+         gv v
+      | _ -> failwith "Unsupported value."
+
+  and generate_function : venv -> (Var.var * string) list -> Ir.fun_def -> Js.decl =
+    fun env fs (fb, (_, xsb, body), zb, location) ->
+      let open Js in
+      let (_f, f_name) = safe_name_binder fb in
+      assert (f_name <> "");
+      (* prerr_endline ("f_name: "^f_name); *)
+      (* optionally add an additional closure environment argument *)
+      let xsb =
+        match zb with
+        | None -> xsb
+        | Some zb -> zb :: xsb
+      in
+      let bs = List.map safe_name_binder xsb in
+      let _xs, xs_names = List.split bs in
+      let body_env = List.fold_left VEnv.bind env (fs @ bs) in
+      let body =
+        match location with
+        | `Client | `Unknown ->
+           snd (generate_computation body_env body)
+        | _ -> failwith "Only client side calls are supported."
+      in
+      (* let body = *)
+      (*   (\* HACK to ensure that *)
+      (*      [[fun get() {do Get}]] *)
+      (*     = *)
+      (*      function* get() { return yield {"_label":"Get", "_value": ... } } *)
+      (*   *\) *)
+      (*   match body with *)
+      (*   | (bs, SExpr ((EYield _) as yield)) -> *)
+      (*      (bs, SReturn yield) *)
+      (*   | _ -> body *)
+      (* in *)
+      DFun {
+        fname = `Named (Ident.of_string f_name);
+        fkind = `Generator;
+        formal_params = (List.map Ident.of_string xs_names);
+        body; }
+
+
+  let compile : comp_unit -> prog_unit
+    = fun u ->
+      let open Js in
+      let (_nenv, venv, tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
+      let prog = Ir.EtaTailDos.program tenv u.program in
+      let (_,prog) = generate_program venv prog in
+      let prog =
+        match prog with
+        | decls, stmt ->
+           let mode =
+             DLet {
+               bkind = `Const;
+               binder = Ident.of_string "_mode";
+               expr = ELit (LString "GENITER");
+             }
+           in
+           mode :: decls, stmt
+      in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "performance.js"; "geniter.js"] in
+      { u with program = prog; includes = u.includes @ dependencies }
+end
+
 (** CEK compiler **)
 module CEK = struct
 
@@ -3394,7 +3853,7 @@ module Compiler =
       | "cps" ->
          (module CPS : JS_COMPILER)
       | "geniter" ->
-         (module GenIter : JS_COMPILER)
+         (module TrampolinedGenIter : JS_COMPILER)
       | "cek" ->
          (module CEK : JS_COMPILER)
       | "stackinspection" ->
