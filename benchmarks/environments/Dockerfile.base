@@ -1,0 +1,6 @@
+# An image with various build packages that we'll need to build everything else
+
+FROM debian:sid
+
+RUN apt-get update
+RUN apt-get install --yes wget git subversion python pkg-config clang make cmake opam libicu-dev g++ lsb-release sudo
