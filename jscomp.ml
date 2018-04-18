@@ -3486,113 +3486,238 @@ module StackInspection = struct
          [], SThrow (ENew (EApply (EVar "PerformOperationError", [op])))
       | `Handle { Ir.ih_comp = m; Ir.ih_return = return; Ir.ih_cases = cases; Ir.ih_depth = depth } ->
          if depth = `Shallow then failwith "Compilation of shallow handlers is not supported.";
-         let comp_name = Ident.of_string (gensym ~prefix:"_f" ()) in
-         let tryhandle result_binder handle_name eff_cases return : Js.statement =
-          let exn = Ident.of_string (gensym ~prefix:"_exn" ()) in
-          let op = EAccess (EVar exn, "op") in
-          let resume_binder, resume_decl =
-            let binder = gensym ~prefix:"_resume" () in
-            binder, DLet {
-                        bkind = `Const;
-                        binder = binder;
-                        expr = EApply (EAccess (EVar "_Resumption", "makeDeep"), [EVar exn; EVar handle_name]) }
-          in
-          let forward =
-            let new_handle_frame = ENew (EApply (EVar "GenericHandleFrame", [EVar handle_name])) in
-            let exn = EVar exn in
-            let instantiate = SExpr (EApply (EAccess (exn, "continuation.instantiateTrapPoint"), [new_handle_frame])) in
-            let new_trap = SExpr (EApply (EAccess (exn, "continuation.setAbstractTrapPoint"), [])) in
-            [], SSeq (instantiate, SSeq (new_trap, SThrow exn))
-          in
-          let cases = eff_cases op (EApply (EAccess (EVar "_Resumption", "makeDeep"), [EVar exn; EVar handle_name])) in
-          let body =
-            [], SAssign (result_binder, EApply (EVar comp_name, []))
-          in
-          STry (body, Some (exn,
-                            ([], SIf (EApply (EPrim "%instanceof",
-                                              [EVar exn; EVar "PerformOperationError"]),
-                                      ([], SCase (EAccess (op, "_label"), cases, Some forward)),
-                                      ([], SIf (EApply (EPrim "%instanceof",
-                                                        [EVar exn; EVar "SaveContinuationError"]),
-                                                forward,
-                                                ([], SThrow (EVar exn))))))))
-        in
-        let m_name, m_decl =
-          let m_name = Ident.of_string (gensym ~prefix:"_comp" ()) in
-          m_name, DLet {
-                      bkind = `Const;
-                      binder = m_name;
-                      expr =
-                        EFun {
-                            fkind = `Regular;
-                            fname = `Anonymous;
-                            formal_params = [];
-                            body = snd (generate_computation env m) }
-                    }
-        in
-        let ident_of_var v = Printf.sprintf "_%d" v in
-        let return_decl, return =
-          let xb = fst return in
-          let (liveness : continuation_point) = IntMap.find (Var.var_of_binder xb) !liveness_map in
-          let live_names = List.map ident_of_var (IntSet.to_list liveness.after) in
-          let xb' = safe_name_binder xb in
-          let fname = Ident.of_string (gensym ~prefix:"_value" ()) in
-          let decl =
-            DLet {
-                bkind = `Const;
-                binder = fname;
-                expr =
-                  EFun {
-                      fkind = `Regular;
-                      fname = `Anonymous;
-                      formal_params = snd xb' :: live_names;
-                      body = snd (generate_computation (VEnv.bind env xb') (snd return))
-              } }
-          in
-          decl, (fun result -> EApply (EVar fname, result :: (List.map (fun v -> EVar v) live_names)))
-        in
-        let cases op resume =
-          StringMap.fold
-            (fun label (xb, rb, body) acc ->
-              let xb', rb' = safe_name_binder xb, safe_name_binder rb in
-              let env' = VEnv.bind (VEnv.bind env xb') rb' in
-              let xdecl =
-                DLet {
-                  bkind = `Const;
-                  binder = snd (xb');
-                  expr = EAccess (EAccess (op, "_value"), "p")
-                }
-              in
-              let rdecl =
-                DLet {
-                  bkind = `Const;
-                  binder = snd (rb');
-                  expr = resume
-                }
-              in
-              let _, (decls,stmt) = generate_computation env' body in
-              let comp = (xdecl :: rdecl :: decls, stmt) in
-              StringMap.add label comp acc)
-            cases StringMap.empty
-        in
-        let handle_name = Ident.of_string (gensym ~prefix:"_handle" ()) in
-        let result = gensym ~prefix:"_result" () in
-        let result_decl =
-            DLet {
-                bkind = `Let;
-                binder = result;
-                expr = EVar "undefined";
-              }
-          in
-        let handle_decl =
-          DFun {
-              fkind = `Regular;
-              fname = `Named handle_name;
-              formal_params = [comp_name];
-              body = [result_decl], SSeq (tryhandle result handle_name cases return, SReturn (return (EVar result)))
-            }
-        in
-        [m_decl; return_decl; handle_decl], SReturn (EApply (EVar handle_name, [EVar m_name]))
+         let new_handle_frame value trap =
+           ENew (EApply (EVar "GenericHandleFrame", [value; trap]))
+         in
+         let instantiate_trap, set_abstract_trap =
+           let get_cont exn =
+             EAccess (exn, "continuation")
+           in
+           (fun exn value trap ->
+             EApply (EAccess (get_cont exn, "instantiateTrapPoint"), [new_handle_frame value trap])),
+           (fun exn ->
+             EApply (EAccess (get_cont exn, "setAbstractTrapPoint"), []))
+         in
+         let forward exn value trap =
+           ([], SSeq (SExpr (instantiate_trap exn value trap),
+                      SSeq (SExpr (set_abstract_trap exn),
+                            SThrow exn)))
+         in
+         let install_trap m trap value =
+           let result = Ident.of_string (gensym ~prefix:"_result" ()) in
+           let result_decl =
+             DLet {
+                 bkind = `Let;
+                 binder = result;
+                 expr = EVar "undefined" }
+           in
+           let exn_name = Ident.of_string (gensym ~prefix:"_exn" ()) in
+           let exn = EVar exn_name in
+           ([result_decl], SSeq
+                             (STry (([], SAssign (result, m)),
+                                    Some (exn_name,
+                                          ([], SIf (EApply (EPrim "%instanceof",
+                                                            [exn; EVar "PerformOperationError"]),
+                                                    ([], SReturn (EApply (trap, [exn]))),
+                                                    ([], SIf (EApply (EPrim "%instanceof",
+                                                                      [exn; EVar "SaveContinuationError"]),
+                                                              forward exn value trap,
+                                                              ([], SThrow exn))))))),
+                              SReturn (EApply (value, [EVar result]))))
+         in
+         let value_decl, value =
+           let (xb, body) = return in
+           let xb' = safe_name_binder xb in
+           let valueb = Ident.of_string (gensym ~prefix:"_value" ()) in
+           let decl =
+             DLet {
+                 bkind = `Const;
+                 binder = valueb;
+                 expr =
+                   EFun {
+                       fkind = `Regular;
+                       fname = `Anonymous;
+                       formal_params = [snd xb'];
+                       body = snd (generate_computation (VEnv.bind env xb') body)
+                     }
+               }
+           in
+           decl, EVar valueb
+         in
+         let trap_decl, trap =
+           let exn = Ident.of_string (gensym ~prefix:"_exn" ()) in
+           let trapb = Ident.of_string (gensym ~prefix:"_trap" ()) in
+           let trapb' = Ident.of_string (gensym ~prefix:"_trap_self" ()) in
+           let op = EAccess (EVar exn, "op") in
+           let cases =
+             StringMap.fold
+               (fun label (xb, rb, body) acc ->
+                 let xb', rb' = safe_name_binder xb, safe_name_binder rb in
+                 let env' = VEnv.bind (VEnv.bind env xb') rb' in
+                 let xdecl =
+                   DLet {
+                       bkind = `Const;
+                       binder = snd (xb');
+                       expr = EAccess (EAccess (op, "_value"), "p")
+                     }
+                 in
+                 let rdecl =
+                   DLet {
+                       bkind = `Const;
+                       binder = snd (rb');
+                       expr = EApply (EAccess (EVar "_Resumption", "makeDeep"), [EVar exn; value; EVar trapb'])
+                     }
+                 in
+                 let _, (decls,stmt) = generate_computation env' body in
+                 let comp = (xdecl :: rdecl :: decls, stmt) in
+                 StringMap.add label comp acc)
+               cases StringMap.empty
+           in
+           let trap_body =
+             ([],
+              SIf (EApply (EPrim "%instanceof", [EVar exn; EVar "PerformOperationError"]),
+                   ([], SCase (EAccess (op, "_label"),
+                               cases,
+                               Some (forward (EVar exn) value (EVar trapb')))),
+                   ([], SIf (EApply (EPrim "%instanceof", [EVar exn; EVar "SaveContinuationError"]),
+                             (forward (EVar exn) value (EVar trapb')),
+                             ([], SThrow (EVar exn))))))
+           in
+           let decl =
+             DLet {
+                 bkind = `Const;
+                 binder = trapb;
+                 expr =
+                   EFun {
+                       fkind = `Regular;
+                       fname = `Named trapb';
+                       formal_params = [exn];
+                       body = trap_body
+                     }
+               }
+           in
+           decl, EVar trapb
+         in
+         let comp =
+           let thunk =
+             EFun {
+                 fkind = `Regular;
+                 fname = `Anonymous;
+                 formal_params = [];
+                 body = snd (generate_computation env m) }
+           in
+           EApply (thunk, [])
+         in
+         let (decls, stmt) = install_trap comp trap value in
+         value_decl :: trap_decl :: decls, stmt
+         (* (\** **\)
+         *  let comp_name = Ident.of_string (gensym ~prefix:"_f" ()) in
+         *  let tryhandle result_binder handle_name eff_cases return : Js.statement =
+         *   let exn = Ident.of_string (gensym ~prefix:"_exn" ()) in
+         *   let op = EAccess (EVar exn, "op") in
+         *   let resume_binder, resume_decl =
+         *     let binder = gensym ~prefix:"_resume" () in
+         *     binder, DLet {
+         *                 bkind = `Const;
+         *                 binder = binder;
+         *                 expr = EApply (EAccess (EVar "_Resumption", "makeDeep"), [EVar exn; EVar handle_name]) }
+         *   in
+         *   let forward =
+         *     let new_handle_frame = ENew (EApply (EVar "GenericHandleFrame", [EVar handle_name])) in
+         *     let exn = EVar exn in
+         *     let instantiate = SExpr (EApply (EAccess (exn, "continuation.instantiateTrapPoint"), [new_handle_frame])) in
+         *     let new_trap = SExpr (EApply (EAccess (exn, "continuation.setAbstractTrapPoint"), [])) in
+         *     [], SSeq (instantiate, SSeq (new_trap, SThrow exn))
+         *   in
+         *   let cases = eff_cases op (EApply (EAccess (EVar "_Resumption", "makeDeep"), [EVar exn; EVar handle_name])) in
+         *   let body =
+         *     [], SAssign (result_binder, EApply (EVar comp_name, []))
+         *   in
+         *   STry (body, Some (exn,
+         *                     ([], SIf (EApply (EPrim "%instanceof",
+         *                                       [EVar exn; EVar "PerformOperationError"]),
+         *                               ([], SCase (EAccess (op, "_label"), cases, Some forward)),
+         *                               ([], SIf (EApply (EPrim "%instanceof",
+         *                                                 [EVar exn; EVar "SaveContinuationError"]),
+         *                                         forward,
+         *                                         ([], SThrow (EVar exn))))))))
+         * in
+         * let m_name, m_decl =
+         *   let m_name = Ident.of_string (gensym ~prefix:"_comp" ()) in
+         *   m_name, DLet {
+         *               bkind = `Const;
+         *               binder = m_name;
+         *               expr =
+         *                 EFun {
+         *                     fkind = `Regular;
+         *                     fname = `Anonymous;
+         *                     formal_params = [];
+         *                     body = snd (generate_computation env m) }
+         *             }
+         * in
+         * let ident_of_var v = Printf.sprintf "_%d" v in
+         * let return_decl, return =
+         *   let xb = fst return in
+         *   let (liveness : continuation_point) = IntMap.find (Var.var_of_binder xb) !liveness_map in
+         *   let live_names = List.map ident_of_var (IntSet.to_list liveness.after) in
+         *   let xb' = safe_name_binder xb in
+         *   let fname = Ident.of_string (gensym ~prefix:"_value" ()) in
+         *   let decl =
+         *     DLet {
+         *         bkind = `Const;
+         *         binder = fname;
+         *         expr =
+         *           EFun {
+         *               fkind = `Regular;
+         *               fname = `Anonymous;
+         *               formal_params = snd xb' :: live_names;
+         *               body = snd (generate_computation (VEnv.bind env xb') (snd return))
+         *       } }
+         *   in
+         *   decl, (fun result -> EApply (EVar fname, result :: (List.map (fun v -> EVar v) live_names)))
+         * in
+         * let cases op resume =
+         *   StringMap.fold
+         *     (fun label (xb, rb, body) acc ->
+         *       let xb', rb' = safe_name_binder xb, safe_name_binder rb in
+         *       let env' = VEnv.bind (VEnv.bind env xb') rb' in
+         *       let xdecl =
+         *         DLet {
+         *           bkind = `Const;
+         *           binder = snd (xb');
+         *           expr = EAccess (EAccess (op, "_value"), "p")
+         *         }
+         *       in
+         *       let rdecl =
+         *         DLet {
+         *           bkind = `Const;
+         *           binder = snd (rb');
+         *           expr = resume
+         *         }
+         *       in
+         *       let _, (decls,stmt) = generate_computation env' body in
+         *       let comp = (xdecl :: rdecl :: decls, stmt) in
+         *       StringMap.add label comp acc)
+         *     cases StringMap.empty
+         * in
+         * let handle_name = Ident.of_string (gensym ~prefix:"_handle" ()) in
+         * let result = gensym ~prefix:"_result" () in
+         * let result_decl =
+         *     DLet {
+         *         bkind = `Let;
+         *         binder = result;
+         *         expr = EVar "undefined";
+         *       }
+         *   in
+         * let handle_decl =
+         *   DFun {
+         *       fkind = `Regular;
+         *       fname = `Named handle_name;
+         *       formal_params = [comp_name];
+         *       body = [result_decl], SSeq (tryhandle result handle_name cases return, SReturn (return (EVar result)))
+         *     }
+         * in
+         * [m_decl; return_decl; handle_decl], SReturn (EApply (EVar handle_name, [EVar m_name])) *)
       | _ -> failwith "Unsupported special."
 
   and generate_value : venv -> Ir.value -> Js.expression

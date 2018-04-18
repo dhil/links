@@ -510,7 +510,8 @@ and expression : Js.expression -> CodeGen.js
   | EFun { fname = `Anonymous; fkind; formal_params; body } ->
      let open CodeGen in
      Expr.anon_fun fkind formal_params (program' body)
-  | EFun _ -> assert false
+  | EFun { fname = `Named binder; fkind; formal_params; body } ->
+     CodeGen.Decl.fun_binding fkind binder formal_params (program' body)
   | EApply (EPrim p, args) ->
      let open CodeGen.Prim in
      let open CodeGen.Expr in
