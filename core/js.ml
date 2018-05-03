@@ -127,10 +127,11 @@ type literal =
   | LFloat of float
   | LString of string
   | LChar of char
-      deriving (Show)
+      [@@deriving show]
 
 module LitMap = Map.Make(struct
   type t = literal
+    [@@deriving show]
   let compare a b =
     let cmp = Pervasives.compare in
     match a, b with
@@ -144,8 +145,6 @@ module LitMap = Map.Make(struct
     | LInt _, _    -> 1 | _, LInt _    -> (-1)
     | LFloat _, _  -> 1 | _, LFloat _  -> (-1)
     (* | LString _, _ -> 1 | _, LString _ -> (-1) *)
-
-  module Show_t = Show_literal
 end)
 
 type 'a litmap = 'a StringMap.t

@@ -1,4 +1,3 @@
-(*pp deriving *)
 open Utility
 type comp_unit = Ir.program Js.comp_unit
 type prog_unit = Js.program Js.comp_unit
@@ -6,7 +5,7 @@ type prog_unit = Js.program Js.comp_unit
 (* Environment *)
 module VEnv = Env.Int
 type venv = string VEnv.t
-  deriving (Show)
+  [@@deriving show]
 
 let string_of_venv (env : venv) =
   let strings =
@@ -31,7 +30,7 @@ let string_of_liveness_map nenv (lm : IntSet.t IntMap.t) =
     IntMap.fold
       (fun k vs acc ->
         let k = Env.Int.lookup nenv k in
-        (Printf.sprintf "%s -> %s" k (IntSet.Show_t.show vs)) :: acc)
+        (Printf.sprintf "%s -> %s" k (IntSet.show vs)) :: acc)
       lm []
   in
   List.fold_left (fun acc str -> Printf.sprintf "%s%s\n" acc str) "" strings
@@ -208,7 +207,7 @@ let rec strip_poly = function
 let safe_name_binder (x, info) =
   let name = Js.name_binder (x, info) in
   if (name = "") then
-    prerr_endline (Ir.Show_binder.show (x, info))
+    prerr_endline (Ir.show_binder (x, info))
   else
     ();
   assert (name <> "");
@@ -2428,7 +2427,7 @@ module StackInspection = struct
       after: liveset
     }
   and liveness_map = continuation_point IntMap.t
-                       deriving (Show)
+        [@@deriving show]
 
   module ProcedureFragmentation = struct
     open Utility
@@ -2502,7 +2501,7 @@ module StackInspection = struct
              let o = o#computation ff in
              let after_ff = o#get_liveset in
              let before_if = IntSet.union_all [after_tt; after_ff] in
-             Printf.eprintf "Liveset before if:%s\n%!" (Show_liveset.show before_if);
+             Printf.eprintf "Liveset before if:%s\n%!" (show_liveset before_if);
              (o#with_liveset before_if)#value cond
           | `Case (scrutinee, cases, default) ->
              let lss, o =
@@ -2884,7 +2883,7 @@ module StackInspection = struct
                  let var = Var.var_of_binder b in
                  let liveset = IntMap.find var liveness_map in
                  let fb = o#fresh_frame_binder ~var () in
-                 Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset);
+                 Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (show_continuation_point liveset);
                  let o = o#add_frame_binder fb in
                  let (fb, o) = o#binder fb in
                  let fb' = o#fresh_frame_binder () in
@@ -2938,7 +2937,7 @@ module StackInspection = struct
                  let var = Var.var_of_binder b in
                  let liveset = IntMap.find var liveness_map in
                  let fb = o#fresh_frame_binder ~var () in
-                 Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset);
+                 Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (show_continuation_point liveset);
                  let o = o#add_frame_binder fb in
                  let (fb, o) = o#binder fb in
                  let (answer_frames, other, o) =
@@ -3179,16 +3178,16 @@ module StackInspection = struct
     let open Js in
     let incr = SAssign ("_callcount", EApply (EPrim "%int_add", [EVar "_callcount"; ELit (LInt 1)])) in
     let reset = SAssign ("_callcount", ELit (LInt 0)) in
-    let callcc =
-      let identity =
-        EFun {
-          fkind = `Regular;
-          fname = `Anonymous;
-          formal_params = ["cont"];
-          body = ([], SReturn (EVar "null")) }
-      in
-      EApply (EVar "Continuation.CWCC", [identity])
-    in
+    (* let callcc = *)
+    (*   let identity = *)
+    (*     EFun { *)
+    (*       fkind = `Regular; *)
+    (*       fname = `Anonymous; *)
+    (*       formal_params = ["cont"]; *)
+    (*       body = ([], SReturn (EVar "null")) } *)
+    (*   in *)
+    (*   EApply (EVar "Continuation.CWCC", [identity]) *)
+    (* in *)
     let check =
       let initiate_bounce =
         trycatch
@@ -3954,8 +3953,8 @@ module StackInspection = struct
       let open Js in
       let (_nenv, venv, tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
       let tyenv', nenv = Ir.NameMap.(compute Lib.primitive_name tenv u.program) in
-      Printf.eprintf "nenv: %s\n%!" (Ir.NameMap.Show_name_map.show nenv);
-      Printf.eprintf "Before fragmentation: %s\n%!" (Ir.Show_program.show u.program);
+      Printf.eprintf "nenv: %s\n%!" (Ir.NameMap.show_name_map nenv);
+      Printf.eprintf "Before fragmentation: %s\n%!" (Ir.show_program u.program);
       (* let lm = Ir.ProcedureFragmentation.liveness tenv u.program in *)
       (* Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm); *)
       let prog =
@@ -3965,9 +3964,319 @@ module StackInspection = struct
         answer_frame_set := answer_frames;
         tyenv := tyenv'; prog
       in
-      Printf.eprintf "Fragmented: %s\n%!" (Ir.Show_program.show prog);
+      Printf.eprintf "Fragmented: %s\n%!" (Ir.show_program prog);
       let _, prog = generate_program venv prog in
       let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "array.js"; "performance.js"; "stack.js"] in
+      { u with program = prog; includes = u.includes @ dependencies }
+end
+
+(** Free monad *)
+module Free = struct
+
+  let rec generate_value : venv -> Ir.value -> Js.expression
+    = fun env ->
+      let open Js in
+      let open Utility in
+      let gv v = generate_value env v in
+      function
+      | `Constant c ->
+         ELit (
+           match c with
+           | `Int v  -> LInt v
+           | `Float v  -> LFloat v
+           | `Bool v   -> LBool v
+           | `Char v   -> LChar v
+           | `String v -> LString v)
+      | `Variable var ->
+         (* HACK *)
+         let name = VEnv.lookup env var in
+         if Arithmetic.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Regular;
+                  formal_params = [x; y];
+                  body = [], SReturn (Arithmetic.gen ~op:name ~args:[EVar x; EVar y] ()) }
+         else if StringOp.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Regular;
+                  formal_params = [x; y];
+                  body = [], SReturn (StringOp.gen ~op:name ~args:[EVar x; EVar y] ()) }
+         else if Comparison.is name then
+           let x = Ident.of_string "x" in
+           let y = Ident.of_string "y" in
+           EFun { fname = `Anonymous;
+                  fkind = `Regular;
+                  formal_params = [x; y];
+                  body = [], SReturn (Comparison.gen ~op:name ~args:[EVar x; EVar y] ()) }
+         else if Functions.is name then
+           let rec replicate x = function
+             | 0 -> []
+             | n -> x :: (replicate x (n - 1))
+           in
+           let arity = Functions.arity ~op:name () in
+           let formal_params = List.map (fun _ -> Ident.make ()) (replicate () arity) in
+           let actual_params = List.map (fun i -> EVar i) formal_params in
+           EFun { fname = `Anonymous;
+                  fkind = `Regular;
+                  formal_params = formal_params;
+                  body = [], SReturn (Functions.gen ~op:name ~args:actual_params ()) }
+         else
+           begin match name with
+           | "Nil" -> EPrim "%List.nil"
+           |  _ -> EVar name
+           end
+      | `Extend (field_map, rest) ->
+         let dict =
+           make_dictionary
+             (StringMap.fold
+                (fun name v dict ->
+                  (name, gv v) :: dict)
+                field_map [])
+         in
+         begin
+           match rest with
+           | None -> dict
+           | Some v ->
+              EApply (EPrim "%Record.union", [gv v; dict])
+         end
+      | `Project (name, v) ->
+         EAccess (gv v, name)
+      | `Erase (names, v) ->
+         EApply (EPrim "%Record.erase",
+                 [gv v; make_array (List.map strlit (StringSet.elements names))])
+      | `Inject (name, v, _t) ->
+         make_dictionary [("_label", strlit name); ("_value", gv v)]
+      (* erase polymorphism *)
+      | `TAbs (_, v)
+      | `TApp (v, _) -> gv v
+      | `ApplyPure (f, vs) ->
+         let f = strip_poly f in
+         begin
+           match f with
+           | `Variable f ->
+              let f_name = VEnv.lookup env f in
+              begin
+                match vs with
+                | [l; r] when Arithmetic.is f_name ->
+                   Arithmetic.gen ~op:f_name ~args:[gv l; gv r] ()
+                | [l; r] when StringOp.is f_name ->
+                   StringOp.gen ~op:f_name ~args:[gv l; gv r] ()
+                | [l; r] when Comparison.is f_name ->
+                   Comparison.gen ~op:f_name ~args:[gv l; gv r] ()
+                | _ ->
+                   if Lib.is_primitive f_name
+                     && Lib.primitive_location f_name <> `Server
+                   then
+                     try
+                       Functions.gen ~op:f_name ~args:(List.map gv vs) ()
+                     with Not_found -> failwith (Printf.sprintf "Unsupported primitive (val): %s.\n" f_name)
+                   else
+                     EApply (gv (`Variable f), (List.map gv vs))
+              end
+           | _ ->
+              EApply (gv f, List.map gv vs)
+         end
+      | `Closure (f, v) ->
+         EApply (EPrim "%Closure.apply", [gv (`Variable f); gv v])
+      | `Coerce (v, _) ->
+         gv v
+      | _ -> failwith "Unsupported value."
+
+  and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
+    = fun env tc ->
+      let open Js in
+      let gv v = generate_value env v in
+      let gc c = snd (generate_computation env c) in
+      match tc with
+      | `Return v ->
+         [], SReturn (gv v)
+      | `Apply (f, vs) ->
+         let f = strip_poly f in
+         begin
+           match f with
+           | `Variable f ->
+              let f_name = VEnv.lookup env f in
+              begin
+                match vs with
+                | [l; r] when Arithmetic.is f_name ->
+                   [], SReturn (Arithmetic.gen ~op:f_name ~args:[gv l; gv r] ())
+                | [l; r] when StringOp.is f_name ->
+                   [], SReturn (StringOp.gen ~op:f_name ~args:[gv l; gv r] ())
+                | [l; r] when Comparison.is f_name ->
+                   [], SReturn (Comparison.gen ~op:f_name ~args:[gv l; gv r] ())
+                | _ ->
+                   if Lib.is_primitive f_name
+                     && Lib.primitive_location f_name <> `Server
+                   then
+                     match f_name, vs with
+                     | "deref", [v] ->
+                        [], SReturn (EAccess (gv v, "_contents"))
+                     | "ref", [v] ->
+                        [], SReturn (EObj [("_contents", gv v)])
+                     | ":=", [r; v] ->
+                        let destructive_update =
+                          EApply (EPrim "%assign", [EAccess (gv r, "_contents"); gv v])
+                        in
+                        [], SSeq (SExpr destructive_update, SReturn (EObj []))
+                     | _ ->
+                        let expr =
+                          try
+                            let args = List.map gv vs in
+                            Functions.gen ~op:f_name ~args ()
+                          with Not_found -> failwith (Printf.sprintf "Unsupported primitive (tc): %s.\n" f_name)
+                        in
+                        [], SReturn expr
+                   else
+                     [], SReturn (EApply (gv (`Variable f), (List.map gv vs)))
+              end
+           | _ ->
+              [], SReturn (EApply (gv f, (List.map gv vs)))
+         end
+      | `Special special ->
+         generate_special env special
+      | `Case (v, cases, default) ->
+         let v = gv v in
+         let scrutineeb = Ident.make ~prefix:"_scrutinee" () in
+         let bind_scrutinee scrutinee =
+           DLet {
+             bkind = `Const;
+             binder = scrutineeb;
+             expr = scrutinee; }
+         in
+         let open Utility in
+         let (decls, prog) =
+           let translate_case (xb, c) =
+             let (x, x_name) = safe_name_binder xb in
+             let value_binding =
+               DLet { bkind = `Const;
+                      binder = Ident.of_string x_name;
+                      expr = EAccess (EVar scrutineeb, "_value"); }
+             in
+             let (_, (decls, stmt)) = generate_computation (VEnv.bind env (x, x_name)) c in
+             value_binding :: decls, stmt
+           in
+           let cases = StringMap.map translate_case cases in
+           let default = opt_map translate_case default in
+           [], SCase (EAccess (EVar scrutineeb, "_label"), cases, default)
+         in
+         decls @ [bind_scrutinee v], prog
+      | `If (v, c1, c2) ->
+         [], SIf (gv v, gc c1, gc c2)
+
+  and generate_special : venv -> Ir.special -> Js.program
+    = fun env sp ->
+      let open Js in
+      let gv v = generate_value env v in
+      match sp with
+      | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
+      | `DoOperation (name, args, _) -> assert false
+      | `Handle { Ir.ih_comp = comp; Ir.ih_return = return; Ir.ih_cases = eff_cases; Ir.ih_depth = depth } -> assert false
+      | _ -> failwith "Unsupported special."
+
+  and generate_computation : venv -> Ir.computation -> venv * Js.program
+    = fun env (bs, tc) ->
+      let open Js in
+      let rec gbs : venv -> Ir.binding list -> venv * Js.program =
+        fun env ->
+          function | _ -> assert false
+          (* function *)
+          (* | `Let (b, (_, `Return v)) :: bs -> *)
+          (*    let (x, x_name) = safe_name_binder b in *)
+          (*    let env', (rest, prog) = gbs (VEnv.bind env (x, x_name)) kappa bs in *)
+          (*    let x_binding = *)
+          (*      DLet { *)
+          (*        bkind = `Const; *)
+          (*        binder = Ident.of_string x_name; *)
+          (*        expr = generate_value env v; } *)
+          (*    in *)
+          (*    (env', (x_binding :: rest, prog)) *)
+          (* | `Let (b, (_, tc)) :: bs -> *)
+          (*    let (x, x_name) = safe_name_binder b in *)
+          (*    let x_name = Ident.of_string x_name in *)
+          (*    let bind, skappa, skappas = K.pop kappa in *)
+          (*    let env',skappa' = *)
+          (*      K.contify_with_env *)
+          (*        (fun kappas -> *)
+          (*          let env', body = gbs (VEnv.bind env (x, x_name)) K.(skappa <> kappas) bs in *)
+          (*          env', EFun { *)
+          (*            fname = `Anonymous; *)
+          (*            fkind = `Regular; *)
+          (*            formal_params = [x_name]; *)
+          (*            body; }) *)
+          (*    in *)
+          (*    env', bind (generate_tail_computation env tc K.(skappa' <> skappas)) *)
+          (* | `Fun ((fb, _, _zs, _location) as def) :: bs -> *)
+          (*    let (f, f_name) = safe_name_binder fb in *)
+          (*    let def_header = generate_function env [] def in *)
+          (*    let env', (rest, prog) = gbs (VEnv.bind env (f, f_name)) kappa bs in *)
+          (*    (env', (def_header :: rest, prog)) *)
+          (* | `Rec defs :: bs -> *)
+          (*    let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) defs in *)
+          (*    let env', (rest, prog) = gbs (List.fold_left VEnv.bind env fs) kappa bs in *)
+          (*    let defs = List.map (generate_function env fs) defs in *)
+          (*    (env', (defs @ rest, prog)) *)
+          (* | `Module _ :: bs -> gbs env kappa bs *)
+          (* | `Alien (bnd, raw_name, _lang) :: bs -> *)
+          (*    let (a, _a_name) = safe_name_binder bnd in *)
+          (*    let env' = VEnv.bind env (a, raw_name) in *)
+          (*    gbs env' kappa bs *)
+      (* | [] -> (env, generate_tail_computation env tc kappa) *)
+      in
+      gbs env bs
+
+  and generate_program : venv -> Ir.program -> venv * Js.program
+    = fun env comp ->
+      let open Js in
+      let venv,(decls,stmt) = generate_computation env comp in
+      let prog =
+        match stmt with
+        | SReturn e -> (decls, Js.SExpr e)
+        | s -> (decls, s)
+      in
+      venv, prog
+  (* let main = Ident.make ~prefix:"_main" () in *)
+  (* let mainf = DFun { fname = `Named main; *)
+  (*                   formal_params = []; *)
+  (*                   body = prog } *)
+  (* in *)
+  (* venv, ([mainf], SExpr (EApply (EVar main, []))) *)
+
+  and generate_function : venv -> (Var.var * string) list -> Ir.fun_def -> Js.decl =
+    fun env fs (fb, (_, xsb, body), zb, location) ->
+      let open Js in
+      let (_f, f_name) = safe_name_binder fb in
+      assert (f_name <> "");
+      (* prerr_endline ("f_name: "^f_name); *)
+      (* optionally add an additional closure environment argument *)
+      let xsb =
+        match zb with
+        | None -> xsb
+        | Some zb -> zb :: xsb
+      in
+      let bs = List.map safe_name_binder xsb in
+      let _xs, xs_names = List.split bs in
+      let body_env = List.fold_left VEnv.bind env (fs @ bs) in
+      let body =
+        match location with
+        | `Client | `Unknown ->
+           snd (generate_computation body_env body)
+        | _ -> failwith "Only client side calls are supported."
+      in
+      DFun {
+        fname = `Named (Ident.of_string f_name);
+        fkind = `Regular;
+        formal_params = List.map Ident.of_string xs_names;
+        body; }
+
+  let compile : comp_unit -> prog_unit
+    = fun u ->
+      let open Js in
+      let (_nenv, venv, _tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
+      let (_,prog) = generate_program venv u.program in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "performance.js"; "free.js"] in
       { u with program = prog; includes = u.includes @ dependencies }
 end
 
@@ -3983,5 +4292,7 @@ module Compiler =
          (module CEK : JS_COMPILER)
       | "stackinspection" ->
          (module StackInspection : JS_COMPILER)
+      | "free" ->
+         (module Free : JS_COMPILER)
       (* TODO: better error handling *)
       | _ -> failwith "Unrecognised JS backend.") : JS_COMPILER)

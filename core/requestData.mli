@@ -1,8 +1,7 @@
-(*pp deriving *)
 open ProcessTypes
 
 type request_data
-  deriving (Show)
+  [@@deriving show]
 
 val new_empty_request_data : unit -> request_data
 val new_request_data :
@@ -25,3 +24,9 @@ val set_http_response_code : request_data -> int -> unit
 
 val get_client_id : request_data -> client_id
 val set_client_id : request_data -> client_id -> unit
+
+
+module DecodeRequestHeaders :
+sig
+  val decode : string -> string
+end

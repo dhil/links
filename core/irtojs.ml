@@ -1,4 +1,3 @@
-(*pp deriving *)
 
 (** JavaScript generation *)
 open Utility
@@ -47,7 +46,7 @@ type code = | Var    of string
 
             | Die    of (string)
             | Nothing
-  deriving (Show)
+  [@@deriving show]
 
 
 (** IR variable environment *)
@@ -425,7 +424,7 @@ let cps_prims = ["recv"; "sleep"; "spawnWait"; "receive"; "request"; "accept"]
 let name_binder (x, info) =
   let name = Js.name_binder (x, info) in
   if (name = "") then
-    prerr_endline (Ir.Show_binder.show (x, info))
+    prerr_endline (Ir.show_binder (x, info))
   else
     ();
   assert (name <> "");
@@ -539,7 +538,7 @@ module Default_Continuation : CONTINUATION = struct
 
   let to_string = function
     | Identity -> "IDENTITY"
-    | Code code -> "CODE: " ^ (Show_code.show code)
+    | Code code -> "CODE: " ^ (show_code code)
 end
 
 (* The higher-order continuation structure for effect handlers
@@ -645,17 +644,14 @@ module Higher_Order_Continuation : CONTINUATION = struct
 
   let rec to_string = function
     | Identity -> "IDENTITY"
-    | Reflect code -> "REFLECT: " ^ (Show_code.show code)
+    | Reflect code -> "REFLECT: " ^ (show_code code)
     | Cons (code, k) ->
-        "CONS: " ^ (Show_code.show code) ^ ", \n" ^ (to_string k)
+        "CONS: " ^ (show_code code) ^ ", \n" ^ (to_string k)
 
 end
 
 (** Compiler interface *)
 module type WEB_COMPILER = sig
-  val generate_program_page : ?cgi_env:(string * string) list ->
-    (Var.var Env.String.t * Types.typing_environment) ->
-    Ir.program -> Loader.ext_dep list -> string
 
   val generate_real_client_page : ?cgi_env:(string * string) list ->
     (Var.var Env.String.t * Types.typing_environment) ->
@@ -1460,9 +1456,6 @@ end = functor (K : CONTINUATION) -> struct
       Bind (cancellation_thunk_name, cancellation_thunk,
         action (Var cancellation_thunk_name)))
 
-  and generate_program env : Ir.program -> (venv * code) = fun ((bs, _) as comp) ->
-    let (venv, code) = generate_computation env comp (K.reflect (Var "_start")) in
-    (venv, GenStubs.bindings bs code)
 
   let generate_toplevel_binding :
     Value.env ->
@@ -1589,19 +1582,6 @@ end = functor (K : CONTINUATION) -> struct
     let tenv = Var.varify_env (nenv, tyenv.Types.var_env) in
     (nenv, venv, tenv)
 
-  let generate_program_page ?(cgi_env=[]) (nenv, tyenv) program external_files =
-    let printed_code = Loader.wpcache "irtojs" (fun () ->
-      let _, venv, _ = initialise_envs (nenv, tyenv) in
-      let _, code = generate_program venv program in
-      let code = GenStubs.wrap_with_server_lib_stubs code in
-      show code)
-    in
-    (make_boiler_page
-       ~cgi_env:cgi_env
-       ~body:printed_code
-       ~external_files:external_files
-     (*       ~head:(String.concat "\n" (generate_inclusions defs))*)
-       [])
 
 (* generate code to resolve JSONized toplevel let-bound values *)
   let resolve_toplevel_values : string list -> string =
@@ -1669,6 +1649,5 @@ module Continuation =
 
 module Compiler = CPS_Compiler(Continuation)
 
-let generate_program_page = Compiler.generate_program_page
 let generate_real_client_page = Compiler.generate_real_client_page
 let make_boiler_page = Compiler.make_boiler_page
