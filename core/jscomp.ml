@@ -873,6 +873,8 @@ module SIM_CPS = struct
     val identity : t
     val (<>) : t -> t -> t
 
+    (* val (&>) : Js.expression -> t -> t *)
+
     (* Pops n elements from a given continuation. Returns a list of
        declarations, a list of variables, and the tail of the
        continuation. *)
@@ -898,6 +900,10 @@ module SIM_CPS = struct
     end = struct
   (* We can think of this particular continuation structure as a
      nonempty stack with an even number of elements. *)
+      (* type t = Cons of (Js.expression list * Js.expression * Js.expression) * t *)
+      (*        | Reflect of Js.expression *)
+      (*        | Identity *)
+
       type t = Cons of Js.expression * t
              | Reflect of Js.expression
              | Identity
