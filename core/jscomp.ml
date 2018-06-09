@@ -857,11 +857,6 @@ end
 (** Simultaneous CPS transform for deep and shallow handlers **)
 module SIM_CPS = struct
   let __kappa = Js.Ident.of_string "__kappa"
-  let join_scopes : (Js.program -> Js.program) -> (Js.program -> Js.program) -> (Js.statement -> Js.program)
-    = fun outer_scope inner_scope stmt -> outer_scope (inner_scope ([], stmt))
-      (* fun stmt -> let (decls', stmt') = outer_scope ([], stmt) in *)
-      (*             let (decls'', stmt'') = inner_scope stmt' in *)
-      (*             (decls' @ decls''), stmt'' *)
   module K: sig
   (* Invariant: the continuation structure is algebraic. For
      programming purposes it is instructive to think of a continuation
@@ -872,12 +867,12 @@ module SIM_CPS = struct
   (* A continuation is a monoid. *)
     val identity : t
     val (<>) : t -> t -> t
+  (* Pure continuation augmentation *)
+    val (&>) : Js.expression -> t -> t * Js.decl list
 
-    (* val (&>) : Js.expression -> t -> t *)
-
-    (* Pops n elements from a given continuation. Returns a list of
-       declarations, a list of variables, and the tail of the
-       continuation. *)
+  (* Pops n elements from a given continuation. Returns a list of
+     declarations, a list of variables, and the tail of the
+     continuation. *)
     val pop : int -> t -> Js.decl list * t list * t
 
   (* Turns code into a continuation. *)
@@ -900,11 +895,12 @@ module SIM_CPS = struct
     end = struct
   (* We can think of this particular continuation structure as a
      nonempty stack with an even number of elements. *)
-      (* type t = Cons of (Js.expression list * Js.expression * Js.expression) * t *)
-      (*        | Reflect of Js.expression *)
-      (*        | Identity *)
+      type frames =
+        | FNil
+        | FInject of Js.expression
+        | FCons of Js.expression * frames
 
-      type t = Cons of Js.expression * t
+      type t = Cons of (frames * Js.expression * Js.expression) * t
              | Reflect of Js.expression
              | Identity
 
@@ -913,12 +909,21 @@ module SIM_CPS = struct
       let cons x xs = Js.(EApply (EPrim "%List.cons", [x; xs]))
       let head xs = Js.(EApply (EPrim "%List.head", [xs]))
       let tail xs = Js.(EApply (EPrim "%List.tail", [xs]))
-      let toplevel = Js.(Cons (EPrim "%K.pure", Cons (EPrim "%K.absurd", Reflect nil)))
+      let augment f kappa = Js.(EApply (EPrim "%K.augment", [f; kappa]))
+      let toplevel = Js.(EApply (EPrim "%K.identity", []))
+      let make_frame pureFrames ret eff = Js.(EApply (EPrim "%K.makeFrame" [pureFrames; ret; eff]))
 
       let reflect x = Reflect x
-      let rec reify = function
-        | Cons (v, vs) ->
-           cons v (reify vs)
+      let rec reify kappa =
+        let rec reify_f = function
+          | FNil -> nil
+          | FInject v -> v
+          | FCons (v, vs) ->
+             cons v (reify_f vs)
+        in
+        match kappa with
+        | Cons ((frames, ret, eff), vs) ->
+           cons (make_frame (reify_f frames) ret eff) (reify vs)
         | Reflect v -> v
         | Identity -> reify toplevel
 
@@ -937,35 +942,44 @@ module SIM_CPS = struct
            in
            append a b
 
-      let bind kappas (body : t -> Js.program) =
-        let open Js in
-        let gen_binding : Js.Ident.t -> Js.expression -> Js.decl
+      let make_binding : Js.Ident.t -> Js.expression -> Js.decl
           = fun b e ->
             DLet {
               bkind = `Const;
               binder = b;
               expr = e; }
-        in
+
+      let rec (&>) f = function
+        | Cons ((ks, ret, eff), tail) ->
+           Cons ((f :: ks, ret, eff), tail), []
+        | Reflect v ->
+           let k = Ident.make ~prefix:"_kappa" () in
+           let decl = make_binding k (augment f v) in
+           Reflect (EVar k), [decl]
+        | Identity -> f &> toplevel
+
+      let bind kappas (body : t -> Js.program) =
+        let open Js in
         let rec bind : Js.decl list -> (t -> Js.program) -> t -> Js.program
           = fun bs body -> function
           | Identity ->
              let k = Ident.make ~prefix:"_kappa" () in
              let (rest, stmt) = body (reflect (EVar k)) in
-             let bs = (gen_binding k (reify Identity)) :: bs in
+             let bs = (make_binding k (reify Identity)) :: bs in
              bs @ rest, stmt
           | Reflect (EVar _) as k ->
              let (rest, stmt) = body k in
              bs @ rest, stmt
           | Reflect v ->
              let k = Ident.make ~prefix:"_kappa" () in
-             let bs = (gen_binding k v) :: bs in
+             let bs = (make_binding k v) :: bs in
              let (rest, stmt) = body (reflect @@ EVar k) in
              bs @ rest, stmt
           | Cons ((EVar _) as v, kappas) ->
              bind bs (fun kappas -> body (Cons (v, kappas))) kappas
           | Cons (v, kappas) ->
              let k = Ident.make ~prefix:"_kappa" () in
-             let bs = (gen_binding k v :: bs) in
+             let bs = (make_binding k v :: bs) in
              bind bs (fun kappas -> body (Cons (EVar k, kappas))) kappas
         in
         bind [] body kappas
