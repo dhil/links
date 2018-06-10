@@ -870,6 +870,9 @@ module SIM_CPS = struct
   (* Pure continuation augmentation *)
     val (&>) : Js.expression -> t -> t * Js.decl list
 
+  (* Installs a trap *)
+    val install_trap : Js.expression * Js.expression -> t -> t
+
   (* Pops n elements from a given continuation. Returns a list of
      declarations, a list of variables, and the tail of the
      continuation. *)
@@ -888,6 +891,12 @@ module SIM_CPS = struct
      direct. *)
     val apply : t -> Js.expression -> Js.expression
 
+    val trap : t -> Js.expression -> Js.expression
+
+  (* Bypasses the current trap *)
+    val forward : t -> Js.expression -> Js.expression
+
+
   (* Augments a function [Fn] with a continuation parameter and
      reflects the result as a continuation. The continuation parameter
      in the callback provides access to the current continuation. *)
@@ -895,12 +904,9 @@ module SIM_CPS = struct
     end = struct
   (* We can think of this particular continuation structure as a
      nonempty stack with an even number of elements. *)
-      type frames =
-        | FNil
-        | FInject of Js.expression
-        | FCons of Js.expression * frames
-
-      type t = Cons of (frames * Js.expression * Js.expression) * t
+      type f = Dynamic of Js.expression
+             | Static of Js.expression * Js.expression * Js.expression
+      type t = Cons of f * t
              | Reflect of Js.expression
              | Identity
 
@@ -910,20 +916,18 @@ module SIM_CPS = struct
       let head xs = Js.(EApply (EPrim "%List.head", [xs]))
       let tail xs = Js.(EApply (EPrim "%List.tail", [xs]))
       let augment f kappa = Js.(EApply (EPrim "%K.augment", [f; kappa]))
-      let toplevel = Js.(EApply (EPrim "%K.identity", []))
-      let make_frame pureFrames ret eff = Js.(EApply (EPrim "%K.makeFrame" [pureFrames; ret; eff]))
+      let toplevel = Reflect (Js.(EPrim "%K.identity"))
+
+      let make_frame pureFrames ret eff =
+        Js.(EApply (EPrim "%K.makeFrame", [pureFrames; ret; eff]))
 
       let reflect x = Reflect x
       let rec reify kappa =
-        let rec reify_f = function
-          | FNil -> nil
-          | FInject v -> v
-          | FCons (v, vs) ->
-             cons v (reify_f vs)
-        in
         match kappa with
-        | Cons ((frames, ret, eff), vs) ->
-           cons (make_frame (reify_f frames) ret eff) (reify vs)
+        | Cons (Static (ks, ret, eff), vs) ->
+           cons (make_frame ks ret eff) (reify vs)
+        | Cons (Dynamic ks, vs) ->
+           cons ks (reify vs)
         | Reflect v -> v
         | Identity -> reify toplevel
 
@@ -932,12 +936,12 @@ module SIM_CPS = struct
         match a,b with
         | Identity, b -> b
         | a, Identity -> a
-        | Reflect ks, b -> Cons (ks, b)
+        | Reflect ks, b -> Cons (Dynamic ks, b)
         | Cons _ as a,b ->
            let rec append xs ys =
              match xs with
              | Cons (x, xs) -> Cons (x, append xs ys)
-             | Reflect ks   -> Cons (ks, ys)
+             | Reflect ks   -> Cons (Dynamic ks, ys)
              | Identity     -> ys
            in
            append a b
@@ -950,12 +954,16 @@ module SIM_CPS = struct
               expr = e; }
 
       let rec (&>) f = function
-        | Cons ((ks, ret, eff), tail) ->
-           Cons ((f :: ks, ret, eff), tail), []
+        | Cons (Static (ks, ret, eff), tail) ->
+           let ks' = Js.Ident.make ~prefix:"_skappa" () in
+           let decl = make_binding ks' (cons f ks) in
+           Cons (Static (EVar ks', ret, eff), tail), [decl]
+        | Cons (Dynamic ks, tail) as v ->
+           let ks' = Js.Ident.make ~prefix:"_dkappa" () in
+           let decl = make_binding ks' (cons f ks) in
+           Cons (Dynamic (EVar ks'), tail), [decl]
         | Reflect v ->
-           let k = Ident.make ~prefix:"_kappa" () in
-           let decl = make_binding k (augment f v) in
-           Reflect (EVar k), [decl]
+           Reflect v, []
         | Identity -> f &> toplevel
 
       let bind kappas (body : t -> Js.program) =
@@ -963,7 +971,7 @@ module SIM_CPS = struct
         let rec bind : Js.decl list -> (t -> Js.program) -> t -> Js.program
           = fun bs body -> function
           | Identity ->
-             let k = Ident.make ~prefix:"_kappa" () in
+             let k = Ident.make ~prefix:"_ikappa" () in
              let (rest, stmt) = body (reflect (EVar k)) in
              let bs = (make_binding k (reify Identity)) :: bs in
              bs @ rest, stmt
@@ -971,55 +979,71 @@ module SIM_CPS = struct
              let (rest, stmt) = body k in
              bs @ rest, stmt
           | Reflect v ->
-             let k = Ident.make ~prefix:"_kappa" () in
+             let k = Ident.make ~prefix:"_rkappa" () in
              let bs = (make_binding k v) :: bs in
              let (rest, stmt) = body (reflect @@ EVar k) in
              bs @ rest, stmt
-          | Cons ((EVar _) as v, kappas) ->
+          | Cons (Dynamic (EVar _) as v, kappas) ->
              bind bs (fun kappas -> body (Cons (v, kappas))) kappas
-          | Cons (v, kappas) ->
-             let k = Ident.make ~prefix:"_kappa" () in
+          | Cons (Dynamic v, kappas) ->
+             let k = Ident.make ~prefix:"_dkappa" () in
              let bs = (make_binding k v :: bs) in
-             bind bs (fun kappas -> body (Cons (EVar k, kappas))) kappas
+             bind bs (fun kappas -> body (Cons (Dynamic (EVar k), kappas))) kappas
+          | Cons (Static (ks, ret, eff), kappas) ->
+             let k = Ident.make ~prefix:"_skappa" () in
+             let bs = (make_binding k (make_frame ks ret eff) :: bs) in
+             bind bs (fun kappas -> body (Cons (Dynamic (EVar k), kappas))) kappas
         in
         bind [] body kappas
+
+      let rec install_trap (ret, eff) = function
+        | (Reflect _ as vs)
+        | (Cons (_, _) as vs) ->
+           Cons (Static (EPrim "%List.nil", ret, eff), vs)
+        | Identity -> install_trap (ret, eff) toplevel
+
+      let forward k z =
+        Js.(EApply (EPrim "%K.forward", [reify k; z]))
 
       let apply k arg =
         Js.(EApply (EPrim "%K.apply", [reify k; arg]))
 
+      let trap k arg =
+        Js.(EApply (EPrim "%K.trap", [reify k; arg]))
+
       let pop : int -> t -> Js.decl list * t list * t
-        = fun n kappa ->
-          let rec loop n kappa =
-            let rec pop = function
-              | Cons (kappa, kappas) ->
-                 [], (reflect kappa), kappas
-              | Reflect ks ->
-                 let open Js in
-                 let __k = Ident.make ~prefix:"__k" () in
-                 let __ks = Ident.make ~prefix:"__ks" () in
-                 let __k_binding =
-                   DLet {
-                     bkind = `Const;
-                     binder = __k;
-                     expr = head ks; }
-                 in
-                 let __ks_binding =
-                   DLet {
-                     bkind = `Const;
-                     binder = __ks;
-                     expr = tail ks; }
-                 in
-                 [__k_binding; __ks_binding], (reflect (EVar __k)), reflect (EVar __ks)
-              | Identity -> pop toplevel
-            in
-            if n > 0 then
-              let (decls, hd, tl) = pop kappa in
-              let (decls', ks, tl) = loop (n-1) tl in
-              (decls @ decls', hd :: ks, tl)
-            else
-              ([], [], kappa)
-          in
-          loop n kappa
+        = fun n kappa -> assert false
+          (* let rec loop n kappa = *)
+          (*   let rec pop = function *)
+          (*     | Cons (kappa, kappas) -> *)
+          (*        [], (reflect kappa), kappas *)
+          (*     | Reflect ks -> *)
+          (*        let open Js in *)
+          (*        let __k = Ident.make ~prefix:"__k" () in *)
+          (*        let __ks = Ident.make ~prefix:"__ks" () in *)
+          (*        let __k_binding = *)
+          (*          DLet { *)
+          (*            bkind = `Const; *)
+          (*            binder = __k; *)
+          (*            expr = head ks; } *)
+          (*        in *)
+          (*        let __ks_binding = *)
+          (*          DLet { *)
+          (*            bkind = `Const; *)
+          (*            binder = __ks; *)
+          (*            expr = tail ks; } *)
+          (*        in *)
+          (*        [__k_binding; __ks_binding], (reflect (EVar __k)), reflect (EVar __ks) *)
+          (*     | Identity -> pop toplevel *)
+          (*   in *)
+          (*   if n > 0 then *)
+          (*     let (decls, hd, tl) = pop kappa in *)
+          (*     let (decls', ks, tl) = loop (n-1) tl in *)
+          (*     (decls @ decls', hd :: ks, tl) *)
+          (*   else *)
+          (*     ([], [], kappa) *)
+          (* in *)
+          (* loop n kappa *)
 
       let contify_with_env fn =
         let open Js in
@@ -1246,44 +1270,39 @@ module SIM_CPS = struct
            | [v] -> gv v
            | vs -> make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
          in
-         let cons k ks =
-           EApply (EPrim "%List.cons", [k;ks])
+         let op =
+           make_dictionary [ ("_label", strlit name)
+                           ; ("_value", make_dictionary [("p", box args); ("s", EPrim "%List.nil")]) ]
          in
-         let nil = EPrim "%List.nil" in
-         K.bind kappa
-           (fun kappas ->
-             let [@warning "-8"] (decls, [skappa; seta], kappas) = K.pop 2 kappas in
-             let resumption = K.(cons (reify seta) (cons (reify skappa) nil)) in
-             let op    =
-               make_dictionary [ ("_label", strlit name)
-                               ; ("_value", make_dictionary [("p", box args); ("s", resumption)]) ]
-             in
-             decls, K.(SReturn (apply (seta <> kappas) op)))
+         [], SReturn (K.trap kappa op)
       | `Handle { Ir.ih_comp = comp; Ir.ih_return = return; Ir.ih_cases = eff_cases; Ir.ih_depth = depth } ->
          let open Utility in
-         if depth = `Shallow then
-           failwith "Translation of shallow handlers has not yet been implemented.";
+         let open Js in
          (* Generate body *)
          let gb env binder body kappas =
            let env' = VEnv.bind env (safe_name_binder binder) in
            snd (generate_computation env' body kappas)
          in
-         let (return_clause, operation_clauses) = (return, eff_cases) in
-         let return =
-           let (xb, body) = return_clause in
+         let return_decl, return =
+           let (xb, body) = return in
            let x_name = snd @@ safe_name_binder xb in
-           contify (fun kappa ->
-             let decls, _, kappa = K.pop 1 kappa in
+           let return =
              EFun {
                fname = `Anonymous;
                fkind = `Regular;
-               formal_params = [x_name];
-               body =
-                 let decls', stmt = gb env xb body kappa in
-                 (decls @ decls', stmt)
-             })
+               formal_params = [x_name; "_fs"];
+               body = gb env xb body K.(reflect (EVar "_fs")) }
+           in
+           let return_b = Ident.make ~prefix:"_return" () in
+           let return_decl =
+             DLet {
+               bkind = `Const;
+               binder = return_b;
+               expr = return }
+           in
+           return_decl, EVar return_b
          in
-         let operations =
+         let eff_decl, eff =
            (* Generate clause *)
            let gc env (xb, rb, body) kappas _z =
              let x_name = snd @@ safe_name_binder xb in
@@ -1291,10 +1310,18 @@ module SIM_CPS = struct
                let rb' = safe_name_binder rb in
                VEnv.bind env rb', snd rb'
              in
-             let v_name, v = Ident.make ~prefix:"_v" (), EAccess (EVar _z, "_value") in
+             let v_name, v = Ident.make ~prefix:"_v" (), EAccess (_z, "_value") in
              let p = EAccess (EVar v_name, "p") in
              let s = EAccess (EVar v_name, "s") in
-             let r = EApply  (EPrim "%K.makeFun", [s]) in
+             (* TODO shallow / deep distinction *)
+             let r =
+               let e = match depth with
+                 | `Shallow -> EPrim "%K.shallowResume"
+                 | `Deep [] -> EPrim "%K.deepResume"
+                 | `Deep _ -> failwith "Parameterised handlers not yet supported."
+               in
+               EApply (e, [s])
+             in
              let clause_body =
                let v_binding =
                  DLet {
@@ -1319,44 +1346,34 @@ module SIM_CPS = struct
              in
              clause_body
            in
-           let clauses kappas _z = StringMap.map (fun clause -> gc env clause kappas _z) operation_clauses in
-           let forward ks _z =
-             K.bind ks
-               (fun ks ->
-                 let [@warning "-8"] (decls, [k'; h'], ks') = K.pop 2 ks in
-                 let resumption =
-                   let s = Ident.of_string "s" in
-                   let _x = Ident.make ~prefix:"_x" () in
-                   let _x_binding =
-                     DLet {
-                       bkind = `Const;
-                       binder = _x;
-                       expr = EApply (EPrim "%List.cons", [K.reify k'; EVar s]); }
-                   in
-                   EFun {
-                     fname = `Anonymous;
-                     fkind = `Regular;
-                     formal_params = [s];
-                     body = [_x_binding], SReturn (EApply (EPrim "%List.cons", [K.reify h'; EVar _x]));
-                   }
-                 in
-                 let vmap = EApply (EPrim "%K.vmap", [resumption; EVar _z]) in
-                 decls, (SReturn K.(apply (h' <> ks') vmap)))
+           let eff_cases =
+             let _z = Ident.of_string "_z" in
+             let _fs = Ident.of_string "_fs" in
+             EFun {
+               fname = `Anonymous;
+               fkind = `Regular;
+               formal_params = [_z; _fs];
+               body =
+                 let _z = EVar _z in
+                 let _fs = K.reflect (EVar _fs) in
+                 let forward = [], SReturn (K.forward _fs _z) in
+                 let cases = StringMap.map (fun clause -> gc env clause _fs _z) eff_cases in
+                 [], SCase (EAccess (_z, "_label"), cases, Some forward) }
            in
-           let _z = Ident.of_string "_z" in
-           contify
-             (fun ks ->
-               EFun {
-                 fname = `Anonymous;
-                 fkind = `Regular;
-                 formal_params = [_z];
-                 body = [], SCase (EAccess (EVar _z, "_label"),
-                                   clauses ks _z,
-                                   Some (forward ks _z)); })
+           let eff_b = Ident.make ~prefix:"_eff" () in
+           let eff_decl =
+             DLet {
+               bkind = `Const;
+               binder = eff_b;
+               expr = eff_cases }
+           in
+           eff_decl, EVar eff_b
          in
-         let kappa = K.(return <> operations <> kappa) in
-         let _, comp = generate_computation env comp kappa in
-         comp
+         let kappa = K.install_trap (return, eff) kappa in
+         let _env', (decls, stmt) =
+           generate_computation env comp kappa
+         in
+         return_decl :: eff_decl :: decls, stmt
       | _ -> failwith "Unsupported special."
 
   and generate_computation : venv -> Ir.computation -> continuation -> venv * Js.program
@@ -1376,20 +1393,19 @@ module SIM_CPS = struct
              in
              (env', (x_binding :: rest, prog))
           | `Let (b, (_, tc)) :: bs ->
-             let (x, x_name) = safe_name_binder b in
-             let x_name = Ident.of_string x_name in
-             let (decls, [skappa], skappas) = K.pop 1 kappa in
-             let env',skappa' =
-               K.contify_with_env
-                 (fun kappas ->
-                   let env', body = gbs (VEnv.bind env (x, x_name)) K.(skappa <> kappas) bs in
-                   env', EFun {
-                     fname = `Anonymous;
-                     fkind = `Regular;
-                     formal_params = [x_name];
-                     body; })
+             let env', f =
+               let (x, x_name) = safe_name_binder b in
+               let x_name = Ident.of_string x_name in
+               let fs_name = Ident.of_string "_fs" in
+               let env', body = gbs (VEnv.bind env (x, x_name)) K.(reflect (EVar fs_name)) bs in
+               env', EFun {
+                 fname = `Anonymous;
+                 fkind = `Regular;
+                 formal_params = [x_name; fs_name];
+                 body }
              in
-             let decls', stmt = generate_tail_computation env tc K.(skappa' <> skappas) in
+             let kappa', decls = K.(f &> kappa) in
+             let decls', stmt = generate_tail_computation env tc kappa' in
              env', (decls @ decls', stmt)
           | `Fun ((fb, _, _zs, _location) as def) :: bs ->
              let (f, f_name) = safe_name_binder fb in
@@ -1466,14 +1482,12 @@ module SIM_CPS = struct
         let cont =
           K.reflect
             (EApply
-               (EVar "_List.cons",
+               (EVar "_K.makeCont",
                 [EFun {
                   fkind = `Regular;
                   fname = `Anonymous;
-                  formal_params = ["_x"; "_y"];
-                  body = ([], stmt) };
-                EApply
-                  (EVar "_List.cons", [EVar "_K.absurd"; EVar "_List.nil"])]))
+                  formal_params = ["_x"; "_fs"];
+                  body = ([], stmt) }]))
         in
         EApply
           (EVar "_Trampoline.run",
@@ -1495,7 +1509,7 @@ module SIM_CPS = struct
            in
            mode :: decls, SExpr (trampoline stmt)
       in
-      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "array.js"; "performance.js"; "cps.js"] in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "array.js"; "performance.js"; "cps2.js"] in
       { u with program = prog; includes = u.includes @ dependencies }
 end
 
@@ -2058,11 +2072,11 @@ module GenIter = struct
         | _ -> failwith "Only client side calls are supported."
       in
       (* let body = *)
-      (*   (\* HACK to ensure that *)
+      (*   (* HACK to ensure that *)
       (*      [[fun get() {do Get}]] *)
       (*     = *)
       (*      function* get() { return yield {"_label":"Get", "_value": ... } } *)
-      (*   *\) *)
+      (*   *) *)
       (*   match body with *)
       (*   | (bs, SExpr ((EYield _) as yield)) -> *)
       (*      (bs, SReturn yield) *)
@@ -2517,11 +2531,11 @@ module TrampolinedGenIter = struct
         | _ -> failwith "Only client side calls are supported."
       in
       (* let body = *)
-      (*   (\* HACK to ensure that *)
+      (*   (* HACK to ensure that *)
       (*      [[fun get() {do Get}]] *)
       (*     = *)
       (*      function* get() { return yield {"_label":"Get", "_value": ... } } *)
-      (*   *\) *)
+      (*   *) *)
       (*   match body with *)
       (*   | (bs, SExpr ((EYield _) as yield)) -> *)
       (*      (bs, SReturn yield) *)
@@ -2791,7 +2805,7 @@ module CEK = struct
   (* and generate_binding : ?toplevel:bool -> venv -> Ir.binding -> venv * Js.decl list *)
   (*   = fun ?(toplevel=false) env -> *)
   (*     let open Js in *)
-  (*     (\* let gv v = generate_value env v in *\) *)
+  (*     (* let gv v = generate_value env v in *) *)
   (*     function *)
   (*     | `Let (b, (_, `Return v)) -> *)
   (*        let (x, x_name) = safe_name_binder b in *)
@@ -2800,14 +2814,14 @@ module CEK = struct
   (*          bkind = `Const; *)
   (*          binder = Ident.of_string x_name; *)
   (*          expr = generate_value env v; }] *)
-  (*     (\* | `Let (b, (_, `Apply (f, args))) -> *\) *)
-  (*     (\*    let (x, x_name) = safe_name_binder b in *\) *)
-  (*     (\*    VEnv.bind env (x, x_name), *\) *)
-  (*     (\*    [DLet { *\) *)
-  (*     (\*      bkind = `Const; *\) *)
-  (*     (\*      binder = Ident.of_string x_name; *\) *)
-  (*     (\*      expr = EYield { ykind = `Star; *\) *)
-  (*     (\*                      yexpr = EApply (gv (strip_poly f), List.map gv args); }; }] *\) *)
+  (*     (* | `Let (b, (_, `Apply (f, args))) -> *) *)
+  (*     (*    let (x, x_name) = safe_name_binder b in *) *)
+  (*     (*    VEnv.bind env (x, x_name), *) *)
+  (*     (*    [DLet { *) *)
+  (*     (*      bkind = `Const; *) *)
+  (*     (*      binder = Ident.of_string x_name; *) *)
+  (*     (*      expr = EYield { ykind = `Star; *) *)
+  (*     (*                      yexpr = EApply (gv (strip_poly f), List.map gv args); }; }] *) *)
   (*     | `Let (b, (_, tc)) when toplevel = false -> *)
   (*        let (x, x_name) = safe_name_binder b in *)
   (*        VEnv.bind env (x, x_name), *)
@@ -3228,7 +3242,7 @@ module StackInspection = struct
       let o = (analysis tyenv)#program prog in
       o#get_liveness_map
 
-    (* (\* Note this pass is not hygienic. Use with caution. *\) *)
+    (* (* Note this pass is not hygienic. Use with caution. *) *)
     (* let alpha_convert tyenv renaming = *)
     (*   object (o) *)
     (*     inherit Ir.Transform.visitor(tyenv) as super *)
@@ -3247,7 +3261,7 @@ module StackInspection = struct
 
     (* let fragmentise (tyenv : Types.datatype Env.Int.t) prog = *)
     (*   let liveness_map = liveness tyenv prog in *)
-    (*   (\* Printf.eprintf "Liveness_map: %s\n" (Show_liveness_map.show liveness_map); *\) *)
+    (*   (* Printf.eprintf "Liveness_map: %s\n" (Show_liveness_map.show liveness_map); *) *)
     (*   let counter = ref (-1) in *)
     (*   let fresh_answer_name base = *)
     (*     incr counter; *)
@@ -3315,7 +3329,7 @@ module StackInspection = struct
     (*                  let tc = *)
     (*                    let (tc, _, _) = o#tail_computation tc in *)
     (*                    tc *)
-    (*                    (\* fst3 ((alpha_convert tyenv sigma)#tail_computation tc) *\) *)
+    (*                    (* fst3 ((alpha_convert tyenv sigma)#tail_computation tc) *) *)
     (*                  in *)
     (*                  ([], tc) *)
     (*                in *)
@@ -3341,14 +3355,14 @@ module StackInspection = struct
     (*                  let tc = *)
     (*                    let (tc, _, _) = (o#with_liveset liveset.before)#tail_computation tc' in *)
     (*                    tc *)
-    (*                    (\* fst3 ((alpha_convert tyenv sigma)#tail_computation tc) *\) *)
+    (*                    (* fst3 ((alpha_convert tyenv sigma)#tail_computation tc) *) *)
     (*                  in *)
     (*                  [`Let (b, (tyvars, tc))], `Apply (f', args) *)
     (*                in *)
     (*                (fb, ([], params, body), None, `Unknown) *)
     (*              in *)
     (*              fundef :: fundefs, o *)
-    (*           | _ -> assert false (\* Assumes closure conversion *\) *)
+    (*           | _ -> assert false (* Assumes closure conversion *) *)
     (*         in *)
     (*         let funbinding o : Ir.binding -> Ir.binding * 'self_type = function *)
     (*           | `Fun (fb, (tyvars, (params : Ir.binder list), body), (z : Ir.binder option), loc) -> *)
@@ -3559,7 +3573,7 @@ module StackInspection = struct
                    let (body, o) =
                      let st = o#backup in
                      (* let name = o#get_basename in *)
-                     (* (\* let o = (o#reset)#with_basename name in *\) *)
+                     (* (* let o = (o#reset)#with_basename name in *) *)
                      let (tc, _, o) = (o#with_liveset liveset.before)#tail_computation tc in
                      let o = o#restore st in
                      let (cont, o) =
@@ -3593,7 +3607,7 @@ module StackInspection = struct
                    let (body, o) =
                      let st = o#backup in
                      (* let name = o#get_basename in *)
-                     (* (\* let o = (o#reset)#with_basename name in *\) *)
+                     (* (* let o = (o#reset)#with_basename name in *) *)
                      let (tc, _, o) = (o#with_liveset liveset.before)#tail_computation tc in
                      let o = o#restore st in
                      let (cont, o) =
@@ -3653,8 +3667,8 @@ module StackInspection = struct
               (*    let (defs, o) = *)
               (*      List.fold_left *)
               (*        (fun (defs, o) (fb, (tyvars, xsb, body), z, loc) -> *)
-              (*          (\* Printf.eprintf "Visiting: %s\n%!" (Var.name_of_binder fb); *\) *)
-              (*          (\* Printf.eprintf "%s\n%!" (Ir.Show_computation.show body); *\) *)
+              (*          (* Printf.eprintf "Visiting: %s\n%!" (Var.name_of_binder fb); *) *)
+              (*          (* Printf.eprintf "%s\n%!" (Ir.Show_computation.show body); *) *)
               (*          frame_counter := 0; *)
               (*          let o = o#reset in *)
               (*          let (xsb, o) = *)
@@ -3929,15 +3943,15 @@ module StackInspection = struct
       (*     } *)
       (*   in *)
       (*   let env' = VEnv.bind env b' in *)
-      (*   (\* let (bs, tc) = *\) *)
-      (*   (\*   Ir.ReplaceReturnWithApply.program !tyenv assign [`Variable (Var.var_of_binder b)] ([], tc) *\) *)
-      (*   (\* in *\) *)
-      (*   (\* let prog = *\) *)
-      (*   (\*         (\\* HACK, TODO FIX tail_computation -- should return an expression *\\) *\) *)
-      (*   (\*   match generate_tail_computation env' tc with *\) *)
-      (*   (\*   | [], SReturn (EApply _ as appl) -> ([], SExpr appl) *\) *)
-      (*   (\*   | body -> body *\) *)
-      (*   (\* in *\) *)
+      (*   (* let (bs, tc) = *) *)
+      (*   (*   Ir.ReplaceReturnWithApply.program !tyenv assign [`Variable (Var.var_of_binder b)] ([], tc) *) *)
+      (*   (* in *) *)
+      (*   (* let prog = *) *)
+      (*   (*         (\* HACK, TODO FIX tail_computation -- should return an expression *\) *) *)
+      (*   (*   match generate_tail_computation env' tc with *) *)
+      (*   (*   | [], SReturn (EApply _ as appl) -> ([], SExpr appl) *) *)
+      (*   (*   | body -> body *) *)
+      (*   (* in *) *)
       (*   env', [binding] *)
       (* and gbs env = function *)
       (*   | `Module _ :: bs -> gbs env bs *)
@@ -3946,8 +3960,8 @@ module StackInspection = struct
       (*      let env' = VEnv.bind env (a, raw_name) in *)
       (*      gbs env' bs *)
       (*   | `Let (b, (_, tc)) :: bs -> *)
-      (*    (\* Printf.printf "Var: %d\n%!" (Var.var_of_binder b); *\) *)
-      (*    (\* Printf.printf "Env: %s\n%!" (Show_venv.show env); *\) *)
+      (*    (* Printf.printf "Var: %d\n%!" (Var.var_of_binder b); *) *)
+      (*    (* Printf.printf "Env: %s\n%!" (Show_venv.show env); *) *)
       (*      let b' = safe_name_binder b in *)
       (*      let env', (bindings, stmt) = gbs (VEnv.bind env b') bs in *)
       (*      let env'', (bindings', stmt') = *)
@@ -3993,8 +4007,8 @@ module StackInspection = struct
          let env' = VEnv.bind env (a, raw_name) in
          gbs env' bs
       | `Let (_b, (_, _tc)) :: _bs -> assert false
-    (*  (\* Printf.printf "Var: %d\n%!" (Var.var_of_binder b); *\) *)
-    (* (\* Printf.printf "Env: %s\n%!" (Show_venv.show env); *\) *)
+    (*  (* Printf.printf "Var: %d\n%!" (Var.var_of_binder b); *) *)
+    (* (* Printf.printf "Env: %s\n%!" (Show_venv.show env); *) *)
     (* let b' = safe_name_binder b in *)
     (* let env', (bindings, stmt) = gbs (VEnv.bind env b') bs in *)
     (* let env'', (bindings', stmt') = *)
@@ -4254,7 +4268,7 @@ module StackInspection = struct
          in
          let (decls, stmt) = install_trap comp trap value in
          value_decl :: trap_decl :: decls, stmt
-         (* (\** **\)
+         (* (** **)
          *  let comp_name = Ident.of_string (gensym ~prefix:"_f" ()) in
          *  let tryhandle result_binder handle_name eff_cases return : Js.statement =
          *   let exn = Ident.of_string (gensym ~prefix:"_exn" ()) in
