@@ -3,7 +3,7 @@
 
 typename Comp(e::Eff,a) = () ~e~> a;
 
-alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%~> Bool, %a, () ~%~> %a) ~%~> ();
+#alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%~> Bool, %a, () ~%~> %a) ~%~> ();
 
 sig get : () {Get:s|_}-> s
 fun get() {do Get}
@@ -30,4 +30,5 @@ fun evalState(m)(st)() {
   }
 }
 
-benchmark("Deep counting (reference cell)", (==), 0, fun() { evalState(count)(100)() })
+#benchmark("Deep counting (reference cell)", (==), 0, fun() { evalState(count)(100)() })
+print(intToString(evalState(count)(100000000)()))

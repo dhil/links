@@ -1,7 +1,7 @@
 # Stateful counting
 # Microbenchmark adapted from Kammar et al. (2013).
 
-alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%~> Bool, %a, () ~%~> %a) ~%~> ();
+#alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%~> Bool, %a, () ~%~> %a) ~%~> ();
 
 typename Comp(e::Eff,a) = () ~e~> a;
 
@@ -29,4 +29,6 @@ fun evalState(m)(st)() {
   })(st)
 }
 
-benchmark("Deep counting (functional state)", (==), 0, fun() { evalState(count)(10000)() })
+#benchmark("Deep counting (functional state)", (==), 0, fun() { evalState(count)(10000)() })
+
+print(intToString(evalState(count)(10000000)()))

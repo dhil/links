@@ -1,14 +1,14 @@
 # Shallow encoding of pipes
 # Example adapted from Kammar et al. (2013)
 
-typename Comp(e::Row,a::Type) = () ~e~> a;
+typename Comp(e::Eff,a::Type) = () ~e~> a;
 
-typename Prod(e::Row,o,a) = (()) {Yield:(o) {}-> () |e}~> a;
-typename Cons(e::Row,i,a) = (i)  {Await:i           |e}~> a;
+typename Prod(e::Eff,o,a) = (()) {Yield:(o) {}-> () |e}~> a;
+typename Cons(e::Eff,i,a) = (i)  {Await:i           |e}~> a;
 
-typename Pump(e::Row,o,a)     = Comp({Yield:(o) {}-> () |e}, a);
-typename Sink(e::Row,i,a)     = Comp({Await:i           |e}, a);
-typename Pipe(e::Row,i,o,a)   = Comp({                  |e}, a);
+typename Pump(e::Eff,o,a)     = Comp({Yield:(o) {}-> () |e}, a);
+typename Sink(e::Eff,i,a)     = Comp({Await:i           |e}, a);
+typename Pipe(e::Eff,i,o,a)   = Comp({                  |e}, a);
 
 #
 # Operations
@@ -135,7 +135,9 @@ fun unitTest(n) {
   }
 }
 
-alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%e~> Bool, %a, () ~%e~> %a) ~%e~> ();
+#alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%e~> Bool, %a, () ~%e~> %a) ~%e~> ();
 
-benchmark("Shallow pipes", (==), "199", fun() { unitTest(0) })
+#benchmark("Shallow pipes", (==), "199", fun() { unitTest(0) })
+
+print(unitTest(0))
 
