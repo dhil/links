@@ -7,6 +7,7 @@ let endbang_antiquotes = Basicsettings.TypeSugar.endbang_antiquotes
 
 let check_top_level_purity = Basicsettings.TypeSugar.check_top_level_purity
 
+let dodgey_type_isomorphism = Basicsettings.TypeSugar.dodgey_type_isomorphism
 
 module Env = Env.String
 
@@ -2595,7 +2596,13 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * usagemap =
             let ps = List.map (tc) ps in
 
               (*
-                We take advantage of this type isomorphism:
+                SL: though superficially appealing, the following is unsound
+                as it evidently violates the value restriction!
+                Thus we disable it by default.
+
+                I think the isomorphism for projections is still OK.
+
+                We can take advantage of this type isomorphism:
 
                 forall X.P -> Q == P -> forall X.Q
                 where X is not free in P
@@ -2642,10 +2649,13 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * usagemap =
 
                       (* quantifiers for the return type *)
                       let rqs =
-                        (fst -<- List.split -<- snd -<- List.split)
-                          (List.filter
-                             (fun (q, _) -> not (free_in_arg q))
-                             xs) in
+                        if Settings.get_value dodgey_type_isomorphism then
+                          (fst -<- List.split -<- snd -<- List.split)
+                            (List.filter
+                               (fun (q, _) -> not (free_in_arg q))
+                               xs)
+                        else
+                          [] in
 
                       (* type arguments to apply f to *)
                       let tyargs = (snd -<- List.split -<- snd -<- List.split) xs in
@@ -3021,7 +3031,7 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * usagemap =
               else
                 Gripers.upcast_subtype pos t2 t1
         | `Upcast _ -> assert false
-        | `Handle { sh_expr = m; sh_effect_cases = cases; sh_descr = descr; _ } ->
+        | `Handle { sh_expr = m; sh_value_cases = val_cases; sh_effect_cases = eff_cases; sh_descr = descr; } ->
            let rec pop_last = function
              | [] -> assert false
              | [x] -> x, []
@@ -3079,7 +3089,7 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * usagemap =
                                                                              shp_types = pat_types } })
              | None -> (henv, [], descr)
            in
-           let type_cases cases =
+           let type_cases val_cases eff_cases =
              let wild_row () =
                let fresh_row = Types.make_empty_open_row (`Unl, `Any) in
                allow_wild fresh_row
@@ -3088,7 +3098,6 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * usagemap =
              let bt = Types.fresh_type_variable (`Unl, `Any) in
              let inner_eff = wild_row () in
              let outer_eff = wild_row () in
-             let (val_cases, eff_cases) = split_handler_cases cases in
              (* Type value patterns *)
              let val_cases, val_pats =
                List.fold_right
@@ -3269,7 +3278,15 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * usagemap =
            let m = type_check m_context m in (* Type-check the input computation m under current context *)
            let m_effects = `Effect m_context.effect_row in
            (** Most of the work is done by `type_cases'. *)
-           let (val_cases, rt), eff_cases, body_type, inner_eff, outer_eff = type_cases cases in
+           let (val_cases, eff_cases) =
+             (** The following is a slight hack until I get rid of the
+                 `handler' sugar. It is necessary because of "old
+                 fashioned" parameterised handlers. *)
+             match val_cases with
+             | [] -> split_handler_cases eff_cases
+             | _  -> val_cases, eff_cases
+           in
+           let (val_cases, rt), eff_cases, body_type, inner_eff, outer_eff = type_cases val_cases eff_cases in
            (* Printf.printf "result: %s\ninner_eff: %s\nouter_eff: %s\n%!" (Types.string_of_datatype rt) (Types.string_of_row inner_eff) (Types.string_of_row outer_eff); *)
            (** Patch the result type of `m' *)
            let () =

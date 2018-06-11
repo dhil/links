@@ -488,7 +488,7 @@ let compile_js () =
        let nenv = Env.String.extend nenv nenv' in
        let tyenv = Types.extend_typing_environment tyenv tyenv' in
        let (globals, (locals,main), t) = source.program in
-       (* Printf.eprintf "AFTER SUGARTOIR IR: %s\n%!" (Ir.show_program (globals @ locals, main) *));
+       (* Printf.eprintf "AFTER SUGARTOIR IR: %s\n%!" (Ir.show_program (globals @ locals, main); *)
        let tenv' = Var.varify_env (nenv, tyenv.Types.var_env) in
        (* Optimise *)
        let optimise_program tenv program =
@@ -568,9 +568,6 @@ let _ =
     | Some _ -> Settings.set_value BS.web_mode true
     | None -> ()
   end;
-
-  (* Load database drivers *)
-  Dyn_db_hack.load ();
 
   if Settings.get_value BS.Js.compile
   then compile_js ()
