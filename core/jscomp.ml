@@ -873,11 +873,6 @@ module SIM_CPS = struct
   (* Installs a trap *)
     val install_trap : Js.expression * Js.expression -> t -> t
 
-  (* Pops n elements from a given continuation. Returns a list of
-     declarations, a list of variables, and the tail of the
-     continuation. *)
-    val pop : int -> t -> Js.decl list * t list * t
-
   (* Turns code into a continuation. *)
     val reflect : Js.expression -> t
   (* Turns a continuation into code. *)
@@ -916,7 +911,17 @@ module SIM_CPS = struct
       let head xs = Js.(EApply (EPrim "%List.head", [xs]))
       let tail xs = Js.(EApply (EPrim "%List.tail", [xs]))
       let augment f kappa = Js.(EApply (EPrim "%K.augment", [f; kappa]))
-      let toplevel = Reflect (Js.(EPrim "%K.identity"))
+      (* let toplevel = Reflect (Js.(EPrim "%K.identity")) *)
+      let toplevel =
+        Cons (Static
+                (EPrim "%List.nil",
+                 EFun {
+                   fkind = `Regular;
+                   fname = `Anonymous;
+                   formal_params = ["x"; "ks"];
+                   body = ([], SReturn (EVar "x")) },
+                 EPrim "%K.absurd"),
+              Reflect (EPrim "%List.nil"))
 
       let make_frame pureFrames ret eff =
         Js.(EApply (EPrim "%K.makeFrame", [pureFrames; ret; eff]))
@@ -958,12 +963,14 @@ module SIM_CPS = struct
            let ks' = Js.Ident.make ~prefix:"_skappa" () in
            let decl = make_binding ks' (cons f ks) in
            Cons (Static (EVar ks', ret, eff), tail), [decl]
-        | Cons (Dynamic ks, tail) as v ->
-           let ks' = Js.Ident.make ~prefix:"_dkappa" () in
-           let decl = make_binding ks' (cons f ks) in
-           Cons (Dynamic (EVar ks'), tail), [decl]
+        | Cons (Dynamic ks, tail) as v -> assert false
+           (* let ks' = Js.Ident.make ~prefix:"_dkappa" () in *)
+           (* let decl = make_binding ks' (cons f ks) in *)
+           (* Cons (Dynamic (EVar ks'), tail), [decl] *)
         | Reflect v ->
-           Reflect v, []
+           let kappa = Js.Ident.make ~prefix:"_r2kappa" () in
+           let decl = make_binding kappa (augment f v) in
+           Reflect (EVar kappa), [decl]
         | Identity -> f &> toplevel
 
       let bind kappas (body : t -> Js.program) =
@@ -983,9 +990,9 @@ module SIM_CPS = struct
              let bs = (make_binding k v) :: bs in
              let (rest, stmt) = body (reflect @@ EVar k) in
              bs @ rest, stmt
-          | Cons (Dynamic (EVar _) as v, kappas) ->
+          | Cons (Dynamic (EVar _) as v, kappas) -> assert false;
              bind bs (fun kappas -> body (Cons (v, kappas))) kappas
-          | Cons (Dynamic v, kappas) ->
+          | Cons (Dynamic v, kappas) -> assert false;
              let k = Ident.make ~prefix:"_dkappa" () in
              let bs = (make_binding k v :: bs) in
              bind bs (fun kappas -> body (Cons (Dynamic (EVar k), kappas))) kappas
@@ -1010,40 +1017,6 @@ module SIM_CPS = struct
 
       let trap k arg =
         Js.(EApply (EPrim "%K.trap", [reify k; arg]))
-
-      let pop : int -> t -> Js.decl list * t list * t
-        = fun n kappa -> assert false
-          (* let rec loop n kappa = *)
-          (*   let rec pop = function *)
-          (*     | Cons (kappa, kappas) -> *)
-          (*        [], (reflect kappa), kappas *)
-          (*     | Reflect ks -> *)
-          (*        let open Js in *)
-          (*        let __k = Ident.make ~prefix:"__k" () in *)
-          (*        let __ks = Ident.make ~prefix:"__ks" () in *)
-          (*        let __k_binding = *)
-          (*          DLet { *)
-          (*            bkind = `Const; *)
-          (*            binder = __k; *)
-          (*            expr = head ks; } *)
-          (*        in *)
-          (*        let __ks_binding = *)
-          (*          DLet { *)
-          (*            bkind = `Const; *)
-          (*            binder = __ks; *)
-          (*            expr = tail ks; } *)
-          (*        in *)
-          (*        [__k_binding; __ks_binding], (reflect (EVar __k)), reflect (EVar __ks) *)
-          (*     | Identity -> pop toplevel *)
-          (*   in *)
-          (*   if n > 0 then *)
-          (*     let (decls, hd, tl) = pop kappa in *)
-          (*     let (decls', ks, tl) = loop (n-1) tl in *)
-          (*     (decls @ decls', hd :: ks, tl) *)
-          (*   else *)
-          (*     ([], [], kappa) *)
-          (* in *)
-          (* loop n kappa *)
 
       let contify_with_env fn =
         let open Js in
@@ -1393,18 +1366,24 @@ module SIM_CPS = struct
              in
              (env', (x_binding :: rest, prog))
           | `Let (b, (_, tc)) :: bs ->
-             let env', f =
+             let env', (kappa', decls) =
                let (x, x_name) = safe_name_binder b in
                let x_name = Ident.of_string x_name in
                let fs_name = Ident.of_string "_fs" in
                let env', body = gbs (VEnv.bind env (x, x_name)) K.(reflect (EVar fs_name)) bs in
-               env', EFun {
-                 fname = `Anonymous;
-                 fkind = `Regular;
-                 formal_params = [x_name; fs_name];
-                 body }
+               env',
+               (* match body with *)
+               (* | ([], SReturn (EApply (EPrim "%K.apply", [EVar x; EVar y]))) when x = fs_name && y = x_name -> *)
+               (*    kappa, [] *)
+               (* | _ -> *)
+                  let f = EFun {
+                    fname = `Anonymous;
+                    fkind = `Regular;
+                    formal_params = [x_name; fs_name];
+                    body
+                  } in
+                  K.(f &> kappa)
              in
-             let kappa', decls = K.(f &> kappa) in
              let decls', stmt = generate_tail_computation env tc kappa' in
              env', (decls @ decls', stmt)
           | `Fun ((fb, _, _zs, _location) as def) :: bs ->
