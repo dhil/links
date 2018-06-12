@@ -35,4 +35,4 @@ fun evalState(m, st) {
 }
 
 
-benchmark("Shallow encoded counting (functional state)", (==), 0, fun() { evalState(count,10000) })
+benchmark("Shallow encoded counting (functional state)", (==), 0, fun() { evalState(count,5000) })
