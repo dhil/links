@@ -1192,6 +1192,20 @@ module SIM_CPS = struct
                    else
                      let k = K.reify kappa in
                      [], SReturn (EApply (gv (`Variable f), (List.map gv vs) @ [k]))
+                     (* match Tables.lookup Tables.fun_defs f with *)
+                     (* | None -> *)
+                     (*    Printf.eprintf "No type for %d\n%!" f; *)
+                     (*    [], SReturn (EApply (gv (`Variable f), (List.map gv vs) @ [k])) *)
+                     (* | Some (info, _, _, _) -> *)
+                     (*    let t = Var.info_type info in *)
+                     (*    Printf.eprintf "Type %s for %d\n%!" (Types.string_of_datatype t) f; *)
+                     (*    if Types.is_empty_row (TypeUtils.effect_row t) then begin *)
+                     (*      Printf.eprintf "Empty %d\n%!" f; *)
+                     (*      generate_tail_computation env (`Return (`ApplyPure (`Variable f, vs))) kappa *)
+                     (*    end else begin *)
+                     (*      Printf.eprintf "Not empty %d\n%!" f; *)
+                     (*      [], SReturn (EApply (gv (`Variable f), (List.map gv vs) @ [k])) *)
+                     (*    end *)
               end
            | _ ->
               let k = K.reify kappa in
