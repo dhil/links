@@ -111,7 +111,7 @@ fun simple() {
   pipeline(())
 }
 
-#benchmark("Shallow pipes", fun(_,_) { true }, (), fun() { nested(0, 10, 1000) })
+benchmark("Shallow pipes", fun(_,_) { true }, (), fun() { nested(0, 10, 1000) })
 
 # simple()
 
