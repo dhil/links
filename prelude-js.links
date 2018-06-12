@@ -17,6 +17,18 @@ fun assert(eq, toString, expected, actual) {
   )
 }
 
+# Benchmark
+fun benchmark(name, compare, expected, f) {
+  var t0 = perfNow();
+  var x = f();
+  var t1 = perfNow();
+  var elapsed = intToString(perfElapsed(t0, t1));
+  if (compare(x, expected))
+    print(name ^^ ",true," ^^ elapsed)
+  else
+    print(name ^^ ",false," ^^ elapsed)
+}
+
 # Don't use a for comprehension to define concatMap, as
 # for comprehensions are desugared into concatMap!
 sig concatMap : ((a) ~e~> [b], [a]) ~e~> [b]

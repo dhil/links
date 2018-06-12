@@ -2,6 +2,18 @@ fun assert(ok, msg) {
   if (not(ok)) debug("assertion failed: " ^^ msg) else ();
 }
 
+# Benchmark
+fun benchmark(name, compare, expected, f) {
+  var t0 = serverTimeMilliseconds();
+  var x = f();
+  var t1 = serverTimeMilliseconds();
+  var elapsed = intToString(t1 - t0);
+  if (compare(x, expected))
+    print(name ^^ ",true," ^^ elapsed)
+  else
+    print(name ^^ ",false," ^^ elapsed)
+}
+
 # Don't use a for comprehension to define concatMap, as
 # for comprehensions are desugared into concatMap!
 fun concatMap(f, l) {
