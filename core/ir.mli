@@ -97,6 +97,8 @@ and handler_depth = [`Deep of (binder * value) list | `Shallow]
 
 val binding_scope : binding -> scope
 val binder_of_fun_def : fun_def -> binder
+val vars_of_binding : binding -> Utility.IntSet.t
+val vars_of_bindings : binding list -> Utility.IntSet.t
 
 val tapp : value * tyarg list -> value
 

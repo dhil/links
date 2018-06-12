@@ -426,8 +426,11 @@ let program tyenv globals program =
   (* Debug.print ("Before closure conversion: " ^ Ir.show_program program); *)
   (* ensure that all top-level bindings are marked as global
      (desugaring can break this invariant) *)
-  let program = Globalise.program program in
-  let fenv = ClosureVars.program tyenv globals program in
+  let (bs, _) as program = Globalise.program program in
+  let globals' =
+    IntSet.(union globals (Ir.vars_of_bindings bs))
+  in
+  let fenv = ClosureVars.program tyenv globals' program in
   (* Debug.print ("fenv: " ^ Closures.show_fenv fenv); *)
   let program = ClosureConvert.program tyenv fenv program in
   Debug.print ("After closure conversion: " ^ Ir.show_program program);

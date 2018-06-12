@@ -112,6 +112,19 @@ let binding_scope : binding -> scope =
 
 let binder_of_fun_def (fb, _, _, _) = fb
 
+let rec vars_of_binding = function
+  | `Alien (b, _, _)
+  | `Let (b, _)
+  | `Fun (b, _, _, _) -> IntSet.singleton (Var.var_of_binder b)
+  | `Rec ((b, _, _, _):: defs) ->
+     IntSet.add (Var.var_of_binder b) (vars_of_binding (`Rec defs))
+  | `Rec []
+  | `Module _ -> IntSet.empty
+
+let rec vars_of_bindings = function
+  | [] -> IntSet.empty
+  | b :: bs -> IntSet.(union (vars_of_binding b) (vars_of_bindings bs))
+
 let tapp (v, tyargs) =
   match tyargs with
     | [] -> v
