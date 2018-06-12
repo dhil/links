@@ -57,14 +57,14 @@ fun available(a, qs, l) {
 }
 
 fun chooseHandler(m) {
-    handle(m()) {
+    shallowhandle(m()) {
       case Return(x) -> Just(x)
       case Choose(xs,resume) -> {
            fun loop(xs) {
               switch(xs) {
                 case []      -> Nothing
                 case x :: xs ->
-                  switch (resume(x)) {
+                  switch (chooseHandler(fun() {resume(x)})) {
                     case Nothing -> loop(xs)
                     case Just(x) -> Just(x)
                   }
@@ -99,4 +99,4 @@ fun main() {
 
 #alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%e~> Bool, %a, () ~%e~> %a) ~%e~> ();
 
-benchmark("Queens (deep)", (==), "Just([(8, 4), (7, 2), (6, 7), (5, 3), (4, 6), (3, 8), (2, 5), (1, 1)])", main)
+benchmark("Queens (shallow)", (==), "Just([(8, 4), (7, 2), (6, 7), (5, 3), (4, 6), (3, 8), (2, 5), (1, 1)])", main)

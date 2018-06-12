@@ -6,9 +6,9 @@ typename Comp(e::Eff,a::Type) = () ~e~> a;
 typename Prod(e::Eff,o,a) = (()) {Yield:(o) {}-> () |e}~> a;
 typename Cons(e::Eff,i,a) = (i)  {Await:i           |e}~> a;
 
-typename Pump(e::Eff,o,a)     = Comp({Yield:(o) {}-> () |e}, a);
-typename Sink(e::Eff,i,a)     = Comp({Await:i           |e}, a);
-typename Pipe(e::Eff,i,o,a)   = Comp({                  |e}, a);
+# typename Pump(e::Eff,o,a)     = Comp({Yield:(o) {}-> () |e}, a);
+# typename Sink(e::Eff,i,a)     = Comp({Await:i           |e}, a);
+typename Pipe(e::Eff,i,o,a)     = () { |e}~> a;
 
 #
 # Operations
@@ -23,121 +23,213 @@ fun yield(s) { do Yield(s) }
 #
 #
 
-sig up : (Comp({Await{ap},Yield:(o) {}-> () |e},    a)) ->
-         (Cons({Yield{yp}                   |e}, o, a)) ->
-          Comp({Await{ap},Yield{yp}         |e},    a)
-fun up(m)(cons)() {
-  shallowhandle(m()) {
-    case Return(x)  -> x
-    case Yield(s,k) -> down(fun() { cons(s) })(k)()
-  }
-}
-
-sig down : (Comp({Await:i  ,Yield{yp} |e},    a)) ->
-           (Prod({Await{ap}           |e}, i, a)) ->
-            Comp({Await{ap},Yield{yp} |e},    a)
-fun down(m)(prod)() {
-  shallowhandle(m()) {
+sig pipe : (Prod({ Await{b} |e}, s, a), Cons({ Yield{c} |e}, s, a)) {Await{b}, Yield{c} |e}~> a
+fun pipe(prod, cons) {
+  shallowhandle(prod(())) {
     case Return(x) -> x
-    case Await(k)  -> up(fun() { prod(()) })(k)()
+    case Yield(s, resume) -> copipe(fun() { cons(s) }, resume)
   }
 }
 
-
-sig <+< : (Sink({Yield{yp} |e}, s, a), Pump({Await{ap}  |e}, s, a)) -> Pipe({Await{ap},Yield{yp} |e}, s, s, a)
-op consumer <+< producer {
-   down(consumer)(fun(_) {producer()})
+sig copipe : (Comp({Await:s, Yield{c} |e}, a), Prod ({ Await{b} |e}, s, a)) {Await{b},Yield{c} |e}~> a
+fun copipe(cons, prod) {
+  shallowhandle(cons()) {
+    case Return(x) -> x
+    case Await(resume) -> pipe(prod, resume)
+  }
 }
 
-sig >+> : (Pump({Await{ap}  |e}, s, a), Sink({Yield{yp} |e}, s, a)) -> Pipe({Await{ap},Yield{yp} |e}, s, s, a)
+#sig >+> : (Prod ({ Await{b}|e},s, a), Cons ({ Yield{c}|e},s,a)) -> (()) {Await{b}, Yield{c} |e}~> a
 op producer >+> consumer {
-  consumer <+< producer
+  fun (()) { copipe(consumer, producer) }
 }
 
-# Some producers and consumers
-# Produces an infinite stream of integers starting from [n] *)
-sig produceFrom : (Int) -> Pump({ |_}, Int, a)
-fun produceFrom(n)() {
-    yield(n);
-    produceFrom(n+1)()
-}
+sig forever : (Comp({ |e}, a)) ~e~> b
+fun forever(f) { ignore(f()); forever(f) }
 
-# Accumulates elements from an integer stream until the sum is greater than or equal to [n]
-sig sumTo : (Int) -> Pipe({ Await:Int, Yield:(Int) {}-> () |_}, Int, Int, ())
-fun sumTo(n)() {
-  fun sumTo_aux(acc, lim) {
-    if (acc >= lim) {
-      yield(acc)
-    } else {
+sig blackhole : Comp({Await:s |e}, a)
+fun blackhole() { forever(await) }
+
+sig take1 : (Int) -> Pipe({Await:s, Yield:(s) -> () |e}, s, s, ())
+fun take1(n)() {
+  fun take0(n) {
+    if (n <= 0) ()
+    else {
       var x = await();
-      sumTo_aux(acc+x, lim)
+      yield(x);
+      take0(n-1)
+   }
+ }
+ take0(n)
+}
+
+sig expoPipe : (Int) -> Pipe({ Await: Int, Yield: (Int) -> () |e}, Int, Int, a)
+fun expoPipe(n)() {
+  fun expoPipe0(n) {
+    if (n == 0) {
+       forever(fun() {
+         var x = await();
+         yield(x+1)
+       })
+    } else {
+        pipe(fun(_) { expoPipe0(n-1) }, fun(_) { expoPipe0(n-1) })
     }
   }
-  sumTo_aux(0, n)
+  expoPipe0(n)
 }
 
-# Skips [n] elements from an arbitrary stream
-sig skip : (Int) -> Pipe({ Await:s, Yield:(s) {}-> () |_}, s, s, a)
-fun skip(n)() {
-   if (n <= 0) { yield(await()); skip(0)() }
-   else {
-     var _ = await();
-     skip(n-1)()
-   }
-}
-
-# Turns a stream of as into a stream of bs
-sig converter : ((a) {Await:a, Yield:(b) {}-> () |e}~> b) -> Pipe({ Await:a, Yield:(b) {}-> () |e}, a, b, c)
-fun converter(conv)() {
-    var b = conv(await());
-    yield(b);
-    converter(conv)()
-}
-
-# Prints a stream of as
-sig printer : ((a) {Await:a |e}~> String) -> Sink({ |e}, a, b)
-fun printer(toString)() {
-    var n = await();
-    print(toString(n));
-    printer(toString)()
-}
-
-fun example() {
-  ( produceFrom(0)            # yields INT
- >+>
-    skip(99)                  # yields INT
- >+>
-    sumTo(100)                # yields INT
- >+>
-    converter(intToFloat)     # yields FLOAT
- >+>
-    converter(floatToString)  # yields STRING
- >+>
-    printer(id)               # sink
- ) ()
-}
-
-fun unitTest(n) {
-  handle(
-   ( produceFrom(n)            # yields INT
-  >+>
-     skip(99)                  # yields INT
-  >+>
-     sumTo(100)                # yields INT
-  >+>
-     converter(intToFloat)     # yields FLOAT
-  >+>
-     converter(floatToString)  # yields STRING
-  ) ()) {
-    case Return(_)  -> error("Unexpected return.")
-    case Await(_,_) -> error("Unexpected await.")
-    case Yield(x,_) -> x
+sig produceFrom : (Int) -> Prod({ |e}, Int, a)
+fun produceFrom(n)(_) {
+  fun produceFrom0(n) {
+     yield(n);
+     produceFrom0(n+1)
   }
+  produceFrom0(n)
 }
+
+fun skip1(n)() {
+  fun skip0(n) {
+    var x = await();
+    if (n <= 0) yield(x)
+    else skip0(n-1)
+  }
+  skip0(n)
+}
+
+fun printer(toString)() {
+  var x = await();
+  print(toString(x))
+}
+
+fun nested(start, depth, end) {
+  var pipeline = produceFrom(start) >+> expoPipe(depth) >+> take1(end) >+> blackhole;
+  pipeline(())
+}
+
+fun simple() {
+  var pipeline = produceFrom(0) >+> skip1(1000) >+> printer(intToString);
+  pipeline(())
+}
+
+#benchmark("Shallow pipes", fun(_,_) { true }, (), fun() { nested(0, 10, 1000) })
+
+# simple()
+
+# sig up : (Comp({Await{ap},Yield:(o) {}-> () |e},    a)) ->
+#          (Cons({Yield{yp}                   |e}, o, a)) ->
+#           Comp({Await{ap},Yield{yp}         |e},    a)
+# fun up(m)(cons)() {
+#   shallowhandle(m()) {
+#     case Return(x)  -> x
+#     case Yield(s,k) -> down(fun() { cons(s) })(k)()
+#   }
+# }
+
+# sig down : (Comp({Await:i  ,Yield{yp} |e},    a)) ->
+#            (Prod({Await{ap}           |e}, i, a)) ->
+#             Comp({Await{ap},Yield{yp} |e},    a)
+# fun down(m)(prod)() {
+#   shallowhandle(m()) {
+#     case Return(x) -> x
+#     case Await(k)  -> up(fun() { prod(()) })(k)()
+#   }
+# }
+
+
+# sig <+< : (Sink({Yield{yp} |e}, s, a), Pump({Await{ap}  |e}, s, a)) -> Pipe({Await{ap},Yield{yp} |e}, s, s, a)
+# op consumer <+< producer {
+#    down(consumer)(fun(_) {producer()})
+# }
+
+# sig >+> : (Pump({Await{ap}  |e}, s, a), Sink({Yield{yp} |e}, s, a)) -> Pipe({Await{ap},Yield{yp} |e}, s, s, a)
+# op producer >+> consumer {
+#   consumer <+< producer
+# }
+
+# # Some producers and consumers
+# # Produces an infinite stream of integers starting from [n] *)
+# sig produceFrom : (Int) -> Pump({ |_}, Int, a)
+# fun produceFrom(n)() {
+#     yield(n);
+#     produceFrom(n+1)()
+# }
+
+# # Accumulates elements from an integer stream until the sum is greater than or equal to [n]
+# sig sumTo : (Int) -> Pipe({ Await:Int, Yield:(Int) {}-> () |_}, Int, Int, ())
+# fun sumTo(n)() {
+#   fun sumTo_aux(acc, lim) {
+#     if (acc >= lim) {
+#       yield(acc)
+#     } else {
+#       var x = await();
+#       sumTo_aux(acc+x, lim)
+#     }
+#   }
+#   sumTo_aux(0, n)
+# }
+
+# # Skips [n] elements from an arbitrary stream
+# sig skip : (Int) -> Pipe({ Await:s, Yield:(s) {}-> () |_}, s, s, a)
+# fun skip(n)() {
+#    if (n <= 0) { yield(await()); skip(0)() }
+#    else {
+#      var _ = await();
+#      skip(n-1)()
+#    }
+# }
+
+# # Turns a stream of as into a stream of bs
+# sig converter : ((a) {Await:a, Yield:(b) {}-> () |e}~> b) -> Pipe({ Await:a, Yield:(b) {}-> () |e}, a, b, c)
+# fun converter(conv)() {
+#     var b = conv(await());
+#     yield(b);
+#     converter(conv)()
+# }
+
+# # Prints a stream of as
+# sig printer : ((a) {Await:a |e}~> String) -> Sink({ |e}, a, b)
+# fun printer(toString)() {
+#     var n = await();
+#     print(toString(n));
+#     printer(toString)()
+# }
+
+# fun example() {
+#   ( produceFrom(0)            # yields INT
+#  >+>
+#     skip(99)                  # yields INT
+#  >+>
+#     sumTo(100)                # yields INT
+#  >+>
+#     converter(intToFloat)     # yields FLOAT
+#  >+>
+#     converter(floatToString)  # yields STRING
+#  >+>
+#     printer(id)               # sink
+#  ) ()
+# }
+
+# fun unitTest(n) {
+#   handle(
+#    ( produceFrom(n)            # yields INT
+#   >+>
+#      skip(99)                  # yields INT
+#   >+>
+#      sumTo(100)                # yields INT
+#   >+>
+#      converter(intToFloat)     # yields FLOAT
+#   >+>
+#      converter(floatToString)  # yields STRING
+#   ) ()) {
+#     case Return(_)  -> error("Unexpected return.")
+#     case Await(_,_) -> error("Unexpected await.")
+#     case Yield(x,_) -> x
+#   }
+# }
 
 #alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%e~> Bool, %a, () ~%e~> %a) ~%e~> ();
 
 #benchmark("Shallow pipes", (==), "199", fun() { unitTest(0) })
 
-print(unitTest(0))
+#print(unitTest(0))
 

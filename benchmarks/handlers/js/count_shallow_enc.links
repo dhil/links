@@ -1,0 +1,38 @@
+# Stateful counting
+# Microbenchmark adapted from Kammar et al. (2013).
+
+sig get : () {Get:s|_}-> s
+fun get() {do Get}
+
+sig put : (s) {Put:(s) {}-> ()|_}-> ()
+fun put(st) {do Put(st)}
+
+sig count : (Comp({Get:Int,Put:(Int) {}-> () |_}, Int))
+fun count() {
+  var n = get();
+  if (n == 0) 0
+  else { put(n-1); count() }
+}
+
+fun evalState(m, st) {
+  var z = handle(m()) {
+    case Return(x) -> (fun() { x }, fun() { x })
+    case Get(resume) ->
+       var resume0 = fun(x) {
+         var z = resume(x);
+         var (f, _) = z; f()
+       };
+       (fun() { var x = do Get; resume0(x) }, fun() { evalState(fun() { resume0(st) }, st) })
+    case Put(p, resume) ->
+       var resume0 = fun(x) {
+         var z = resume(x);
+         var (f, _) = z; f()
+       };
+       (fun() { var x = do Put(p); resume0(()) }, fun() { evalState(fun() { resume0(()) }, p) })
+  };
+  var (_, g) = z;
+  g()
+}
+
+
+benchmark("Shallow encoded counting (functional state)", (==), 0, fun() { evalState(count,10000) })

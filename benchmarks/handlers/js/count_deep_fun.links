@@ -1,8 +1,6 @@
 # Stateful counting
 # Microbenchmark adapted from Kammar et al. (2013).
 
-#alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%~> Bool, %a, () ~%~> %a) ~%~> ();
-
 typename Comp(e::Eff,a) = () ~e~> a;
 
 sig get : () {Get:s|_}-> s
@@ -18,17 +16,15 @@ fun count() {
   else { put(n-1); count() }
 }
 
-sig evalState : (Comp({Get:s ,Put:(s) {}-> () |e}, a)) -> # Abstract stateful computation
-                (s)                                    -> # Initial state
-                 Comp({Get{_},Put{_}          |e}, a)     # Instantiated computation
-fun evalState(m)(st)() {
-  (handle(m()) {
-    case Return(x)     -> fun(_) { x }
-    case Get(resume)   -> fun(st) { resume(st)(st) }
-    case Put(p,resume) -> fun(_) { resume(())(p) }
-  })(st)
+fun run() {
+  var start =
+     handle(count()) {
+       case Return(x)     -> fun(_) { x }
+       case Get(resume)   -> fun(st) { resume(st)(st) }
+       case Put(p,resume) -> fun(_) { resume(())(p) }
+     };
+  #start(1000000)
+  start(10000)
 }
 
-#benchmark("Deep counting (functional state)", (==), 0, fun() { evalState(count)(10000)() })
-
-print(intToString(evalState(count)(10000000)()))
+benchmark("Deep counting (functional state)", (==), 0, run)

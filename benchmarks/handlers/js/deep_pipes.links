@@ -77,8 +77,11 @@ op u >+> d {
 #sig produceFrom : (Int) -> Comp({Yield:(Int) {}-> () |_}, ())
 sig produceFrom : (Int) -> Pump({ |_}, Int)
 fun produceFrom(n)() {
+  fun produceFrom0(n) {
     yield(n);
-    produceFrom(n+1)()
+    produceFrom0(n+1)
+  }
+  produceFrom0(n)
 }
 
 # Accumulates elements from an integer stream until the sum is greater than or equal to [n]
@@ -100,14 +103,17 @@ fun sumTo(n)() {
 #sig skip : (Int) -> Comp({Await:s, Yield:(s) {}-> () |_}, ())
 sig skip : (Int) -> Pipe({ Await:s, Yield:(s) {}-> () |_}, s, s)
 fun skip(n)() {
-   if (n <= 0) {
-     var x = await();
-     var _ = yield(x);
-     skip(0)()
-   } else {
-     var _ = await();
-     skip(n-1)()
-   }
+  fun skip0(n) {
+    if (n <= 0) {
+      var x = await();
+      var _ = yield(x);
+      skip0(0)
+    } else {
+      var _ = await();
+      skip0(n-1)
+    }
+  }
+  skip0(n)
 }
 
 # Turns a stream of as into a stream of bs
@@ -128,67 +134,107 @@ fun printer(toString)() {
     printer(toString)()
 }
 
-# Examples
-fun example() {
-  ( printer(id)               # sink
- <+<
-    converter(floatToString)  # yields STRING
- <+<
-    converter(intToFloat)     # yields FLOAT
- <+<
-    sumTo(100)                # yields INT
- <+<
-    produceFrom(0)            # yields INT
-  )()
+fun forever(f) {
+  ignore(f());
+  forever(f)
 }
 
-fun example2() {
-  ( produceFrom(0)            # yields INT
- >+>
-    skip(99)                  # yields INT
- >+>
-    sumTo(100)                # yields INT
- >+>
-    converter(intToFloat)     # yields FLOAT
- >+>
-    converter(floatToString)  # yields STRING
- >+>
-    printer(id)               # sink
- ) ()
-}
-
-# End
-#sig end : Sink({Await:a |e}, a)
-fun end() {await()}
-
-fun forward() {
-  var x = do Await;
-  print("Received " ^^ intToString(x));
-  print("Yielding " ^^ intToString(x));
-  do Yield(x)
-}
-
-fun unitTest(n) {
-  handle(
-   ( produceFrom(n)            # yields INT
-  >+>
-     skip(99)                  # yields INT
-  >+>
-     sumTo(100)                # yields INT
-  >+>
-     converter(intToFloat)     # yields FLOAT
-  >+>
-     converter(floatToString)  # yields STRING
-  ) ()) {
-    case Return(_)  -> error("Unexpected return.")
-    case Await(_,_) -> error("Unexpected await.")
-    case Yield(x,_) -> x
+fun expoPipe(n)() {
+  fun expoPipe0(n) {
+    if (n == 0) {
+       forever(fun() {
+         var x = await();
+         yield(x+1)
+       })
+    } else {
+        (fun() { expoPipe0(n-1) } <+< fun() { expoPipe0(n-1) })()
+    }
   }
+  expoPipe0(n)
 }
 
-#alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%e~> Bool, %a, () ~%e~> %a) ~%e~> ();
+fun take1(n)() {
+  fun take0(n) {
+    if (n <= 0) ()
+    else {
+      var x = await();
+      yield(x);
+      take0(n-1)
+   }
+ }
+ take0(n)
+}
 
-#benchmark("Deep pipes", (==), "199", fun() { unitTest(0) })
+fun blackhole() { forever(await) }
 
-print(unitTest(0))
+fun nested(start, depth, end) {
+  var pipeline = blackhole <+< take1(end) <+< expoPipe(depth) <+< produceFrom(start);
+  pipeline()
+}
+
+benchmark("Deep pipes", fun((), ()) { true }, (), fun() { nested(0, 10, 1000) })
+
+# # Examples
+# fun example() {
+#   ( printer(id)               # sink
+#  <+<
+#     converter(floatToString)  # yields STRING
+#  <+<
+#     converter(intToFloat)     # yields FLOAT
+#  <+<
+#     sumTo(100)                # yields INT
+#  <+<
+#     produceFrom(0)            # yields INT
+#   )()
+# }
+
+# fun example2() {
+#   ( produceFrom(0)            # yields INT
+#  >+>
+#     skip(99)                  # yields INT
+#  >+>
+#     sumTo(100)                # yields INT
+#  >+>
+#     converter(intToFloat)     # yields FLOAT
+#  >+>
+#     converter(floatToString)  # yields STRING
+#  >+>
+#     printer(id)               # sink
+#  ) ()
+# }
+
+# # End
+# #sig end : Sink({Await:a |e}, a)
+# fun end() {await()}
+
+# fun forward() {
+#   var x = do Await;
+#   print("Received " ^^ intToString(x));
+#   print("Yielding " ^^ intToString(x));
+#   do Yield(x)
+# }
+
+# fun unitTest(n) {
+#   handle(
+#    ( produceFrom(n)            # yields INT
+#   >+>
+#      skip(99)                  # yields INT
+#   >+>
+#      sumTo(100)                # yields INT
+#   >+>
+#      converter(intToFloat)     # yields FLOAT
+#   >+>
+#      converter(floatToString)  # yields STRING
+#   ) ()) {
+#     case Return(_)  -> error("Unexpected return.")
+#     case Await(_,_) -> error("Unexpected await.")
+#     case Yield(x,_) -> x
+#   }
+# }
+
+# #alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%e~> Bool, %a, () ~%e~> %a) ~%e~> ();
+
+# #benchmark("Deep pipes", (==), "199", fun() { unitTest(0) })
+
+# print(unitTest(0))
 
