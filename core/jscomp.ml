@@ -1502,7 +1502,7 @@ module SIM_CPS = struct
            in
            mode :: decls, SExpr (trampoline stmt)
       in
-      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["immutable.js"; "base.js"; "array.js"; "performance.js"; "cps2.js"] in
+      let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "array.js"; "performance.js"; "cps2.js"] in
       { u with program = prog; includes = u.includes @ dependencies }
 end
 
