@@ -172,6 +172,27 @@ fun nested(start, depth, end) {
   pipeline()
 }
 
+# typename Producer(e::Eff, a) = () ~e~> (Consumer(e, a)) ~e~> ();
+# typename Consumer(e::Eff, a) = (a)  ~e~> (Producer(e, a)) ~e~> ();
+
+# fun dpipe(cons) {
+#   handle(cons()) {
+#     case Return(x) -> fun(_) { x }
+#     case Await(resume) ->
+#       fun(prod : Producer({Await{%} |%e}, %)) { prod()(resume) }
+#   }
+# }
+
+# fun dcopipe(prod) {
+#   handle(prod()) {
+#     case Return(x) -> fun(_) { x }
+#     case Yield(s, resume) ->
+#       fun(cons : Consumer({Yield{%} |%e}, %)) { cons(s)(fun() { resume(()) }) }
+#   }
+# }
+
+# #dpipe(sumUp(10000000))(fun() { dcopipe(produce) })
+
 benchmark("Deep pipes", fun((), ()) { true }, (), fun() { nested(0, 10, 1000) })
 
 # # Examples
