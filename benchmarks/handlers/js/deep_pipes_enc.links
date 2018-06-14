@@ -1,0 +1,128 @@
+# Deep encoding of pipes
+# Adapted from Kammar et al. (2013)
+
+typename Comp(e::Eff,a) = () ~e~> a;
+
+typename Producer(e::Eff, s, a) = () ~e~> (Consumer({ |e}, s, a)) ~e~> a;
+typename Consumer(e::Eff, s, a) = (s) ~e~> (Producer({ |e}, s, a)) ~e~> a;
+
+typename Pipe(e::Eff, s, a) = forall b::Presence, c::Presence.
+                           (Comp({ Await: s, Yield{c} |e}, a))     { Await{b}, Yield{c} |e}~>
+                            (Producer({ Await{b}, Yield{c} |e}, s, a)) { Await{b}, Yield{c} |e}~> a;
+
+sig pipe : Pipe({ |e}, s, a)
+fun pipe(cons) {
+  fun h(cons) {
+    shallowhandle(cons()) {
+      case Return(x) -> fun(_) { x }
+      case Await(resume) ->
+        var resume0 = fun(x) {
+          h(fun() { resume(x) })
+        };
+        fun(prod : Producer({ Await{b}, Yield{c} |e}, s, a)) {
+          prod()(resume0)
+        }
+    }
+  }
+  h(cons)
+}
+
+typename Copipe(e::Eff, s, a) = forall b::Presence, c::Presence.
+                           (Comp({ Await{b}, Yield: (s) -> () |e}, a)) { Await{b}, Yield{c} |e}~>
+                            (Consumer({ Await{b}, Yield{c} |e}, s, a)) { Await{b}, Yield{c} |e}~> a;
+
+sig copipe : Copipe({ |e}, s, a)
+fun copipe(prod) {
+  fun h(prod) {
+    shallowhandle(prod()) {
+      case Return(x) -> fun(_) { x }
+      case Yield(s, resume) ->
+       var resume0 = fun(x) {
+         h(fun() { resume(x) })
+       };
+       fun(cons : Consumer({ Await{b}, Yield{c} |e}, s, a)) {
+         cons(s)(fun() { resume0(()) })
+      }
+    }
+  }
+  h(prod)
+}
+
+op producer >+> consumer {
+  fun() { pipe(consumer)(fun() { copipe(producer) }) }
+}
+
+sig await : () { Await: s |e}-> s
+fun await() { do Await }
+
+sig yield : (s) { Yield: (s) -> () |e}-> ()
+fun yield(s) { do Yield(s) }
+
+sig forever : (Comp({ |e}, a)) ~e~> b
+fun forever(f) { ignore(f()); forever(f) }
+
+sig blackhole : Comp({Await:s |e}, a)
+fun blackhole() { forever(await) }
+
+sig take1 : (Int) -> Comp({Await:s, Yield:(s) -> () |e}, ())
+fun take1(n)() {
+  fun take0(n) {
+    if (n <= 0) ()
+    else {
+      var x = await();
+      yield(x);
+      take0(n-1)
+   }
+ }
+ take0(n)
+}
+
+sig expoPipe : (Int) -> Comp({ Await: Int, Yield: (Int) -> () |e}, a)
+fun expoPipe(n)() {
+  fun expoPipe0(n) {
+    if (n == 0) {
+       forever(fun() {
+         var x = await();
+         yield(x+1)
+       })
+    } else {
+        pipe(fun() { expoPipe0(n-1) })(fun() { copipe(fun() {expoPipe0(n-1)}) })
+    }
+  }
+  expoPipe0(n)
+}
+
+sig produceFrom : (Int) -> Comp({ Yield: (Int) -> () |e}, a)
+fun produceFrom(n)() {
+  fun produceFrom0(n) {
+     yield(n);
+     produceFrom0(n+1)
+  }
+  produceFrom0(n)
+}
+
+fun skip1(n)() {
+  fun skip0(n) {
+    var x = await();
+    if (n <= 0) yield(x)
+    else skip0(n-1)
+  }
+  skip0(n)
+}
+
+fun printer(toString)() {
+  var x = await();
+  print(toString(x))
+}
+
+fun nested(start, depth, end) {
+  var pipeline = produceFrom(start) >+> expoPipe(depth) >+> take1(end) >+> blackhole;
+  pipeline()
+}
+
+fun simple() {
+  var pipeline = produceFrom(0) >+> skip1(1000) >+> printer(intToString);
+  pipeline()
+}
+
+benchmark("Deep pipes (encoded)", fun((), ()) { true }, (), fun() { nested(0, 10, 1000) })
