@@ -100,4 +100,4 @@ fun main() {
   solution
 }
 
-benchmark("Queens (deep encoded)", (==), "Just([(8, 4), (7, 2), (6, 7), (5, 3), (4, 6), (3, 8), (2, 5), (1, 1)])", main)
+benchmark("Deep queens (encoded)", (==), "Just([(8, 4), (7, 2), (6, 7), (5, 3), (4, 6), (3, 8), (2, 5), (1, 1)])", main)

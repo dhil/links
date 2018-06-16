@@ -27,4 +27,4 @@ fun evalState0(m, st) {
   }
 }
 
-benchmark("Shallow counting (functional state)", (==), 0, evalState(count,1000000))
+benchmark("Shallow countdown", (==), 0, evalState(count,1000000))

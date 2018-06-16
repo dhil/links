@@ -32,4 +32,4 @@ fun evalState(f) {
   }
 }
 
-benchmark("Deep encoded counting (functional state)", (==), 0, fun() { evalState(count)(1000000) })
+benchmark("Deep countdown (encoded)", (==), 0, fun() { evalState(count)(1000000) })

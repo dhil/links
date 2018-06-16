@@ -97,6 +97,4 @@ fun main() {
   solution
 }
 
-#alien javascript "benchmarks/handlers/js/benchmark_suite.js" benchmark : (String, (%a,%a) ~%e~> Bool, %a, () ~%e~> %a) ~%e~> ();
-
-benchmark("Queens (shallow)", (==), "Just([(8, 4), (7, 2), (6, 7), (5, 3), (4, 6), (3, 8), (2, 5), (1, 1)])", main)
+benchmark("Shallow queens", (==), "Just([(8, 4), (7, 2), (6, 7), (5, 3), (4, 6), (3, 8), (2, 5), (1, 1)])", main)

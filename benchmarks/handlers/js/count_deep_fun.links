@@ -26,4 +26,4 @@ fun run() {
   start(1000000)
 }
 
-benchmark("Deep counting (functional state)", (==), 0, run)
+benchmark("Deep countdown", (==), 0, run)

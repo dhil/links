@@ -121,5 +121,4 @@ fun simple() {
   pipeline()
 }
 
-#benchmark("Shallow pipes (encoded)", fun(_,_) { true }, (), fun() { nested(0, 4, 300) })
 benchmark("Shallow pipes (encoded)", fun(_,_) { true }, (), fun() { nested(0, 10, 1000) })
