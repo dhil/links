@@ -94,10 +94,11 @@ fun findSolution(n)() {
 
 
 fun main() {
-  var n = 8;
+  var n = 20;
   var showSolution = showMaybe(showList(showPair(intToString,intToString)));
   var solution = showSolution(chooseHandler(findSolution(n)));
   solution
 }
 
-benchmark("Deep queens (encoded)", (==), "Just([(8, 4), (7, 2), (6, 7), (5, 3), (4, 6), (3, 8), (2, 5), (1, 1)])", main)
+#benchmark("Deep queens (encoded)", (==), "Just([(8, 4), (7, 2), (6, 7), (5, 3), (4, 6), (3, 8), (2, 5), (1, 1)])", main)
+benchmark("Deep queens (encoded)", (==), "Just([(20, 11), (19, 6), (18, 14), (17, 7), (16, 10), (15, 8), (14, 19), (13, 16), (12, 9), (11, 17), (10, 20), (9, 18), (8, 12), (7, 15), (6, 13), (5, 4), (4, 2), (3, 5), (2, 3), (1, 1)])", main)
