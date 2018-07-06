@@ -376,6 +376,7 @@ signature:
 
 typedecl:
 | TYPENAME CONSTRUCTOR typeargs_opt EQ datatype                { `Type ($2, $3, datatype $5), pos()  }
+| TYPENAME CONSTRUCTOR typeargs_opt                            { `Type ($2, $3, (`Abstract, None)), pos() }
 
 typeargs_opt:
 | /* empty */                                                  { [] }

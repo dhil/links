@@ -89,6 +89,7 @@ type ('t, 'r) session_type_basis =
 
 type typ =
     [ `Not_typed
+    | `Abstract of Abstype.t
     | `Primitive of primitive
     | `Function of (typ * row * typ)
     | `Lolli of (typ * row * typ)

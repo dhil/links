@@ -530,6 +530,7 @@ class map =
       function
       | `TypeVar _x ->
           let _x = o#known_type_variable _x in `TypeVar _x
+      | `Abstract -> `Abstract
       | `QualifiedTypeApplication (ns, args) ->
           let ns = o#list (fun o -> o#name) ns in
           let args = o#list (fun o -> o#type_arg) args in
@@ -1155,6 +1156,7 @@ class fold =
       function
       | `TypeVar _x ->
           let o = o#known_type_variable _x in o
+      | `Abstract -> o
       | `QualifiedTypeApplication (ns, args) ->
           let o = o#list (fun o -> o#name) ns in
           let o = o#list (fun o -> o#type_arg) args in
@@ -1884,6 +1886,7 @@ class fold_map =
       function
       | `TypeVar _x ->
           let (o, _x) = o#known_type_variable _x in (o, (`TypeVar _x))
+      | `Abstract -> (o, `Abstract)
       | `QualifiedTypeApplication (ns, args) ->
           let (o, ns) = o#list (fun o -> o#name) ns in
           let (o, args) = o#list (fun o -> o#type_arg) args in

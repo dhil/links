@@ -30,6 +30,7 @@ let rec is_guarded : TypeVarSet.t -> int -> datatype -> bool =
     let isgv row = is_guarded_row false bound_vars var row in
       match t with
         | `Not_typed -> true
+        | `Abstract _
         | `Primitive _ -> true
         | `MetaTypeVar point ->
             begin
@@ -114,6 +115,7 @@ let rec is_negative : TypeVarSet.t -> int -> datatype -> bool =
     let isnr = is_negative_row bound_vars var in
       match t with
         | `Not_typed -> false
+        | `Abstract _
         | `Primitive _ -> false
         | `MetaTypeVar point ->
             begin
@@ -177,6 +179,7 @@ and is_positive : TypeVarSet.t -> int -> datatype -> bool =
     let ispr = is_positive_row bound_vars var in
       match t with
         | `Not_typed -> false
+        | `Abstract _
         | `Primitive _ -> false
         | `MetaTypeVar point ->
             begin

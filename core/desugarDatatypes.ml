@@ -116,7 +116,8 @@ struct
     let lookup_type t = StringMap.find t var_env.tenv in
       match t with
         | `TypeVar (s, _, _) -> (try `MetaTypeVar (lookup_type s)
-                                with NotFound _ -> raise (UnexpectedFreeVar s))
+                                 with NotFound _ -> raise (UnexpectedFreeVar s))
+        | `Abstract -> assert false
         | `QualifiedTypeApplication _ -> assert false (* will have been erased *)
         | `Function (f, e, t) ->
             `Function (Types.make_tuple_type (List.map (datatype var_env) f),
@@ -364,34 +365,42 @@ struct
 
   (* Desugar a typename declaration.  Free variables are not allowed
      here (except for the parameters, of course). *)
-  let typename alias_env name args (rhs : Sugartypes.datatype') =
-      try
-        let empty_envs =
-          {tenv=StringMap.empty; renv=StringMap.empty; penv=StringMap.empty} in
-        let args, envs =
-          ListLabels.fold_right ~init:([], empty_envs) args
-            ~f:(fun (q, _) (args, {tenv=tenv; renv=renv; penv=penv}) ->
-                  let var = Types.fresh_raw_variable () in
-                    match q with
-                      | (name, (`Type, subkind), _freedom) ->
-                          let subkind = concrete_subkind subkind in
-                          let point = Unionfind.fresh (`Var (var, subkind, `Rigid)) in
-                            ((q, Some (var, subkind, `Type point))::args,
-                             {tenv=StringMap.add name point tenv; renv=renv; penv=penv})
-                      | (name, (`Row, subkind), _freedom) ->
-                          let subkind = concrete_subkind subkind in
-                          let point = Unionfind.fresh (`Var (var, subkind, `Rigid)) in
-                            ((q, Some (var, subkind, `Row point))::args,
-                             {tenv=tenv; renv=StringMap.add name point renv; penv=penv})
-                      | (name, (`Presence, subkind), _freedom) ->
-                          let subkind = concrete_subkind subkind in
-                          let point = Unionfind.fresh (`Var (var, subkind, `Rigid)) in
-                            ((q, Some (var, subkind, `Presence point))::args,
-                             {tenv=tenv; renv=renv; penv=StringMap.add name point penv})) in
-          (args, datatype' envs alias_env rhs)
-      with
+      let typename_args name args =
+        try
+          let empty_envs =
+            {tenv=StringMap.empty; renv=StringMap.empty; penv=StringMap.empty} in
+          let args, envs =
+            ListLabels.fold_right ~init:([], empty_envs) args
+              ~f:(fun (q, _) (args, {tenv=tenv; renv=renv; penv=penv}) ->
+                let var = Types.fresh_raw_variable () in
+                match q with
+                | (name, (`Type, subkind), _freedom) ->
+                   let subkind = concrete_subkind subkind in
+                   let point = Unionfind.fresh (`Var (var, subkind, `Rigid)) in
+                   ((q, Some (var, subkind, `Type point))::args,
+                    {tenv=StringMap.add name point tenv; renv=renv; penv=penv})
+                | (name, (`Row, subkind), _freedom) ->
+                   let subkind = concrete_subkind subkind in
+                   let point = Unionfind.fresh (`Var (var, subkind, `Rigid)) in
+                   ((q, Some (var, subkind, `Row point))::args,
+                    {tenv=tenv; renv=StringMap.add name point renv; penv=penv})
+                | (name, (`Presence, subkind), _freedom) ->
+                   let subkind = concrete_subkind subkind in
+                   let point = Unionfind.fresh (`Var (var, subkind, `Rigid)) in
+                   ((q, Some (var, subkind, `Presence point))::args,
+                    {tenv=tenv; renv=renv; penv=StringMap.add name point penv}))
+          in
+          args, envs
+        with
         | UnexpectedFreeVar x ->
-            failwith ("Free variable ("^ x ^") in definition of typename "^ name)
+           failwith ("Free variable ("^ x ^") in definition of typename "^ name)
+
+  let typename alias_env name args (rhs : Sugartypes.datatype') =
+    let (args, envs) = typename_args name args in
+    (args, datatype' envs alias_env rhs)
+
+  let abstract_typename name args =
+    typename_args name args
 
   (* Desugar a foreign function declaration.  Foreign declarations
      cannot use type variables from the context.  Any type variables
@@ -477,17 +486,34 @@ object (self)
     | p -> super#phrasenode p
 
   method! bindingnode = function
-    | `Type (t, args, dt) ->
-        let args, dt' = Desugar.typename alias_env t args dt in
-        let (name, vars) = (t, args) in
-        let (t, dt) =
-            (match dt' with
-                 | (t, Some dt) -> (t, dt)
-                 | _ -> assert false) in
-          (* NB: type aliases are scoped; we allow shadowing.
+    | `Type (name, args, dt) ->
+        (* NB: type aliases are scoped; we allow shadowing.
              We also allow type aliases to shadow abstract types. *)
-          ({< alias_env = SEnv.bind alias_env (name, `Alias (List.map (snd ->- val_of) vars, dt)) >},
-           `Type (name, vars, (t, Some dt)))
+        let (alias_env, vars, dt') =
+          match dt with
+          | (`Abstract, _) ->
+             let vars, _envs = Desugar.abstract_typename name args in
+             let kinds =
+               List.map
+                 (fun (_, kind) ->
+                   match kind with
+                   | Some (_, subkind, `Type _) -> (`Type, subkind)
+                   | Some (_, subkind, `Row _) -> (`Row, subkind)
+                   | Some (_, subkind, `Presence _) -> (`Presence, subkind)
+                   | _ -> assert false)
+                 vars
+             in
+             let abstype = Types.Abstype.make name kinds in
+             let dt' = (`Abstract, Some (`Abstract abstype)) in
+             ({< alias_env = SEnv.bind alias_env (name, `Abstract abstype) >}, vars, dt')
+          | _ ->
+             let vars, dt' = Desugar.typename alias_env name args dt in
+             match dt' with
+             | (t, Some dt) ->
+                ({< alias_env = SEnv.bind alias_env (name, `Alias (List.map (snd ->- val_of) vars, dt)) >}, vars, (t, Some dt))
+             | _ -> assert false
+        in
+        (alias_env, `Type (name, vars, dt'))
 
     | `Val (tyvars, pat, p, loc, dt) ->
         let o, pat = self#pattern pat in

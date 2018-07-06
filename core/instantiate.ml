@@ -28,6 +28,7 @@ let instantiate_datatype : (datatype IntMap.t * row IntMap.t * field_spec IntMap
       let rec_type_env, rec_row_env = rec_env in
         match datatype with
           | `Not_typed -> failwith "Internal error: `Not_typed' passed to `instantiate'"
+          | `Abstract _
           | `Primitive _  -> datatype
           | `MetaTypeVar point ->
               let t = Unionfind.find point in

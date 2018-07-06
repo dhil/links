@@ -53,6 +53,11 @@ let rec eq_types : (datatype * datatype) -> bool =
               `Not_typed -> true
             | _          -> false
           end
+      | `Abstract abs ->
+         begin match unalias t2 with
+         | `Abstract abs' -> Abstype.compare abs abs' = 0
+         | _ -> false
+         end
       | `Primitive x ->
           begin match unalias t2 with
               `Primitive y -> x = y
@@ -288,6 +293,7 @@ fun rec_env ->
       begin
         match (t1, t2) with
           | `Not_typed, _ | _, `Not_typed -> failwith "Internal error: `Not_typed' passed to `unify'"
+          | `Abstract abs, `Abstract abs' when Abstype.compare abs abs' = 0 -> ()
           | `Primitive x, `Primitive y when x = y -> ()
           | `MetaTypeVar lpoint, `MetaTypeVar rpoint ->
               if Unionfind.equivalent lpoint rpoint then

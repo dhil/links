@@ -126,6 +126,7 @@ type ('t, 'r) session_type_basis =
 
 type typ =
     [ `Not_typed
+    | `Abstract of Abstype.t
     | `Primitive of primitive
     | `Function of (typ * row * typ)
     | `Lolli of (typ * row * typ)
@@ -285,6 +286,8 @@ struct
    method typ = function
      | `Not_typed ->
         (`Not_typed, o)
+     | `Abstract abs ->
+        (`Abstract abs, o)
      | `Primitive p ->
         let (p', o) = o#primitive p in (`Primitive p', o)
      | `Function (at, r, rt) ->
@@ -530,6 +533,7 @@ let rec is_unl_type : (var_set * var_set) -> typ -> bool =
     let iut t = is_unl_type (rec_vars, quant_vars) t in
       function
       | `Not_typed -> assert false
+      | `Abstract _
       | `Effect _
       | `Primitive _
       | `Function _ -> true
@@ -579,6 +583,7 @@ let rec type_can_be_unl : var_set * var_set -> typ -> bool =
     let tcu t = type_can_be_unl vars t in
     function
     | `Not_typed -> assert false
+    | `Abstract _
     | `Effect _
     | `Primitive _
     | `Function _ -> true
@@ -630,6 +635,7 @@ let rec make_type_unl : var_set * var_set -> typ -> unit =
   fun ((rec_vars, quant_vars) as vars) ->
     function
     | `Not_typed -> assert false
+    | `Abstract _
     | `Primitive _ | `Function _ | `Table _ | `End | `Application _ | `Effect _ -> ()
     | `Record r | `Variant r -> make_row_unl vars r
     | `Alias (_, t) -> make_type_unl vars t
@@ -985,6 +991,7 @@ let free_type_vars, free_row_type_vars =
   let rec free_type_vars' : S.t -> datatype -> S.t = fun rec_vars ->
     function
       | `Not_typed               -> S.empty
+      | `Abstract _              -> S.empty
       | `Primitive _             -> S.empty
       | `Function (f, m, t)      ->
          S.union_all [free_type_vars' rec_vars f; free_row_type_vars' rec_vars m; free_type_vars' rec_vars t]
@@ -1198,6 +1205,7 @@ and subst_dual_type : var_map -> datatype -> datatype =
       fun t ->
         match t with
         | `Not_typed
+        | `Abstract _
         | `Primitive _ -> t
         | `Function (f, m, t) -> `Function (sdt f, sdr m, sdt t)
         | `Lolli (f, m, t) -> `Lolli (sdt f, sdr m, sdt t)
@@ -1337,6 +1345,7 @@ let rec normalise_datatype rec_names t =
     hoist_quantifiers t;
     match t with
       | `Not_typed
+      | `Abstract _
       | `Primitive _             -> t
       | `Function (f, m, t)      ->
           `Function (nt f, nr m, nt t)
@@ -1567,7 +1576,8 @@ struct
   let rec free_bound_type_vars : include_aliases:bool -> TypeVarSet.t -> datatype -> vars_list = fun ~include_aliases bound_vars t ->
     let fbtv = free_bound_type_vars ~include_aliases bound_vars in
       match t with
-        | `Not_typed -> []
+        | `Not_typed
+        | `Abstract _
         | `Primitive _ -> []
         | `MetaTypeVar point ->
             begin
@@ -1915,6 +1925,7 @@ struct
 
       in match t with
           | `Not_typed       -> "not typed"
+          | `Abstract _      -> "<abstract>"
           | `Primitive p     -> primitive p
           | `MetaTypeVar point ->
               begin
@@ -2085,6 +2096,7 @@ let rec flexible_type_vars : TypeVarSet.t -> datatype -> quantifier TypeVarMap.t
   let ftv = flexible_type_vars bound_vars in
     match t with
       | `Not_typed
+      | `Abstract _
       | `Primitive _ -> TypeVarMap.empty
       | `MetaTypeVar point ->
           begin
@@ -2292,6 +2304,7 @@ let make_fresh_envs : datatype -> datatype IntMap.t * row IntMap.t * field_spec 
       List.fold_left union_three empties in
   let rec make_env boundvars = function
       | `Not_typed
+      | `Abstract _
       | `Primitive _             -> empties
       | `Function (f, m, t)      -> union [make_env boundvars f; make_env_r boundvars m; make_env boundvars t]
       | `Lolli (f, m, t)         -> union [make_env boundvars f; make_env_r boundvars m; make_env boundvars t]

@@ -1638,6 +1638,7 @@ let rec close_pattern_type : pattern list -> Types.datatype -> Types.datatype = 
               | `Recursive _ -> assert false
           end
       | `Not_typed
+      | `Abstract _
       | `Primitive _
       | `Function _
       | `Lolli _

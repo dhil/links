@@ -106,6 +106,7 @@ type fieldconstraint = [ `Readonly | `Default ]
 
 type datatype =
   [ `TypeVar         of known_type_variable
+  | `Abstract
   | `QualifiedTypeApplication of (name list * type_arg list)
   | `Function        of datatype list * row * datatype
   | `Lolli           of datatype list * row * datatype

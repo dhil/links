@@ -20,6 +20,7 @@ let rec get_type_args : gen_kind -> TypeVarSet.t -> datatype -> type_arg list =
     let gt = get_type_args kind bound_vars in
       match t with
         | `Not_typed -> failwith "Internal error: Not_typed encountered in get_type_args"
+        | `Abstract _
         | `Primitive _ -> []
         | `MetaTypeVar point ->
             begin
