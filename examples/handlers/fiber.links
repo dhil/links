@@ -1,0 +1,167 @@
+#
+# The essence of React Fiber in Links with Effect Handlers
+#
+# Based on work by Nicole Meng (LFCS internship summer 2018)
+#
+
+# Generate (locally) unique IDs
+fun genIdent(f) {
+  handle(f())(0 -> counter) {
+    case Gensym(resume) -> resume(counter, counter+1)
+  }
+}
+
+sig gensym : () {Gensym:a |_}-> a
+fun gensym() { do Gensym }
+
+# Queue interface
+# TODO: Implement a priority queue
+typename Queue(a) = ([a], [a]);
+
+sig enqueue : (a, Queue(a)) ~> Queue(a)
+fun enqueue(x, (front, rear)) client {
+   (front, x :: rear)
+}
+
+sig dequeue : (Queue(a)) ~> (Maybe(a), Queue(a))
+fun dequeue(q) client {
+  switch (q) {
+    case ([], []) -> (Nothing, q)
+    case ([], xs) -> dequeue((reverse(xs), []))
+    case (x :: xs, ys) -> (Just(x), (xs, ys))
+  }
+}
+
+var emptyQueue = ([], []) : Queue(a);
+
+# Fiber interface
+typename Fiber(e::Eff) = () {Fork:(Fiber({ |e})) -> (), Yield |e}~> ();
+
+sig fork : (Fiber({ |e})) {Fork:(Fiber({ |e})) -> () |_}-> ()
+fun fork(f) client { do Fork(f) }
+
+sig yield : () {Yield |_}-> ()
+fun yield() client { do Yield }
+
+# Component interface
+# TODO: Add priorities
+typename Id = String;
+typename Renderer(e::Eff) = () {Fork:(Fiber({ |e})) -> (), Yield |e}~> Xml;
+typename Mounter(e::Eff)  = () {Fork:(Fiber({ |e})) -> (), Yield |e}~> ();
+typename Component(e::Eff) = (id:Id, render:Renderer({ |e}), onMount:Mounter({ |e}), onUnmount:Mounter({ |e}));
+
+sig runComponent : (Component({ |e})) -> Fiber({ |e})
+fun runComponent(component)() client {
+  var virtNode  = component.render();
+  var domNode   = getNodeById(component.id);
+  var physNode  = getChildNodes(getValue(domNode)); # Get children as XML
+  # TODO: Diff virtNode and physNode
+  # TODO: only run onUnmount if physNode is being replaced
+  component.onUnmount();
+  domReplaceChildren(virtNode, domNode);
+  component.onMount()
+}
+
+sig makeComponent : (Id, Renderer({ |e}), Mounter({ |e}), Mounter({ |e})) -> Component({ |e})
+fun makeComponent(id, render, onMount, onUnmount) {
+  (id=id, render=render, onMount=onMount, onUnmount=onUnmount)
+}
+
+# Fiber scheduler interface
+typename FiberResumption(e::Eff) = ((), SchedState({ |e})) {Fork-, Yield- |e}~> ();
+typename SchedState(e::Eff) = (runQ:Queue(FiberResumption({ |e})), startTime:Int);
+sig schedule : (Fiber({ |e})) {Fork-, Yield- |e}~> ()
+fun schedule(fiber) client {
+  sig makeSchedState : (Int, Queue(FiberResumption({ |d}))) -> SchedState({ |d})
+  fun makeSchedState(startTime, runQ) {
+    (startTime=startTime, runQ=runQ)
+  }
+
+  fun elapsed(startTime) {
+    clientTime() - startTime
+  }
+
+  fun runNext(st) {
+    switch (dequeue(st.runQ)) {
+      case (Nothing,_) -> ()
+      case (Just(resume), q) -> resume((), (st with runQ = q))
+    }
+  }
+
+  sig promote : (Fiber({ |f})) -> FiberResumption({ |f})
+  fun promote(fiber)((), st) {
+    runFiber(fiber, st)
+  }
+
+  fun runFiber(fiber, initialState) {
+     handle(fiber())(initialState -> st) {
+       case Return(_) -> runNext(st)
+       case Yield(resume) ->
+         if (elapsed(st.startTime) < 100) {
+           resume((), st)
+         } else {
+           var st = (st with runQ = enqueue(resume, st.runQ));
+           runNext(st)
+         }
+       case Fork(fiber, resume) ->
+         if (elapsed(st.startTime) < 100) {
+           var st = (st with runQ = enqueue(promote(fiber), st.runQ));
+           resume((), st)
+         } else {
+           var st = makeSchedState(clientTime(), st.runQ);
+           runFiber(fiber, st)
+         }
+     }
+  }
+  runFiber(fiber, makeSchedState(clientTime(), emptyQueue));
+}
+
+
+sig forever : Fiber({ |e})
+fun forever() client { yield(); forever() }
+
+# "Busy spinning" ain't much sleeping...
+sig sleep : (Int) {Yield |_}~> ()
+fun sleep(ms) client {
+  fun loop(start, amount) {
+    if (clientTime() - start >= amount) ()
+    else { loop(start, amount); yield() }
+  }
+  loop(clientTime(), ms)
+}
+
+# Blinking "Hello World" component
+fun helloComponent(id) {
+  # TODO: the txt argument should be an ambient state parameter
+  fun self(id, txt) {
+    fun render() {
+      <h1>{stringToXml(txt)}</h1>
+    }
+    fun onMount() {
+      sleep(50);
+      var txt = if (txt == "") "Hello World!"
+                else "";
+      fork(runComponent(self(id, txt)))
+    }
+    makeComponent(id, render, onMount, fun() { () })
+  }
+  self(id, "Hello World!")
+}
+
+
+# Main page
+fun mainPage(_) {
+  var hello = helloComponent("hello");
+  ignore( spawnClient { schedule(runComponent(hello)) } );
+  page
+    <#>
+      <div id="{hello.id}"></div>
+    </#>
+}
+
+fun main() {
+  addRoute("/", mainPage);
+  servePages()
+}
+
+main()
