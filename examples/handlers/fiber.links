@@ -46,7 +46,7 @@ fun yield() client { do Yield }
 # Component interface
 # TODO: Add priorities
 typename Id = String;
-typename StatefulFiber(s, e::Eff) = Fiber({Get:s, Put: (s) -> () |e});
+#typename StatefulFiber(s, e::Eff) = Fiber({Get:s, Put: (s) -> () |e});
 typename Renderer(s,e::Eff)  = () {Fork:(Fiber({ |e})) -> (), Yield |e}~> Xml;
 typename Mounter(s,e::Eff)   = () {Fork:(Fiber({ |e})) -> (), Yield |e}~> ();
 typename Component(s,e::Eff) = (id:Id,                      # unique identifier
@@ -55,7 +55,7 @@ typename Component(s,e::Eff) = (id:Id,                      # unique identifier
                               onTeardown:Mounter(s,{ |e})   # run once the component gets unmounted in the DOM tree
                              );
 
-# # Component state
+# Component state
 sig get : () {Get:s |_}-> s
 fun get() { do Get }
 sig put : (s) {Put:(s) -> () |_}-> ()
@@ -70,7 +70,6 @@ fun runComponent(component, st0)() client {
     var physNode  = getChildNodes(getValue(domNode)); # Get children as XML
     # TODO: Diff virtNode and physNode
     # TODO: only run onTeardown if physNode is being replaced
-    component.onTeardown();
     domReplaceChildren(virtNode, domNode);
     component.onMount()
   })(st0 -> st) {
@@ -138,7 +137,7 @@ fun schedule(fiber) client {
 sig forever : Fiber({ |e})
 fun forever() client { yield(); forever() }
 
-# # "Busy spinning" ain't much sleeping...
+# "Busy spinning" ain't much sleeping...
 sig sleep : (Int) {Yield |_}~> ()
 fun sleep(ms) client {
   fun loop(start, amount) {
@@ -168,19 +167,98 @@ fun blinkComponent(id) {
    makeComponent(id, render, onMount, fun() { () })
 }
 
+# Ball component
+typename Direction = [|Up|Down|Left|Right|];
+typename Ball = (x:Int,y:Int,velX:Int,velY:Int,size:Int);
+typename Container = (width:Int,height:Int);
+typename BallState = (Ball,Container);
+
+fun makeBall(x, y, velX, velY, size) {
+  (x=x,y=y,velX=velX,velY=velY,size=size)
+}
+
+sig moveBall : (Ball, Container) -> Ball
+fun moveBall(ball, box) {
+  var size = ball.size;
+  var x = ball.x;
+  var y = ball.y;
+
+  var width  = box.width;
+  var height = box.height;
+
+  var velX = if ((x + size) >= height  || (x - size) <= 0) negate(ball.velX) else ball.velX;
+  var velY = if ((y + size) >= width   || (y - size) <= 0) negate(ball.velY) else ball.velY;
+
+  makeBall(x + velX, y + velY, velX, velY, size)
+}
+
+sig ballComponent : (Id) ~e~> Component(BallState, { |%e})
+fun ballComponent(id) {
+  fun render() {
+    var (ball,_) = get();
+    <#>
+      <div class="ball" style="margin-top:{intToString(ball.x)}px;margin-left:{intToString(ball.y)}px;width:{intToString(ball.size)}px;height:{intToString(ball.size)}px;"></div>
+    </#>
+  }
+  fun onMount() {
+    sleep(3);
+    var st0 = get();
+    var ball = moveBall(st0.1, st0.2);
+    var st = (ball, st0.2);
+    fork(runComponent(ballComponent(id), st))
+  }
+  makeComponent(id, render, onMount, fun() { () })
+}
 
 # Main page
-fun mainPage(_) {
+fun blinkingHelloPage() server {
   var blink = blinkComponent("hello");
   var blinkState = ("Hello World!", "");
   ignore( spawnClient { schedule(runComponent(blink, blinkState)) } );
+  <#>
+    <div id="{blink.id}"></div>
+  </#>
+}
+
+fun bouncingBallPage() server {
+  var ball = ballComponent("ball");
+  var ballData = makeBall(50, 100, 5, -1, 40);
+  var container = (width=400, height=400);
+  ignore( spawnClient { schedule(runComponent(ball, (ballData, container))) } );
+  <#>
+    <div class="container" style="width:{intToString(container.width)}px;height:{intToString(container.height)}px;border:5px solid #000;">
+      <ball id="{ball.id}" style="z-index:1;width:0px;height:0px;"></ball>
+    </div>
+  </#>
+}
+
+fun mainPage(_) server {
+  var content = bouncingBallPage(); #blinkingHelloPage();
   page
     <#>
-      <div id="{blink.id}"></div>
+      <style type="text/css">
+      body {{
+        margin: 0;
+      }}
+      .container: {{
+        margin: 0 auto;
+        top: 0;
+        border: 5px solid #000;
+        display: inline;
+      }}
+
+      .ball {{
+        border-radius: 200px 200px 200px 200px;
+        background-color: purple;
+        border: 3px solid red;
+        z-index:2;
+      }}
+      </style>
+      {content}
     </#>
 }
 
-fun main() {
+fun main() server {
   addRoute("/", mainPage);
   servePages()
 }
