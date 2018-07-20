@@ -4,15 +4,15 @@
 # Based on work by Nicole Meng (LFCS internship summer 2018)
 #
 
-# Generate (locally) unique IDs
-fun genIdent(f) {
-  handle(f())(0 -> counter) {
-    case Gensym(resume) -> resume(counter, counter+1)
-  }
-}
+# # Generate (locally) unique IDs
+# fun genIdent(f) {
+#   handle(f())(0 -> counter) {
+#     case Gensym(resume) -> resume(counter, counter+1)
+#   }
+# }
 
-sig gensym : () {Gensym:a |_}-> a
-fun gensym() { do Gensym }
+# sig gensym : () {Gensym:a |_}-> a
+# fun gensym() { do Gensym }
 
 # Queue interface
 # TODO: Implement a priority queue
@@ -46,25 +46,43 @@ fun yield() client { do Yield }
 # Component interface
 # TODO: Add priorities
 typename Id = String;
-typename Renderer(e::Eff) = () {Fork:(Fiber({ |e})) -> (), Yield |e}~> Xml;
-typename Mounter(e::Eff)  = () {Fork:(Fiber({ |e})) -> (), Yield |e}~> ();
-typename Component(e::Eff) = (id:Id, render:Renderer({ |e}), onMount:Mounter({ |e}), onUnmount:Mounter({ |e}));
+typename StatefulFiber(s, e::Eff) = Fiber({Get:s, Put: (s) -> () |e});
+typename Renderer(s,e::Eff)  = () {Fork:(Fiber({ |e})) -> (), Yield |e}~> Xml;
+typename Mounter(s,e::Eff)   = () {Fork:(Fiber({ |e})) -> (), Yield |e}~> ();
+typename Component(s,e::Eff) = (id:Id,                      # unique identifier
+                              render    :Renderer(s,{ |e}), # HTML generating function
+                              onMount   :Mounter(s,{ |e}),  # run once the component gets (re)mounted in the DOM tree
+                              onTeardown:Mounter(s,{ |e})   # run once the component gets unmounted in the DOM tree
+                             );
 
-sig runComponent : (Component({ |e})) -> Fiber({ |e})
-fun runComponent(component)() client {
-  var virtNode  = component.render();
-  var domNode   = getNodeById(component.id);
-  var physNode  = getChildNodes(getValue(domNode)); # Get children as XML
-  # TODO: Diff virtNode and physNode
-  # TODO: only run onUnmount if physNode is being replaced
-  component.onUnmount();
-  domReplaceChildren(virtNode, domNode);
-  component.onMount()
+# # Component state
+sig get : () {Get:s |_}-> s
+fun get() { do Get }
+sig put : (s) {Put:(s) -> () |_}-> ()
+fun put(st) { do Put(st) }
+
+#sig runComponent : (Component(s, {Get:s, Put:(s) -> () |e}), s) -> () {Fork:(Fiber({ Get: s,Put: (s) -> () |e})) -> (),Get{_},Put{_},Yield |e}~> ()
+sig runComponent : (Component(s, {Get:s, Put:(s) -> () |e}), s) -> () {Fork:(Fiber({ Get: s,Put: (s) -> () |e})) -> (),Get{_},Put{_},Yield |e}~> ()
+fun runComponent(component, st0)() client {
+  handle({
+    var virtNode  = component.render();
+    var domNode   = getNodeById(component.id);
+    var physNode  = getChildNodes(getValue(domNode)); # Get children as XML
+    # TODO: Diff virtNode and physNode
+    # TODO: only run onTeardown if physNode is being replaced
+    component.onTeardown();
+    domReplaceChildren(virtNode, domNode);
+    component.onMount()
+  })(st0 -> st) {
+    case Return(x)       -> x
+    case Get(resume)     -> resume(st, st)
+    case Put(st, resume) -> resume((), st)
+  }
 }
 
-sig makeComponent : (Id, Renderer({ |e}), Mounter({ |e}), Mounter({ |e})) -> Component({ |e})
-fun makeComponent(id, render, onMount, onUnmount) {
-  (id=id, render=render, onMount=onMount, onUnmount=onUnmount)
+sig makeComponent : (Id, Renderer(s, { |e}), Mounter(s, { |e}), Mounter(s, { |e})) -> Component(s, { |e})
+fun makeComponent(id, render, onMount, onTeardown) {
+  (id=id, render=render, onMount=onMount, onTeardown=onTeardown)
 }
 
 # Fiber scheduler interface
@@ -120,7 +138,7 @@ fun schedule(fiber) client {
 sig forever : Fiber({ |e})
 fun forever() client { yield(); forever() }
 
-# "Busy spinning" ain't much sleeping...
+# # "Busy spinning" ain't much sleeping...
 sig sleep : (Int) {Yield |_}~> ()
 fun sleep(ms) client {
   fun loop(start, amount) {
@@ -131,31 +149,34 @@ fun sleep(ms) client {
 }
 
 # Blinking "Hello World" component
-fun helloComponent(id) {
-  # TODO: the txt argument should be an ambient state parameter
-  fun self(id, txt) {
-    fun render() {
-      <h1>{stringToXml(txt)}</h1>
-    }
-    fun onMount() {
-      sleep(50);
-      var txt = if (txt == "") "Hello World!"
-                else "";
-      fork(runComponent(self(id, txt)))
-    }
-    makeComponent(id, render, onMount, fun() { () })
+typename BlinkState = (String, String);
+
+sig swap : (BlinkState) -> BlinkState
+fun swap((p,q)) client { (q, p) }
+
+sig blinkComponent : (Id) ~e~> Component(BlinkState, { |%e})
+fun blinkComponent(id) {
+  fun render() {
+    var (txt,_) = get();
+    <h1>{stringToXml(txt)}</h1>
   }
-  self(id, "Hello World!")
+  fun onMount() {
+    sleep(50);
+    var st = swap(get());
+    fork(runComponent(blinkComponent(id), st))
+   }
+   makeComponent(id, render, onMount, fun() { () })
 }
 
 
 # Main page
 fun mainPage(_) {
-  var hello = helloComponent("hello");
-  ignore( spawnClient { schedule(runComponent(hello)) } );
+  var blink = blinkComponent("hello");
+  var blinkState = ("Hello World!", "");
+  ignore( spawnClient { schedule(runComponent(blink, blinkState)) } );
   page
     <#>
-      <div id="{hello.id}"></div>
+      <div id="{blink.id}"></div>
     </#>
 }
 
