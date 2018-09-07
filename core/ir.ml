@@ -69,6 +69,7 @@ and binding =
   | Rec        of fun_def list
   | Alien      of binder * name * language
   | Module     of string * binding list option
+and bindings = binding list
 and special =
   | Wrong      of Types.datatype
   | Database   of value
