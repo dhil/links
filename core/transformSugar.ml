@@ -769,7 +769,8 @@ class transform (env : Types.typing_environment) =
       | `Infix -> (o, `Infix)
       | `Exp e -> let (o, e, _) = o#phrase e in (o, `Exp e)
       | `AlienBlock _ -> assert false
-      | `Module _ -> assert false
+      | `Module _ -> assert false (* TODO *)
+      | `Import qname -> (o, `Import qname)
 
     method binding : binding -> ('self_type * binding) =
       fun (b, pos) ->

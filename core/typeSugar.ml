@@ -98,6 +98,7 @@ struct
       (* need to check that pattern matching cannot fail *)
     | `AlienBlock _
     | `Module _
+    | `Import _
     | `Fun _
     | `Funs _
     | `Infix
@@ -3773,8 +3774,19 @@ and type_binding : context -> binding -> binding * context * usagemap =
             (pos_and_typ e, no_pos Types.unit_type) in
           `Exp (erase e), empty_context, usages e
       | `Handler _
-      | `AlienBlock _
-      | `Module _ -> assert false
+      | `AlienBlock _ -> assert false
+      | `Module _ ->
+         (* TODO: type check modules. For now just rewrite into
+            something silly in order to try out the syntax in the
+            REPL. *)
+         let (e : phrase) = (`Constant (`Int 0), SourceCode.dummy_pos) in
+         let e' = tc e in
+         `Exp (erase e'), empty_context, usages e'
+      | `Import _qname ->
+         (* TODO: handle module import. *)
+         let e = (`RecordLit ([], None), SourceCode.dummy_pos) in
+         let e' = tc e in
+         `Exp (erase e'), empty_context, StringMap.empty
     in
       (typed, pos), ctxt, usage
 and type_regex typing_env : regex -> regex =

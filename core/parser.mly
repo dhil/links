@@ -294,6 +294,10 @@ qualified_constructor:
 preamble:
 | /* empty */                                                  { [] }
 
+maybe_declarations:
+| /* empty */                                                  { [] }
+| declarations                                                 { $1 }
+
 declarations:
 | declarations declaration                                     { $1 @ [$2] }
 | declaration                                                  { [$1] }
@@ -313,6 +317,14 @@ nofun_declaration:
                                                                  in `Val ([], (`Variable (d, None, dpos), pos),p,l,None), pos }
 | signature tlvarbinding SEMICOLON                             { annotate $1 (`Var $2) }
 | typedecl SEMICOLON                                           { $1 }
+| module_binding                                               { $1 }
+| module_import                                                { $1 }
+
+module_binding:
+| MODULE CONSTRUCTOR LBRACE maybe_declarations RBRACE          { `Module ($2, $4), pos() }
+
+module_import:
+| OPEN qualified_constructor                                   { `Import (QualifiedName.of_path $2), pos() }
 
 alien_datatype:
 | var COLON datatype SEMICOLON                                 { let (name, name_pos) = $1 in
@@ -894,6 +906,8 @@ binding:
 | typed_handler_binding                                        { let (b, hnlit, pos) = $1 in
                                                                  `Handler (b, hnlit, None), pos }
 | alien_block                                                  { $1 }
+| module_binding                                               { $1 }
+| module_import SEMICOLON                                      { $1 }
 
 bindings:
 | binding                                                      { [$1] }
