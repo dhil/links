@@ -2,6 +2,204 @@ open Utility
 open Sugartypes
 open Operators
 
+module BindingGroups = struct
+  type t =
+    { cur_grp: [`Functions | `Typenames | `Values | `None ];
+      functions: (int * binding list) list;
+      typenames: (int * binding list) list;
+      values: (int * binding) list }
+
+  let value_index : t -> int
+    = fun { values = vs; _ } ->
+    match vs with
+    | (k, _) :: _ -> k
+    | _ -> -1
+
+  let typename_index : t -> int
+    = fun { typenames = ts; _ } ->
+    match ts with
+    | (j, _) :: _ -> j
+    | _ -> -1
+
+  let function_index : t -> int
+    = fun { functions = fs; _ } ->
+    match fs with
+    | (i, _) :: _ -> i
+    | _ -> -1
+
+  let empty : t =
+    { cur_grp = `None;
+      functions = []; typenames = []; values = [] }
+
+  let next_index : t -> int
+    = fun grps ->
+    let i = function_index grps in
+    let j = typename_index grps in
+    let k = value_index grps in
+    let n =
+      max (max i j) k
+    in
+    if n < 0 then 0 else n+1
+
+  let apply : (binding list -> binding list) -> (int * binding list) list -> (int * binding list) list
+    = fun transform bss ->
+    List.map (fun (n, bs) -> (n, transform bs)) bss
+
+  let add b : (int * binding list) list -> (int * binding list) list = function
+    | [] -> assert false
+    | (n, bs) :: bss -> (n, b :: bs) :: bss
+
+  let add_value_binding b grps =
+    let k = next_index grps in
+    { grps with values = (k, b) :: grps.values; cur_grp = `Values }
+
+  let add_typename_binding b grps =
+    match grps.cur_grp with
+    | `Typenames -> { grps with typenames = add b grps.typenames }
+    | _ ->
+       let j = next_index grps in
+       let grp = ((j, [b]) :: grps.typenames) in
+       { grps with typenames = grp; cur_grp = `Typenames }
+
+  let add_function_binding b grps =
+    match grps.cur_grp with
+    | `Functions -> { grps with functions = add b grps.functions }
+    | _ ->
+       let i = next_index grps in
+       let grp = ((i, [b]) :: grps.functions) in
+       { grps with functions = grp; cur_grp = `Functions }
+
+  let add : binding -> t -> t
+    = fun b grps ->
+    (* Printf.fprintf stderr "Adding: %s\n%!" (Sugartypes.show_binding b); *)
+    match fst b with
+    | `Handler _
+    | `Module _
+    | `QualifiedImport _
+    | `AlienBlock _
+    | `Funs _ -> assert false
+    | `Exp _
+    | `Foreign _
+    | `Val _ -> add_value_binding b grps
+    | `Type _ -> add_typename_binding b grps
+    | `Fun _ -> add_function_binding b grps
+    | `Infix -> grps (* discard binding *)
+
+  let transform_typenames : (binding list -> binding list) -> t -> t
+    = fun transform grps -> { grps with typenames = apply transform grps.typenames }
+
+  let transform_functions : (binding list -> binding list) -> t -> t
+    = fun transform grps -> { grps with functions = apply transform grps.functions }
+
+  let to_bindings : t -> binding list
+    = fun grps ->
+    let pop_max : t -> (binding list * t) option =
+      fun grps ->
+      let i = function_index grps in
+      let j = typename_index grps in
+      let k = value_index grps in
+      if i > j && i > k
+      then match grps.functions with
+           | (_, fs) :: fss ->
+              Some (fs, { grps with functions = fss })
+           | [] -> None
+      else if j > i && j > k
+      then match grps.typenames with
+           | (_, ts) :: tss ->
+              Some (ts, { grps with typenames = tss })
+           | [] -> None
+      else match grps.values with
+           | (_, v) :: vs ->
+              Some ([v], { grps with values = vs })
+           | [] -> None
+    in
+    let rec build : binding list list -> t -> binding list list =
+      fun bss grps ->
+      match pop_max grps with
+      | None -> bss
+      | Some (bs, grps) ->
+         let bss' = (List.rev bs) :: bss in
+         build bss' grps
+    in
+    List.concat (build [] grps)
+
+  let of_bindings : binding list -> t
+    = fun bs ->
+    List.fold_left
+      (fun grps b -> add b grps)
+      empty bs
+end
+
+module RecursiveFunctions = struct
+  type sparse_graph = (string * string list) list
+  type fun_def = (binder * declared_linearity * (tyvar list * funlit) * location * datatype' option) * position
+  type fndata =
+    { fundefs: (string, (fun_def * StringSet.t)) Hashtbl.t;
+      callgraph: sparse_graph }
+
+  let compute_data : binding list -> fndata
+    = fun bs ->
+    let (fn_names', fundefs) =
+      let handle_binding (fn_names, fundefs) (b, pos) =
+        match b with
+        | `Fun ((binder, _, (_, funlit), _, _) as def) ->
+           let name = fst3 binder in
+           let fvs = Freevars.funlit funlit in
+           Hashtbl.add fundefs name ((def, pos), fvs);
+           (name :: fn_names, fundefs)
+        | _ -> assert false
+      in
+      List.fold_left
+        handle_binding
+        ([], Hashtbl.create 16) bs
+    in
+    (* compute call graph *)
+    let callgraph =
+      let fn_names = StringSet.from_list fn_names' in
+      List.fold_left
+        (fun adj name ->
+          let freevars = snd (Hashtbl.find fundefs name) in
+          (name, StringSet.(elements (inter freevars fn_names))) :: adj)
+        [] fn_names'
+    in
+    { fundefs; callgraph }
+
+  let group : binding list -> binding list
+    = fun bs ->
+    let data = compute_data bs in
+    let sccs = Graph.topo_sort_sccs data.callgraph in
+    let fundef name = fst (Hashtbl.find data.fundefs name) in
+    let to_rec_def ((b, lin, (tyvars, funlit), loc, dt), pos) =
+      (b, lin, ((tyvars, None), funlit), loc, dt, pos)
+    in
+    let is_recursive (b, _, _, _, _) =
+      let name = fst3 b in
+      let freevars = snd (Hashtbl.find data.fundefs name) in
+      StringSet.mem name freevars
+    in
+    let make_funs names =
+      let defs = List.map fundef names in
+      match defs with
+      | [def, pos] when not (is_recursive def) ->
+         `Fun def, pos
+      | _ ->
+         `Funs (List.map to_rec_def defs), Sugartypes.dummy_position
+    in
+    List.rev_map make_funs sccs
+end
+
+let refine_bindings : binding list -> binding list
+  = fun bs ->
+  let grps = BindingGroups.of_bindings bs in
+  let bs' =
+    grps
+    |> BindingGroups.transform_functions RecursiveFunctions.group
+    (* |> BindingGroups.transform_typenames (fun _ -> assert false) *)
+    |> BindingGroups.to_bindings
+  in
+  bs'
+
+(****)
 (* Helper function: add a group to a list of groups *)
 let add group groups = match group with
   | [] -> groups
@@ -348,6 +546,9 @@ module RefineTypeBindings = struct
       let tyName = getName ty in
       let rts = isSelfReferential tyName ri in
       let sugaredDT = getDT ty in
+      (* (if (tyName = "Tree" || tyName = "Forest") then (
+       *    Printf.fprintf stderr "==== before (%s) ====\n%!" tyName;
+       *    Printf.fprintf stderr "%s\n%!" (Sugartypes.show_datatype sugaredDT))); *)
       (* If we're self-referential, then add in a top-level mu *)
       let (env', dt) =
         if List.mem_assoc tyName env then assert false else
@@ -376,10 +577,13 @@ module RefineTypeBindings = struct
                let (_, _, (refinedRef, _)) = refineType to_refine env' ht sccs ri in
                inlineTy curDataTy tyRef to_refine_args refinedRef.node)
         else
-          curDataTy
-      ) sccs dt in
-
-    updateDT ty refinedTy
+          curDataTy)
+                        sccs dt
+      in
+      (* (if (tyName = "Tree" || tyName = "Forest") then
+       *    (Printf.fprintf stderr "==== after (%s) ====\n%!" tyName;
+       *     Printf.fprintf stderr "%s\n%!" (Sugartypes.show_datatype refinedTy))); *)
+      updateDT ty refinedTy
 
   let refineSCCGroup :
       reference_info ->
