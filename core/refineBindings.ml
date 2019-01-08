@@ -72,7 +72,7 @@ module BindingGroups = struct
   let add : binding -> t -> t
     = fun b grps ->
     (* Printf.fprintf stderr "Adding: %s\n%!" (Sugartypes.show_binding b); *)
-    match fst b with
+    match b.node with
     | `Handler _
     | `Module _
     | `QualifiedImport _
@@ -132,20 +132,20 @@ end
 
 module RecursiveFunctions = struct
   type sparse_graph = (string * string list) list
-  type fun_def = (binder * declared_linearity * (tyvar list * funlit) * location * datatype' option) * position
+  type fun_def = Sugartypes.fun_def
   type fndata =
-    { fundefs: (string, (fun_def * StringSet.t)) Hashtbl.t;
+    { fundefs: (string, ((fun_def * Sugartypes.position) * StringSet.t)) Hashtbl.t;
       callgraph: sparse_graph }
 
   let compute_data : binding list -> fndata
     = fun bs ->
     let (fn_names', fundefs) =
-      let handle_binding (fn_names, fundefs) (b, pos) =
-        match b with
-        | `Fun ((binder, _, (_, funlit), _, _) as def) ->
-           let name = fst3 binder in
+      let handle_binding (fn_names, fundefs) b =
+        match b.node with
+        | `Fun ( (binder, _, (_, funlit), _, _) as def) ->
+           let name = fst binder.node in
            let fvs = Freevars.funlit funlit in
-           Hashtbl.add fundefs name ((def, pos), fvs);
+           Hashtbl.add fundefs name ((def, b.pos), fvs);
            (name :: fn_names, fundefs)
         | _ -> assert false
       in
@@ -173,7 +173,7 @@ module RecursiveFunctions = struct
       (b, lin, ((tyvars, None), funlit), loc, dt, pos)
     in
     let is_recursive (b, _, _, _, _) =
-      let name = fst3 b in
+      let name = fst b.node in
       let freevars = snd (Hashtbl.find data.fundefs name) in
       StringSet.mem name freevars
     in
@@ -181,9 +181,9 @@ module RecursiveFunctions = struct
       let defs = List.map fundef names in
       match defs with
       | [def, pos] when not (is_recursive def) ->
-         `Fun def, pos
+         with_pos pos (`Fun def)
       | _ ->
-         `Funs (List.map to_rec_def defs), Sugartypes.dummy_position
+         with_pos Sugartypes.dummy_position (`Funs (List.map to_rec_def defs))
     in
     List.rev_map make_funs sccs
 end
@@ -204,102 +204,6 @@ let refine_bindings : binding list -> binding list
 let add group groups = match group with
   | [] -> groups
   | _  -> List.rev group::groups
-
-(** [refine_bindings] locates mutually-recursive sccs in sequences of
-    bindings.  (As a side effect we also dispense with [`Infix]
-    declarations, which are only used during the parsing stage.)
-*)
-let refine_bindings : binding list -> binding list =
-  fun bindings ->
-    (* Group sequences of functions together *)
-    let initial_groups =
-
-      (* Technically it shouldn't be necessary to ensure that the
-         order of functions defined within a group is preserved (the
-         List.rev above), but it helps with debugging, and it turns
-         out to be necessary in order for desugaring of for
-         comprehensions to work properly in the prelude - which
-         defines concatMap. *)
-      (* group: the group we're currently working on, groups = the groups we've processed *)
-      let group, groups =
-        List.fold_right
-          (fun ({node=binding;_} as bind) (thisgroup, othergroups) ->
-            match binding with
-              (* Modules & qualified imports will have been eliminated by now. Funs
-               * aren't introduced yet. *)
-              | `Handler _
-              | `Module _
-              | `QualifiedImport _
-              | `AlienBlock _
-              | `Funs _ -> assert false
-              | `Exp _
-              | `Foreign _
-              | `Type _
-              | `Val _ ->
-                 (* collapse the group we're collecting, then start a
-                     new empty group *)
-                 ([], add [bind] (add thisgroup othergroups))
-              | `Fun _ ->
-                 (* Add binding to group *)
-                 (bind::thisgroup, othergroups)
-              | `Infix ->
-                 (* discard binding *)
-                 (thisgroup, othergroups))
-            bindings ([], [])
-      in
-        add group groups
-    in
-      (* build a callgraph *)
-    let callgraph : _ -> (string * (string list)) list
-      = fun defs ->
-        let defs = List.map
-          (function
-            | {node=`Fun (bndr, _, (_, funlit), _, _); _} ->
-               (name_of_binder bndr, funlit)
-            | _ -> assert false) defs in
-        let names = StringSet.from_list (List.map fst defs) in
-          List.map
-            (fun (name, body) -> name,
-               StringSet.elements
-                 (StringSet.inter (Freevars.funlit body) names))
-            defs in
-      (* refine a group of function bindings *)
-    let groupFuns pos (funs : binding list) : binding list =
-      (* Unwrap from the bindingnode type *)
-      let unFun = function
-        | {node = `Fun (b, lin, (_, funlit), location, dt); pos} ->
-           (b, lin, (([], None), funlit), location, dt, pos)
-        | _ -> assert false in
-      let find_fun name =
-        List.find (function
-                     | {node=`Fun (bndr, _, _, _, _); _} ->
-                        name = name_of_binder bndr
-                     | _ -> false)
-          funs in
-      let graph = callgraph funs in
-      let sccs = Graph.topo_sort_sccs graph in
-        List.map
-          (fun scc ->
-             let funs = List.map (find_fun ->- unFun) scc in
-               match funs with
-                 | [(bndr, lin, ((tyvars, _), body), location, dt, pos)]
-                     when not (StringSet.mem (name_of_binder bndr)
-                                             (Freevars.funlit body)) ->
-                    with_pos pos (`Fun (bndr, lin, (tyvars, body), location, dt))
-                 | _ -> with_pos pos (`Funs (funs)))
-
-          sccs
-    in
-      (* refine a group of bindings *)
-    let groupBindings = function
-        (* TODO:
-
-           Compute the position corresponding to the whole collection
-           of functions.
-        *)
-      | {node=`Fun _; _}::_ as funs -> groupFuns (Lexing.dummy_pos, Lexing.dummy_pos, None) funs
-      | binds -> binds in
-    concat_map groupBindings initial_groups
 
 (*
   * We need three traversals:
