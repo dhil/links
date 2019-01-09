@@ -2,42 +2,57 @@ open Utility
 open Sugartypes
 open Operators
 
-module BindingGroups = struct
+module type BINDING_GROUPS = sig
+  type t
+
+  val of_bindings : binding list -> t
+  val to_bindings : t -> binding list
+
+  val transform_functions : (binding list -> binding list) -> t -> t
+  val transform_typenames : (binding list -> binding list) -> t -> t
+end
+
+module rec BindingGroups : BINDING_GROUPS = struct
   type t =
-    { cur_grp: [`Functions | `Typenames | `Values | `None ];
+    { cur_grp: [`Functions | `Modules | `Typenames | `Values | `None ];
       functions: (int * binding list) list;
       typenames: (int * binding list) list;
-      values: (int * binding) list }
+      values: (int * binding) list;
+      modules: (int * (Sugartypes.name * position * t)) list }
+  (* Needs to be generalised if we ever decide to have recursive
+     modules. *)
 
-  let value_index : t -> int
-    = fun { values = vs; _ } ->
-    match vs with
-    | (k, _) :: _ -> k
-    | _ -> -1
-
-  let typename_index : t -> int
-    = fun { typenames = ts; _ } ->
-    match ts with
-    | (j, _) :: _ -> j
-    | _ -> -1
-
-  let function_index : t -> int
-    = fun { functions = fs; _ } ->
-    match fs with
+  let index : (int * 'a) list -> int = function
     | (i, _) :: _ -> i
     | _ -> -1
 
+  let value_index : t -> int
+    = fun t -> index t.values
+
+  let typename_index : t -> int
+    = fun t -> index t.typenames
+
+  let function_index : t -> int
+    = fun t -> index t.functions
+
+  let module_index : t -> int
+    = fun t -> index t.modules
+
   let empty : t =
     { cur_grp = `None;
-      functions = []; typenames = []; values = [] }
+      functions = [];
+      typenames = [];
+      values = [];
+      modules = [] }
 
   let next_index : t -> int
     = fun grps ->
     let i = function_index grps in
     let j = typename_index grps in
     let k = value_index grps in
+    let m = module_index grps in
     let n =
-      max (max i j) k
+      max (max i j) (max m k)
     in
     if n < 0 then 0 else n+1
 
@@ -52,6 +67,13 @@ module BindingGroups = struct
   let add_value_binding b grps =
     let k = next_index grps in
     { grps with values = (k, b) :: grps.values; cur_grp = `Values }
+
+  let add_module_binding b grps =
+    let m = next_index grps in
+    match b.node with
+    | `Module (name, bindings) ->
+       { grps with modules = (m, (name, b.pos, BindingGroups.of_bindings bindings)) :: grps.modules; cur_grp = `Modules }
+    | _ -> assert false
 
   let add_typename_binding b grps =
     match grps.cur_grp with
@@ -69,27 +91,42 @@ module BindingGroups = struct
        let grp = ((i, [b]) :: grps.functions) in
        { grps with functions = grp; cur_grp = `Functions }
 
+
   let add : binding -> t -> t
     = fun b grps ->
     (* Printf.fprintf stderr "Adding: %s\n%!" (Sugartypes.show_binding b); *)
     match b.node with
     | `Handler _
-    | `Module _
+    | `AlienBlock _ -> assert false (* Desugared at this point. *)
+    | `Funs _ -> assert false (* Not yet introduced. *)
     | `QualifiedImport _
-    | `AlienBlock _
-    | `Funs _ -> assert false
     | `Exp _
     | `Foreign _
     | `Val _ -> add_value_binding b grps
+    | `Module _ -> add_module_binding b grps
     | `Type _ -> add_typename_binding b grps
     | `Fun _ -> add_function_binding b grps
     | `Infix -> grps (* discard binding *)
 
+  let transform_modules : ((binding list -> binding list) -> t -> t) -> (binding list -> binding list) -> t -> t
+    = fun apply transform grps ->
+    { grps with modules = List.map (fun (i, (name, pos, grps)) -> (i, (name, pos, apply transform grps))) grps.modules }
+
   let transform_typenames : (binding list -> binding list) -> t -> t
-    = fun transform grps -> { grps with typenames = apply transform grps.typenames }
+    = fun transform grps ->
+    let typenames = apply transform grps.typenames in
+    let modules =
+      transform_modules BindingGroups.transform_functions transform grps
+    in
+    { modules with typenames }
 
   let transform_functions : (binding list -> binding list) -> t -> t
-    = fun transform grps -> { grps with functions = apply transform grps.functions }
+    = fun transform grps ->
+    let functions = apply transform grps.functions in
+    let modules =
+      transform_modules BindingGroups.transform_functions transform grps
+    in
+    { modules with functions }
 
   let to_bindings : t -> binding list
     = fun grps ->
@@ -98,19 +135,28 @@ module BindingGroups = struct
       let i = function_index grps in
       let j = typename_index grps in
       let k = value_index grps in
-      if i > j && i > k
+      let m = module_index grps in
+      if i > j && i > k && i > m
       then match grps.functions with
            | (_, fs) :: fss ->
               Some (fs, { grps with functions = fss })
            | [] -> None
-      else if j > i && j > k
+      else if j > i && j > k && j > m
       then match grps.typenames with
            | (_, ts) :: tss ->
               Some (ts, { grps with typenames = tss })
            | [] -> None
-      else match grps.values with
+      else if k > i && k > j && k > m
+      then match grps.values with
            | (_, v) :: vs ->
               Some ([v], { grps with values = vs })
+           | [] -> None
+      else match grps.modules with
+           | (_, (name, pos, grps)) :: ms ->
+              let module' =
+                with_pos pos (`Module (name, BindingGroups.to_bindings grps))
+              in
+              Some ([module'], { grps with modules = ms })
            | [] -> None
     in
     let rec build : binding list list -> t -> binding list list =
