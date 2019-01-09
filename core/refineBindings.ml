@@ -10,6 +10,9 @@ module type BINDING_GROUPS = sig
 
   val transform_functions : (binding list -> binding list) -> t -> t
   val transform_typenames : (binding list -> binding list) -> t -> t
+
+  val fold_typenames : (binding list -> 'a -> 'a) -> 'a -> t -> 'a
+  val fold_functions : (binding list -> 'a -> 'a) -> 'a -> t -> 'a
 end
 
 module rec BindingGroups : BINDING_GROUPS = struct
@@ -18,7 +21,7 @@ module rec BindingGroups : BINDING_GROUPS = struct
       functions: (int * binding list) list;
       typenames: (int * binding list) list;
       values: (int * binding) list;
-      modules: (int * (Sugartypes.name * position * t)) list }
+      modules: (int * (binding * t)) list }
   (* Needs to be generalised if we ever decide to have recursive
      modules. *)
 
@@ -71,8 +74,8 @@ module rec BindingGroups : BINDING_GROUPS = struct
   let add_module_binding b grps =
     let m = next_index grps in
     match b.node with
-    | `Module (name, bindings) ->
-       { grps with modules = (m, (name, b.pos, BindingGroups.of_bindings bindings)) :: grps.modules; cur_grp = `Modules }
+    | `Module (_, bindings) ->
+       { grps with modules = (m, (b, BindingGroups.of_bindings bindings)) :: grps.modules; cur_grp = `Modules }
     | _ -> assert false
 
   let add_typename_binding b grps =
@@ -90,7 +93,6 @@ module rec BindingGroups : BINDING_GROUPS = struct
        let i = next_index grps in
        let grp = ((i, [b]) :: grps.functions) in
        { grps with functions = grp; cur_grp = `Functions }
-
 
   let add : binding -> t -> t
     = fun b grps ->
@@ -110,15 +112,28 @@ module rec BindingGroups : BINDING_GROUPS = struct
 
   let transform_modules : ((binding list -> binding list) -> t -> t) -> (binding list -> binding list) -> t -> t
     = fun apply transform grps ->
-    { grps with modules = List.map (fun (i, (name, pos, grps)) -> (i, (name, pos, apply transform grps))) grps.modules }
+    { grps with modules = List.map (fun (i, (m, grps)) -> (i, (m, apply transform grps))) grps.modules }
 
   let transform_typenames : (binding list -> binding list) -> t -> t
     = fun transform grps ->
     let typenames = apply transform grps.typenames in
     let modules =
-      transform_modules BindingGroups.transform_functions transform grps
+      transform_modules BindingGroups.transform_typenames transform grps
     in
     { modules with typenames }
+
+  let fold : (binding list -> 'a -> 'a) -> 'a -> ('b * binding list) list -> 'a
+    = fun f z grp ->
+    List.fold_left
+      (fun acc (_, bs) ->
+        f bs acc)
+      z grp
+
+  let fold_functions : (binding list -> 'a -> 'a) -> 'a -> t -> 'a
+    = fun f z grps -> fold f z grps.functions
+
+  let fold_typenames : (binding list -> 'a -> 'a) -> 'a -> t -> 'a
+    = fun f z grps -> fold f z grps.typenames
 
   let transform_functions : (binding list -> binding list) -> t -> t
     = fun transform grps ->
@@ -152,9 +167,14 @@ module rec BindingGroups : BINDING_GROUPS = struct
               Some ([v], { grps with values = vs })
            | [] -> None
       else match grps.modules with
-           | (_, (name, pos, grps)) :: ms ->
+           | (_, (b, grps)) :: ms ->
+              let name =
+                match b.node with
+                | `Module (name, _) -> name
+                | _ -> assert false
+              in
               let module' =
-                with_pos pos (`Module (name, BindingGroups.to_bindings grps))
+                { b with node = `Module (name, BindingGroups.to_bindings grps) }
               in
               Some ([module'], { grps with modules = ms })
            | [] -> None
@@ -164,7 +184,7 @@ module rec BindingGroups : BINDING_GROUPS = struct
       match pop_max grps with
       | None -> bss
       | Some (bs, grps) ->
-         let bss' = (List.rev bs) :: bss in
+         let bss' = bs :: bss in
          build bss' grps
     in
     List.concat (build [] grps)
@@ -185,28 +205,47 @@ module RecursiveFunctions = struct
 
   let compute_data : binding list -> fndata
     = fun bs ->
-    let (fn_names', fundefs) =
-      let handle_binding (fn_names, fundefs) b =
+    let (has_duplicates, names, fundefs) =
+      let handle_binding (has_duplicates, names, fundefs) b =
         match b.node with
         | `Fun ( (binder, _, (_, funlit), _, _) as def) ->
            let name = fst binder.node in
-           let fvs = Freevars.funlit funlit in
-           Hashtbl.add fundefs name ((def, b.pos), fvs);
-           (name :: fn_names, fundefs)
+           if StringMap.mem name names then
+             let positions = StringMap.find name names in
+             (true, StringMap.add name (b.pos :: positions) names, fundefs)
+           else
+             let fvs = Freevars.funlit funlit in
+             Hashtbl.add fundefs name ((def, b.pos), fvs);
+             (has_duplicates, StringMap.add name [b.pos] names, fundefs)
         | _ -> assert false
       in
       List.fold_left
         handle_binding
-        ([], Hashtbl.create 16) bs
+        (false, StringMap.empty, Hashtbl.create 16) bs
+    in
+    let () =
+      if has_duplicates then
+        let dups =
+          StringMap.fold
+            (fun name positions acc ->
+              match positions with [] | [_] -> acc | _ -> (name, positions) :: acc)
+            names []
+        in
+        raise (Errors.Duplicate_bindings dups)
+    in
+    let names =
+      StringMap.fold
+        (fun name _ names -> StringSet.add name names)
+        names
+        StringSet.empty
     in
     (* compute call graph *)
     let callgraph =
-      let fn_names = StringSet.from_list fn_names' in
-      List.fold_left
-        (fun adj name ->
+      StringSet.fold
+        (fun name adj ->
           let freevars = snd (Hashtbl.find fundefs name) in
-          (name, StringSet.(elements (inter freevars fn_names))) :: adj)
-        [] fn_names'
+          (name, StringSet.(elements (inter freevars names))) :: adj)
+        names []
     in
     { fundefs; callgraph }
 
@@ -226,24 +265,68 @@ module RecursiveFunctions = struct
     let make_funs names =
       let defs = List.map fundef names in
       match defs with
+      | [] -> assert false
       | [def, pos] when not (is_recursive def) ->
          with_pos pos (`Fun def)
       | _ ->
          with_pos Sugartypes.dummy_position (`Funs (List.map to_rec_def defs))
     in
-    List.rev_map make_funs sccs
+    List.map make_funs sccs
+
+  let check_duplicates bs init =
+    List.fold_left
+      (fun (has_duplicates, names) binding ->
+        match binding.node with
+        | `Fun ({ node = (name, _); _ }, _, _, _, _) ->
+           if StringMap.mem name names then
+             let positions = StringMap.find name names in
+             (true, StringMap.add name (binding.pos :: positions) names)
+           else
+           (has_duplicates, StringMap.add name [binding.pos] names)
+        | _ -> (has_duplicates, names))
+      init bs
 end
 
-let refine_bindings : binding list -> binding list
-  = fun bs ->
-  let grps = BindingGroups.of_bindings bs in
-  let bs' =
-    grps
-    |> BindingGroups.transform_functions RecursiveFunctions.group
-    (* |> BindingGroups.transform_typenames (fun _ -> assert false) *)
-    |> BindingGroups.to_bindings
-  in
-  bs'
+module RecursiveTypenames = struct
+  (* The type name expansion procedure.
+
+    1) Topological sort a group of type names to expose their
+     interdependence.
+
+    2) Prefix each recursive type name definition with a fresh mu-bound variable.
+
+    3) Unroll each occurrence of a recursive type name.
+   *)
+  type type_def = name * (quantifier * tyvar option) list * datatype'
+  type t = unit
+
+  let check_duplicates bs init =
+    List.fold_left
+      (fun (has_duplicates, names) binding ->
+        match binding.node with
+        | `Type (name, _, _) when StringMap.mem name names ->
+           let positions = StringMap.find name names in
+           (true, StringMap.add name (binding.pos :: positions) names)
+        | `Type (name, _, _) ->
+           (has_duplicates, StringMap.add name [binding.pos] names)
+        | _ -> (has_duplicates, names))
+      init bs
+
+  let topological_sort : binding list -> SourceCode.pos StringMap.t
+    = fun bs -> assert false
+      (* let names = StringSet.from_list fn_names' in
+     *   List.fold_left
+     *     (fun adj name ->
+     *       let freevars = snd (Hashtbl.find fundefs name) in
+     *       (name, StringSet.(elements (inter freevars fn_names))) :: adj)
+     *     [] fn_names'
+     * in
+     * Graph.topo_sort_sccs reference_graph
+     * assert false *)
+
+  let expand : binding list -> binding list
+    = fun bs -> bs
+end
 
 (****)
 (* Helper function: add a group to a list of groups *)
@@ -415,8 +498,8 @@ module RefineTypeBindings = struct
           | `Handler _  (* Desugared at this point *)
           | `Module _
           | `QualifiedImport _
-          | `AlienBlock _
-          | `Funs _ -> assert false
+          | `AlienBlock _ -> assert false
+          | `Funs _
           | `Fun _
           | `Foreign _
           | `Val _
@@ -580,6 +663,23 @@ module RefineTypeBindings = struct
       List.concat (List.map refineGroup (initialGroups binds))
 end
 
+let refine_bindings : binding list -> binding list
+  = fun bs ->
+  let grps = BindingGroups.of_bindings bs in
+  let () =
+    let (has_duplicates, positions) =
+    BindingGroups.fold_typenames RecursiveTypenames.check_duplicates (false, StringMap.empty) grps
+    in
+    if has_duplicates then
+      raise (Errors.Duplicate_typenames (StringMap.to_alist positions))
+  in
+  let bs' =
+    grps
+    |> BindingGroups.transform_functions RecursiveFunctions.group
+    |> BindingGroups.transform_typenames RecursiveTypenames.expand
+    |> BindingGroups.to_bindings
+  in bs'
+
 let refine_bindings =
 object (self)
   inherit SugarTraversals.map as super
@@ -587,28 +687,22 @@ object (self)
     |`Block (bindings, body) ->
        let bindings = self#list (fun o -> o#binding) bindings in
        let body = self#phrase body in
-       let refined_bindings =
-         (RefineTypeBindings.refineTypeBindings ->-
-         refine_bindings) bindings in
-       `Block (refined_bindings, body)
+       let refined_bindings = refine_bindings bindings in
+       `Block (RefineTypeBindings.refineTypeBindings refined_bindings, body)
     | p -> super#phrasenode p
 
   method! program : program -> program =
     fun (bindings, body) ->
       let bindings = self#list (fun o -> o#binding) bindings in
       let body = self#option (fun o -> o#phrase) body in
-      let refined_bindings =
-        (RefineTypeBindings.refineTypeBindings ->-
-        refine_bindings) bindings in
-      refined_bindings, body
+      let refined_bindings = refine_bindings bindings in
+      RefineTypeBindings.refineTypeBindings refined_bindings, body
 
   method! sentence : sentence -> sentence = function
     |`Definitions defs ->
        let defs = self#list (fun o -> o#binding) defs in
-       let refined_bindings =
-         (RefineTypeBindings.refineTypeBindings ->-
-         refine_bindings) defs in
-       `Definitions (refined_bindings)
+       let refined_bindings = refine_bindings defs in
+       `Definitions (RefineTypeBindings.refineTypeBindings refined_bindings)
     | d -> super#sentence d
 
 end

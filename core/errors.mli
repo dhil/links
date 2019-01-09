@@ -4,7 +4,8 @@ type synerrspec = {filename : string; linespec : string;
                    message : string; linetext : string;
                    marker : string}
 
-
+exception Duplicate_bindings of (string * SourceCode.pos list) list
+exception Duplicate_typenames of (string * SourceCode.pos list) list
 exception Runtime_error of string
 exception UndefinedVariable of string
 

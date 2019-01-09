@@ -7,12 +7,15 @@ type synerrspec = {filename : string; linespec : string;
 
 exception UndefinedVariable of string
 
+exception Duplicate_bindings of (string * SourceCode.pos list) list
+exception Duplicate_typenames of (string * SourceCode.pos list) list
 exception Type_error of (SourceCode.pos * string)
 exception MultiplyDefinedToplevelNames of ((SourceCode.pos list) stringmap)
 exception RichSyntaxError of synerrspec
 exception SugarError of (SourceCode.pos * string)
 exception Runtime_error of string
 exception UnboundTyCon of (SourceCode.pos * string)
+
 
 let show_pos : SourceCode.pos -> string =
   fun ((pos : Lexing.position), _, _) ->
@@ -64,6 +67,58 @@ let format_exception = function
                           message^" "^name^":\n  "^
 			    (mapstrcat "\n  " show_pos (List.rev positions)))
           duplicates ""
+  | Duplicate_typenames dups ->
+     let resolved =
+       List.fold_right
+         (fun (name, positions) acc ->
+           let positions' = List.map SourceCode.resolve_pos positions in
+           (name, positions') :: acc)
+         dups []
+     in
+     let error_messages = List.map
+       (fun (name, positions') ->
+         let (first_pos, _, first_stub), positions' = List.hd positions', List.tl positions' in
+         let header = Printf.sprintf "Syntax error: The type name %s is declared multiple times." name in
+         let first = Printf.sprintf  "First declaration at file %s:%d:" first_pos.pos_fname first_pos.pos_lnum in
+         let message = Printf.sprintf "%s\n  %s\n    - %s" header first first_stub in
+         List.fold_right
+           (fun (pos, _, stub) message ->
+             let header = Printf.sprintf "Subsequent declaration at file %s:%d:" pos.pos_fname pos.pos_lnum in
+             Printf.sprintf "%s\n  %s\n    - %s" message header stub)
+           (List.rev positions') message)
+       resolved
+     in
+     List.fold_left
+       (fun acc message ->
+         if acc = "" then message
+         else Printf.sprintf "%s\n\n%s" acc message)
+       "" error_messages
+  | Duplicate_bindings dups ->
+     let resolved =
+       List.fold_right
+         (fun (name, positions) acc ->
+           let positions' = List.map SourceCode.resolve_pos positions in
+           (name, positions') :: acc)
+         dups []
+     in
+     let error_messages = List.map
+       (fun (name, positions') ->
+         let (first_pos, _, first_stub), positions' = List.hd positions', List.tl positions' in
+         let header = Printf.sprintf "Syntax error: The function %s is declared multiple times within the same binding group." name in
+         let first = Printf.sprintf  "First declaration at file %s:%d:" first_pos.pos_fname first_pos.pos_lnum in
+         let message = Printf.sprintf "%s\n  %s\n    - %s" header first first_stub in
+         List.fold_right
+           (fun (pos, _, stub) message ->
+             let header = Printf.sprintf "Subsequent declaration at file %s:%d:" pos.pos_fname pos.pos_lnum in
+             Printf.sprintf "%s\n  %s\n    - %s" message header stub)
+           (List.rev positions') message)
+       resolved
+     in
+     List.fold_left
+       (fun acc message ->
+         if acc = "" then message
+         else Printf.sprintf "%s\n\n%s" acc message)
+       "" error_messages
   | Sys.Break -> "Caught interrupt"
   | exn -> "*** Error: " ^ Printexc.to_string exn
 
