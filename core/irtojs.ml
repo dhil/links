@@ -612,7 +612,7 @@ module Higher_Order_Continuation : CONTINUATION = struct
   let contify_with_env fn =
     let kappa = Ident.fresh_binder ~prefix:"_kappa" () in
     match fn (reflect (variable (Ident.to_var kappa))) with
-    | env, Fun def -> env, reflect (Fun { def with params = def.params @ [kappa] })
+    | env, Js.Fun def -> env, reflect (Js.Fun { def with params = def.params @ [kappa] })
     | _ -> failwith "error: contify: none function argument."
 
   let primitive_bindings =
@@ -703,7 +703,7 @@ end = functor (K : CONTINUATION) -> struct
          | Some v ->
             apply_prim "LINKS.union" [gv v; dict]
        end
-    | Project (name, v) ->
+    | Ir.Project (name, v) ->
        apply_prim "LINKS.project" [gv v; strlit name]
     | Erase (names, v) ->
        apply_prim "LINKS.erase" [gv v; array (List.map strlit (StringSet.elements names))]
@@ -728,11 +728,11 @@ end = functor (K : CONTINUATION) -> struct
             | None ->
                if Lib.is_primitive f_name
                   && not (List.mem f_name cps_prims)
-                  && Lib.primitive_location f_name <> `Server
+                  && not (Location.is_server (Lib.primitive_location f_name))
                then
                  apply_prim ("_" ^ f_name) args
                else
-                 apply ~strategy:`Direct (gv (`Variable f)) args
+                 apply ~strategy:`Direct (gv (Variable f)) args
             end
          | _ ->
             apply (gv f) args
@@ -743,7 +743,7 @@ end = functor (K : CONTINUATION) -> struct
          then "partialApplySE"
          else "partialApply"
        in
-       apply_prim prim_name [gv (`Variable f); gv v]
+       apply_prim prim_name [gv (Variable f); gv v]
     | Coerce (v, _) -> gv v
 
   and generate_xml env tag attrs children =
@@ -805,7 +805,7 @@ end = functor (K : CONTINUATION) -> struct
                    (bs' @ [__kappa])
                    (lift_stmt @@ return (generate_remote_call (Ident.to_var fb) bs env))))
     and binding : Ir.binding -> js = function
-      | Fun def ->
+      | Ir.Fun def ->
          fun_def def
       | Rec defs ->
          List.fold_right
@@ -826,7 +826,7 @@ end = functor (K : CONTINUATION) -> struct
 *)
 
 (** stubs for server-only primitives *)
-    let wrap_with_server_lib_stubs : js -> js = fun code ->
+    let wrap_with_server_lib_stubs : js -> js = fun _code -> (* TODO FIXME _code is unused. *)
       let server_library_funcs =
         List.rev
           (Env.Int.fold
@@ -859,9 +859,9 @@ end = functor (K : CONTINUATION) -> struct
       let gv v = generate_value env v in
       let gc c kappa = snd (generate_computation env c kappa) in
       match tc with
-      | Return v ->
+      | Ir.Return v ->
          lift_stmt (return (K.apply kappa (gv v)))
-      | Apply (f, vs) ->
+      | Ir.Apply (f, vs) ->
          let f = strip_poly f in
          let args = List.map gv vs in
          begin
@@ -875,7 +875,7 @@ end = functor (K : CONTINUATION) -> struct
               | None ->
                  if Lib.is_primitive f_name
                     && not (List.mem f_name cps_prims)
-                    && Lib.primitive_location f_name <> `Server
+                    && not (Location.is_server (Lib.primitive_location f_name))
                  then
                    let arg =
                      let f' = prim (Printf.sprintf "_%s" f_name) in
@@ -894,7 +894,7 @@ end = functor (K : CONTINUATION) -> struct
                   *     generate_cancel_stub env action kappa *)
                    else
                      lift_stmt
-                       (return (apply (gv (`Variable f)) (List.map gv vs @ [K.reify kappa])))
+                       (return (apply (gv (Variable f)) (List.map gv vs @ [K.reify kappa])))
               end
            | _ ->
               lift_stmt
@@ -931,7 +931,7 @@ end = functor (K : CONTINUATION) -> struct
              let default = opt_map (gen_cont scrutinee') default in
              let expr = (project scrutinee' "_label") in
              k (switch ?default expr cases))
-      | If (v, c1, c2) ->
+      | Ir.If (v, c1, c2) ->
          K.bind kappa
            (fun kappa ->
              lift_stmt (ifthenelse (gv v) (gc c1 kappa) (gc c2 kappa)))
@@ -946,7 +946,7 @@ end = functor (K : CONTINUATION) -> struct
       match sp with
       | Wrong _ ->
          return (die "Internal Error: Pattern matching failed") (* THIS MESSAGE SHOULD BE MORE INFORMATIVE *)
-      | Database _ | `Table _
+      | Database _ | Table _
           when Settings.get_value js_hide_database_info ->
          return (K.apply kappa (obj []))
       | Database v ->
@@ -1087,9 +1087,9 @@ end = functor (K : CONTINUATION) -> struct
              (* TODO shallow / deep distinction *)
              let r =
                let e = match depth with
-                 | `Shallow -> Ident.of_string "_K.shallowResume" (* TODO make continuation operation? *)
-                 | `Deep [] -> Ident.of_string "_K.deepResume"
-                 | `Deep _ -> failwith "Parameterised handlers not yet supported."
+                 | Shallow -> Ident.of_string "_K.shallowResume" (* TODO make continuation operation? *)
+                 | Deep [] -> Ident.of_string "_K.deepResume"
+                 | Deep _ -> failwith "Parameterised handlers not yet supported."
                in
                apply (variable (Ident.to_var e)) [s]
              in
@@ -1252,11 +1252,11 @@ end = functor (K : CONTINUATION) -> struct
       let rec gbs : venv -> continuation -> Ir.binding list -> venv * js =
         fun env kappa ->
           function
-          | Let (b, (_, Return v)) :: bs ->
+          | Ir.Let (b, (_, Ir.Return v)) :: bs ->
              let xb' = Ident.of_binder b in
              let env', rest = gbs (VEnv.bind env (Var.var_of_binder b, Ident.name_binder xb')) kappa bs in
              (env', const xb' (generate_value env v) :: rest)
-          | Let (b, (_, tc)) :: bs ->
+          | Ir.Let (b, (_, tc)) :: bs ->
              let xb' = Ident.of_binder b in
              let _fs = Ident.fresh_binder ~prefix:"_fs" () in
              let env', body =
@@ -1271,7 +1271,7 @@ end = functor (K : CONTINUATION) -> struct
              let kappa', stmts = K.(f &> kappa) in
              let stmts' = generate_tail_computation env tc kappa' in
              env', stmts @ stmts'
-          | Fun ((fb, _, _zs, _location) as def) :: bs ->
+          | Ir.Fun ((fb, _, _zs, _location) as def) :: bs ->
              let fb' = Ident.of_binder fb in
              let fun_def = generate_function env [] def in
              let env', rest = gbs (VEnv.bind env (Var.var_of_binder fb, Ident.name_binder fb')) kappa bs in
@@ -1365,7 +1365,7 @@ end = functor (K : CONTINUATION) -> struct
       apply (prim "JSON.parse") [e]
     in
       function
-      | Let (b, _) ->
+      | Ir.Let (b, _) ->
          let b' = Ident.of_binder b in
       (* Debug.print ("let_binding: " ^ x_name); *)
          let varenv = VEnv.bind varenv (Var.var_of_binder b, Ident.name_binder b') in
@@ -1377,7 +1377,7 @@ end = functor (K : CONTINUATION) -> struct
           Some b',
           lift_stmt
             (const b' (json_parse (lit (String jsonized_val))))) (* TODO represent "json state" in the JS IR *)
-      | Fun ((fb, _, _zs, _location) as def) ->
+      | Ir.Fun ((fb, _, _zs, _location) as def) ->
          let fb' = Ident.of_binder fb in
          let varenv = VEnv.bind varenv (Var.var_of_binder fb, Ident.name_binder fb') in
          let def_header = generate_function varenv [] def in
