@@ -1,4 +1,3 @@
-(*pp deriving *)
 open Utility
 type comp_unit = Ir.program Js.comp_unit
 type prog_unit = Js.program Js.comp_unit
@@ -6,7 +5,7 @@ type prog_unit = Js.program Js.comp_unit
 (* Environment *)
 module VEnv = Env.Int
 type venv = string VEnv.t
-  deriving (Show)
+  [@@deriving show]
 
 let string_of_venv (env : venv) =
   let strings =
@@ -31,7 +30,7 @@ let string_of_liveness_map nenv (lm : IntSet.t IntMap.t) =
     IntMap.fold
       (fun k vs acc ->
         let k = Env.Int.lookup nenv k in
-        (Printf.sprintf "%s -> %s" k (IntSet.Show_t.show vs)) :: acc)
+        (Printf.sprintf "%s -> %s" k (IntSet.show vs)) :: acc)
       lm []
   in
   List.fold_left (fun acc str -> Printf.sprintf "%s%s\n" acc str) "" strings
@@ -200,15 +199,15 @@ let strlit : Ir.name -> Js.expression
 
 (* strip any top level polymorphism from an expression *)
 let rec strip_poly = function
-  | `TAbs (_, e)
-  | `TApp (e, _) -> strip_poly e
+  | Ir.TAbs (_, e)
+  | Ir.TApp (e, _) -> strip_poly e
   | e -> e
 
 (** Generate a JavaScript name from a binder, wordifying symbolic names *)
 let safe_name_binder (x, info) =
   let name = Js.name_binder (x, info) in
   if (name = "") then
-    prerr_endline (Ir.Show_binder.show (x, info))
+    prerr_endline (Ir.show_binder (x, info))
   else
     ();
   assert (name <> "");
@@ -394,17 +393,19 @@ module CPS = struct
     = fun env ->
       let open Js in
       let open Utility in
+      let open Ir in
       let gv v = generate_value env v in
       function
-      | `Constant c ->
+      | Constant c ->
          ELit (
+           let open CommonTypes.Constant in
            match c with
-           | `Int v  -> LInt v
-           | `Float v  -> LFloat v
-           | `Bool v   -> LBool v
-           | `Char v   -> LChar v
-           | `String v -> LString v)
-      | `Variable var ->
+           | Int v  -> LInt v
+           | Float v  -> LFloat v
+           | Bool v   -> LBool v
+           | Char v   -> LChar v
+           | String v -> LString v)
+      | Variable var ->
        (* HACK *)
          let name = VEnv.lookup env var in
          if Arithmetic.is name then
@@ -446,7 +447,7 @@ module CPS = struct
            | "Nil" -> EPrim "%List.nil"
            |  _ -> EVar name
            end
-      | `Extend (field_map, rest) ->
+      | Extend (field_map, rest) ->
          let dict =
            make_dictionary
              (StringMap.fold
@@ -460,21 +461,21 @@ module CPS = struct
            | Some v ->
               EApply (EPrim "%Record.union", [gv v; dict])
          end
-      | `Project (name, v) ->
+      | Project (name, v) ->
          EAccess (gv v, name)
-      | `Erase (names, v) ->
+      | Erase (names, v) ->
          EApply (EPrim "%Record.erase",
                  [gv v; make_array (List.map strlit (StringSet.elements names))])
-      | `Inject (name, v, _t) ->
+      | Inject (name, v, _t) ->
          make_dictionary [("_label", strlit name); ("_value", gv v)]
     (* erase polymorphism *)
-      | `TAbs (_, v)
-      | `TApp (v, _) -> gv v
-      | `ApplyPure (f, vs) ->
+      | TAbs (_, v)
+      | TApp (v, _) -> gv v
+      | ApplyPure (f, vs) ->
          let f = strip_poly f in
          begin
            match f with
-           | `Variable f ->
+           | Variable f ->
               let f_name = VEnv.lookup env f in
               begin
                 match vs with
@@ -486,36 +487,37 @@ module CPS = struct
                    Comparison.gen ~op:f_name ~args:[gv l; gv r] ()
                 | _ ->
                    if Lib.is_primitive f_name
-                     && Lib.primitive_location f_name <> `Server
+                     && Lib.primitive_location f_name <> CommonTypes.Location.Server
                    then
                      try
                        Functions.gen ~op:f_name ~args:(List.map gv vs) ()
                      with Not_found -> failwith (Printf.sprintf "Unsupported primitive (val): %s.\n" f_name)
                    else
-                     EApply (gv (`Variable f), (List.map gv vs))
+                     EApply (gv (Variable f), (List.map gv vs))
               end
            | _ ->
               EApply (gv f, List.map gv vs)
          end
-      | `Closure (f, v) ->
-         EApply (EPrim "%Closure.apply", [gv (`Variable f); gv v])
-      | `Coerce (v, _) ->
+      | Closure (f, _, v) ->
+         EApply (EPrim "%Closure.apply", [gv (Variable f); gv v])
+      | Coerce (v, _) ->
          gv v
       | _ -> failwith "Unsupported value."
 
   and generate_tail_computation : venv -> Ir.tail_computation -> continuation -> Js.program
     = fun env tc kappa ->
       let open Js in
+      let open Ir in
       let gv v = generate_value env v in
       let gc c kappa = snd (generate_computation env c kappa) in
       match tc with
-      | `Return v ->
+      | Return v ->
          [], SReturn (K.apply kappa (gv v))
-      | `Apply (f, vs) ->
+      | Apply (f, vs) ->
          let f = strip_poly f in
          begin
            match f with
-           | `Variable f ->
+           | Variable f ->
               let f_name = VEnv.lookup env f in
               begin
                 match vs with
@@ -527,7 +529,7 @@ module CPS = struct
                    [], SReturn (K.apply kappa (Comparison.gen ~op:f_name ~args:[gv l; gv r] ()))
                 | _ ->
                    if Lib.is_primitive f_name
-                     && Lib.primitive_location f_name <> `Server
+                     && Lib.primitive_location f_name <> CommonTypes.Location.Server
                    then
                      match f_name, vs with
                      | "deref", [v] ->
@@ -550,15 +552,15 @@ module CPS = struct
                         [], SReturn expr
                    else
                      let k = K.reify kappa in
-                     [], SReturn (EApply (gv (`Variable f), (List.map gv vs) @ [k]))
+                     [], SReturn (EApply (gv (Variable f), (List.map gv vs) @ [k]))
               end
            | _ ->
               let k = K.reify kappa in
               [], SReturn (EApply (gv f, (List.map gv vs) @ [k]))
          end
-      | `Special special ->
+      | Special special ->
          generate_special env special kappa
-      | `Case (v, cases, default) ->
+      | Case (v, cases, default) ->
          let v = gv v in
          let scrutineeb = Ident.make ~prefix:"_scrutinee" () in
          let bind_scrutinee scrutinee =
@@ -586,7 +588,7 @@ module CPS = struct
                [], SCase (EAccess (EVar scrutineeb, "_label"), cases, default))
          in
          decls @ [bind_scrutinee v], prog
-      | `If (v, c1, c2) ->
+      | If (v, c1, c2) ->
          K.bind kappa
            (fun kappa ->
              [], SIf (gv v, gc c1 kappa, gc c2 kappa))
@@ -594,10 +596,11 @@ module CPS = struct
   and generate_special : venv -> Ir.special -> continuation -> Js.program
     = fun env sp kappa ->
       let open Js in
+      let open Ir in
       let gv v = generate_value env v in
       match sp with
-      | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
-      | `DoOperation (name, args, _) ->
+      | Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
+      | DoOperation (name, args, _) ->
          let box = function
            | [v] -> gv v
            | vs -> make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
@@ -617,9 +620,9 @@ module CPS = struct
                                ; ("_value", make_dictionary [("p", box args); ("s", resumption)]) ]
              in
              bind K.(SReturn (apply (seta <> kappas) op)))
-      | `Handle { Ir.ih_comp = comp; Ir.ih_return = return; Ir.ih_cases = eff_cases; Ir.ih_depth = depth } ->
+      | Handle { Ir.ih_comp = comp; Ir.ih_return = return; Ir.ih_cases = eff_cases; Ir.ih_depth = depth } ->
          let open Utility in
-         if depth = `Shallow then
+         if depth = Shallow then
            failwith "Translation of shallow handlers has not yet been implemented.";
          (* Generate body *)
          let gb env binder body kappas =
@@ -719,10 +722,11 @@ module CPS = struct
   and generate_computation : venv -> Ir.computation -> continuation -> venv * Js.program
     = fun env (bs, tc) kappa ->
       let open Js in
+      let open Ir in
       let rec gbs : venv -> continuation -> Ir.binding list -> venv * Js.program =
         fun env kappa ->
           function
-          | `Let (b, (_, `Return v)) :: bs ->
+          | Let (b, (_, Return v)) :: bs ->
              let (x, x_name) = safe_name_binder b in
              let env', (rest, prog) = gbs (VEnv.bind env (x, x_name)) kappa bs in
              let x_binding =
@@ -732,7 +736,7 @@ module CPS = struct
                  expr = generate_value env v; }
              in
              (env', (x_binding :: rest, prog))
-          | `Let (b, (_, tc)) :: bs ->
+          | Let (b, (_, tc)) :: bs ->
              let (x, x_name) = safe_name_binder b in
              let x_name = Ident.of_string x_name in
              let bind, skappa, skappas = K.pop kappa in
@@ -747,18 +751,18 @@ module CPS = struct
                      body; })
              in
              env', bind (generate_tail_computation env tc K.(skappa' <> skappas))
-          | `Fun ((fb, _, _zs, _location) as def) :: bs ->
+          | Fun ((fb, _, _zs, _location) as def) :: bs ->
              let (f, f_name) = safe_name_binder fb in
              let def_header = generate_function env [] def in
              let env', (rest, prog) = gbs (VEnv.bind env (f, f_name)) kappa bs in
              (env', (def_header :: rest, prog))
-          | `Rec defs :: bs ->
+          | Rec defs :: bs ->
              let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) defs in
              let env', (rest, prog) = gbs (List.fold_left VEnv.bind env fs) kappa bs in
              let defs = List.map (generate_function env fs) defs in
              (env', (defs @ rest, prog))
-          | `Module _ :: bs -> gbs env kappa bs
-          | `Alien (bnd, raw_name, _lang) :: bs ->
+          | Module _ :: bs -> gbs env kappa bs
+          | Alien (bnd, raw_name, _lang) :: bs ->
              let (a, _a_name) = safe_name_binder bnd in
              let env' = VEnv.bind env (a, raw_name) in
              gbs env' kappa bs
@@ -785,7 +789,7 @@ module CPS = struct
 
   and generate_toplevel_bindings : venv -> Ir.binding list -> continuation -> Js.decl list
     = fun env bs kappa ->
-      let _,(decls,_) = generate_computation env (bs, `Special (`Wrong `Not_typed)) kappa in
+      let _,(decls,_) = generate_computation env (bs, Ir.Special (Ir.Wrong `Not_typed)) kappa in
       decls
 
   and generate_function : venv -> (Var.var * string) list -> Ir.fun_def -> Js.decl =
@@ -804,8 +808,9 @@ module CPS = struct
       let _xs, xs_names = List.split bs in
       let body_env = List.fold_left VEnv.bind env (fs @ bs) in
       let body =
+        let open CommonTypes.Location in
         match location with
-        | `Client | `Unknown ->
+        | Client | Unknown ->
            snd (generate_computation body_env body (K.reflect (EVar __kappa)))
         | _ -> failwith "Only client side calls are supported."
       in
@@ -878,11 +883,12 @@ module GenIter = struct
   and generate_computation : venv -> Ir.computation -> venv * Js.program
     = fun env (bs, tc) ->
       (* let open Js in *)
+      let open Ir in
       let rec gbs : venv -> Ir.binding list -> venv * Js.program =
         fun env ->
           function
-          | `Module _ :: bs
-          | `Alien _ :: bs -> gbs env bs
+          | Module _ :: bs
+          | Alien _ :: bs -> gbs env bs
           | b :: bs ->
              let env', decls = generate_binding ~toplevel:false env b in
              let (env'', (decls', stmt)) = gbs env' bs in
@@ -894,10 +900,11 @@ module GenIter = struct
   and generate_bindings : ?toplevel:bool -> venv -> Ir.binding list -> venv * Js.decl list
     = fun ?(toplevel=false) env ->
       (* let open Js in *)
+      let open Ir in
       let gbs env bs = generate_bindings ~toplevel env bs in
       function
-      | `Module _ :: bs -> gbs env bs
-      | `Alien (bnd, raw_name, _lang) :: bs ->
+      | Module _ :: bs -> gbs env bs
+      | Alien (bnd, raw_name, _lang) :: bs ->
          let (a, _a_name) = safe_name_binder bnd in
          let env' = VEnv.bind env (a, raw_name) in
          gbs env' bs
@@ -910,9 +917,10 @@ module GenIter = struct
   and generate_binding : ?toplevel:bool -> venv -> Ir.binding -> venv * Js.decl list
     = fun ?(toplevel=false) env ->
       let open Js in
+      let open Ir in
       (* let gv v = generate_value env v in *)
       function
-      | `Let (b, (_, `Return v)) ->
+      | Let (b, (_, Return v)) ->
          let (x, x_name) = safe_name_binder b in
          VEnv.bind env (x, x_name),
          [DLet {
@@ -927,7 +935,7 @@ module GenIter = struct
       (*      binder = Ident.of_string x_name; *)
       (*      expr = EYield { ykind = `Star; *)
       (*                      yexpr = EApply (gv (strip_poly f), List.map gv args); }; }] *)
-      | `Let (b, (_, tc)) when toplevel = false ->
+      | Let (b, (_, tc)) when toplevel = false ->
          let (x, x_name) = safe_name_binder b in
          VEnv.bind env (x, x_name),
          begin match generate_tail_computation env tc with
@@ -950,7 +958,7 @@ module GenIter = struct
                             body;
                           }, []); }) }]
          end
-      | `Let (b, (_, tc)) ->
+      | Let (b, (_, tc)) ->
          let (x, x_name) = safe_name_binder b in
          let toplevel =
            DLet {
@@ -967,30 +975,31 @@ module GenIter = struct
          in
          VEnv.bind env (x, x_name),
          [toplevel]
-      | `Fun ((fb, _, _zs, _location) as def) ->
+      | Fun ((fb, _, _zs, _location) as def) ->
          let (f, f_name) = safe_name_binder fb in
          VEnv.bind env (f, f_name),
          [generate_function env [] def]
-      | `Rec defs ->
+      | Rec defs ->
          let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) defs in
          let env' = List.fold_left VEnv.bind env fs in
          let defs = List.map (generate_function env fs) defs in
          env', defs
-      | `Module _  | `Alien _ -> assert false
+      | Module _  | Alien _ -> assert false
 
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
     = fun env tc ->
       let open Js in
+      let open Ir in
       let gv v = generate_value env v in
       let gc c = snd (generate_computation env c) in
       match tc with
-      | `Return v ->
+      | Return v ->
          [], SReturn (gv v)
-      | `Apply (f, vs) ->
+      | Apply (f, vs) ->
          let f = strip_poly f in
          begin
            match f with
-           | `Variable f ->
+           | Variable f ->
               let f_name = VEnv.lookup env f in
               begin
                 match vs with
@@ -1002,7 +1011,7 @@ module GenIter = struct
                    [], SReturn (Comparison.gen ~op:f_name ~args:[gv l; gv r] ())
                 | _ ->
                    if Lib.is_primitive f_name
-                     && Lib.primitive_location f_name <> `Server
+                     && Lib.primitive_location f_name <> CommonTypes.Location.Server
                    then
                      match f_name, vs with
                      | "deref", [v] ->
@@ -1031,15 +1040,15 @@ module GenIter = struct
                      (*     expr = EYield { ykind = `Star; yexpr = EApply (gv (`Variable f), List.map gv vs) }; *)
                      (*   } *)
                      (* in *)
-                     [], SReturn (EYield { ykind = `Star; yexpr = EApply (gv (`Variable f), List.map gv vs) })
+                     [], SReturn (EYield { ykind = `Star; yexpr = EApply (gv (Variable f), List.map gv vs) })
                      (* [x_binding], SReturn (EVar x_name) *)
               end
            | _ ->
               [], SReturn (EYield { ykind = `Star; yexpr = EApply (gv f, List.map gv vs) })
          end
-      | `Special special ->
+      | Special special ->
          generate_special env special
-      | `Case (v, cases, default) ->
+      | Case (v, cases, default) ->
          let v = gv v in
          let scrutineeb = Ident.make ~prefix:"_scrutinee" () in
          let bind_scrutinee scrutinee =
@@ -1065,7 +1074,7 @@ module GenIter = struct
            [], SCase (EAccess (EVar scrutineeb, "_label"), cases, default)
          in
          decls @ [bind_scrutinee v], prog
-      | `If (v, c1, c2) ->
+      | If (v, c1, c2) ->
          [], SIf (gv v, gc c1, gc c2)
   and generate_special : venv -> Ir.special -> Js.program
     = fun env sp ->
@@ -1073,8 +1082,8 @@ module GenIter = struct
       let open Js in
       let gv v = generate_value env v in
       match sp with
-      | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
-      | `DoOperation (name, args, _) ->
+      | Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
+      | DoOperation (name, args, _) ->
          let box = function
            | [v] -> gv v
            | vs -> make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
@@ -1084,7 +1093,7 @@ module GenIter = struct
                            ; ("_value", make_dictionary [("p", box args)]) ]
          in
          [], SExpr (EYield { ykind = `Regular; yexpr = op })
-      | `Handle { ih_comp; ih_return; ih_cases; ih_depth } ->
+      | Handle { ih_comp; ih_return; ih_cases; ih_depth } ->
          let open Utility in
          let next iterator arg =
            match arg with
@@ -1269,12 +1278,12 @@ module GenIter = struct
          in
          (* Generate the appropriate handle *)
          begin match ih_depth with
-         | `Deep [] ->
+         | Deep [] ->
             let handle_name, handle_fn = deep_handle iterator_name in
             let init = handle_next (EVar handle_name) (EVar iterator_name) None in
             [iterator_binding; handle_fn], SReturn (EYield { ykind = `Star; yexpr = init })
-         | `Deep _ -> failwith "Parameterised handlers are currently not supported."
-         | `Shallow ->
+         | Deep _ -> failwith "Parameterised handlers are currently not supported."
+         | Shallow ->
             let (bs, stmt) = shallow_handle iterator_name in
             iterator_binding :: bs, stmt
          end
@@ -1284,17 +1293,19 @@ module GenIter = struct
     = fun env ->
       let open Js in
       let open Utility in
+      let open Ir in
       let gv v = generate_value env v in
       function
-      | `Constant c ->
+      | Constant c ->
          ELit (
+           let open CommonTypes.Constant in
            match c with
-           | `Int v  -> LInt v
-           | `Float v  -> LFloat v
-           | `Bool v   -> LBool v
-           | `Char v   -> LChar v
-           | `String v -> LString v)
-      | `Variable var ->
+           | Int v  -> LInt v
+           | Float v  -> LFloat v
+           | Bool v   -> LBool v
+           | Char v   -> LChar v
+           | String v -> LString v)
+      | Variable var ->
        (* HACK *)
          let name = VEnv.lookup env var in
          if Arithmetic.is name then
@@ -1335,7 +1346,7 @@ module GenIter = struct
            | "Nil" -> EPrim "%List.nil"
            |  _ -> EVar name
            end
-      | `Extend (field_map, rest) ->
+      | Extend (field_map, rest) ->
          let dict =
            make_dictionary
              (StringMap.fold
@@ -1349,21 +1360,21 @@ module GenIter = struct
            | Some v ->
               EApply (EPrim "%Record.union", [gv v; dict])
          end
-      | `Project (name, v) ->
+      | Project (name, v) ->
          EAccess (gv v, name)
-      | `Erase (names, v) ->
+      | Erase (names, v) ->
          EApply (EPrim "%Record.erase",
                  [gv v; make_array (List.map strlit (StringSet.elements names))])
-      | `Inject (name, v, _t) ->
+      | Inject (name, v, _t) ->
          make_dictionary [("_label", strlit name); ("_value", gv v)]
     (* erase polymorphism *)
-      | `TAbs (_, v)
-      | `TApp (v, _) -> gv v
-      | `ApplyPure (f, vs) ->
+      | TAbs (_, v)
+      | TApp (v, _) -> gv v
+      | ApplyPure (f, vs) ->
          let f = strip_poly f in
          begin
            match f with
-           | `Variable f ->
+           | Variable f ->
               let f_name = VEnv.lookup env f in
               begin
                 match vs with
@@ -1375,20 +1386,20 @@ module GenIter = struct
                    Comparison.gen ~op:f_name ~args:[gv l; gv r] ()
                 | _ ->
                    if Lib.is_primitive f_name
-                     && Lib.primitive_location f_name <> `Server
+                     && Lib.primitive_location f_name <> CommonTypes.Location.Server
                    then
                      try
                        Functions.gen ~op:f_name ~args:(List.map gv vs) ()
                      with Not_found -> failwith (Printf.sprintf "Unsupported primitive (val): %s.\n" f_name)
                    else
-                     EApply (gv (`Variable f), (List.map gv vs))
+                     EApply (gv (Variable f), (List.map gv vs))
               end
            | _ ->
               EApply (gv f, List.map gv vs)
          end
-      | `Closure (f, v) ->
-         EApply (EPrim "%Closure.apply", [gv (`Variable f); gv v]) (* The closure needs to be generator? *)
-      | `Coerce (v, _) ->
+      | Closure (f, _, v) ->
+         EApply (EPrim "%Closure.apply", [gv (Variable f); gv v]) (* The closure needs to be generator? *)
+      | Coerce (v, _) ->
          gv v
       | _ -> failwith "Unsupported value."
 
@@ -1408,8 +1419,9 @@ module GenIter = struct
       let _xs, xs_names = List.split bs in
       let body_env = List.fold_left VEnv.bind env (fs @ bs) in
       let body =
+        let open CommonTypes.Location in
         match location with
-        | `Client | `Unknown ->
+        | Client | Unknown ->
            snd (generate_computation body_env body)
         | _ -> failwith "Only client side calls are supported."
       in
@@ -1435,7 +1447,7 @@ module GenIter = struct
     = fun u ->
       let open Js in
       let (_nenv, venv, tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
-      let prog = Ir.EtaTailDos.program tenv u.program in
+      let prog = IrTraversals.EtaTailDos.program tenv u.program in
       let (_,prog) = generate_program venv prog in
       let prog =
         match prog with
@@ -1510,20 +1522,21 @@ module TrampolinedGenIter = struct
   and generate_bindings : ?toplevel:bool -> venv -> Ir.binding list -> venv * Js.decl list
     = fun ?(toplevel=false) env ->
       let open Js in
+      let open Ir in
       let gv v = generate_value env v in
       let gbs env bs = generate_bindings ~toplevel env bs in
       function
-      | `Module _ :: bs -> gbs env bs
-      | `Alien (bnd, raw_name, _lang) :: bs ->
+      | Module _ :: bs -> gbs env bs
+      | Alien (bnd, raw_name, _lang) :: bs ->
          let (a, _a_name) = safe_name_binder bnd in
          let env' = VEnv.bind env (a, raw_name) in
          gbs env' bs
-      | `Let (b, (_, tc)) :: bs ->
+      | Let (b, (_, tc)) :: bs ->
          let b = safe_name_binder b in
          let env', decls = gbs (VEnv.bind env b) bs in
          let expr =
            match tc with
-           | `Return v -> gv v
+           | Return v -> gv v
            | tc ->
               let body = generate_tail_computation env tc in
               let f =
@@ -1544,13 +1557,13 @@ module TrampolinedGenIter = struct
                expr }
          in
          env', decl :: decls
-      | `Fun ((fb, _, _zs, _location) as def) :: bs->
+      | Fun ((fb, _, _zs, _location) as def) :: bs->
          let (f, f_name) = safe_name_binder fb in
          let env' = VEnv.bind env (f, f_name) in
          let decl = generate_function env [] def in
          let env'', decls = gbs env' bs in
          env'', decl :: decls
-      | `Rec defs :: bs->
+      | Rec defs :: bs->
          let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) defs in
          let env' = List.fold_left VEnv.bind env fs in
          let defs = List.map (generate_function env fs) defs in
@@ -1561,16 +1574,17 @@ module TrampolinedGenIter = struct
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
     = fun env tc ->
       let open Js in
+      let open Ir in
       let gv v = generate_value env v in
       let gc c = snd (generate_computation env c) in
       match tc with
-      | `Return v ->
+      | Return v ->
          [], SReturn (gv v)
-      | `Apply (f, vs) ->
+      | Apply (f, vs) ->
          let f = strip_poly f in
          begin
            match f with
-           | `Variable f ->
+           | Variable f ->
               let f_name = VEnv.lookup env f in
               begin
                 match vs with
@@ -1582,7 +1596,7 @@ module TrampolinedGenIter = struct
                    [], SReturn (Comparison.gen ~op:f_name ~args:[gv l; gv r] ())
                 | _ ->
                    if Lib.is_primitive f_name
-                     && Lib.primitive_location f_name <> `Server
+                     && Lib.primitive_location f_name <> CommonTypes.Location.Server
                    then
                      match f_name, vs with
                      | "deref", [v] ->
@@ -1611,15 +1625,15 @@ module TrampolinedGenIter = struct
                      (*     expr = EYield { ykind = `Star; yexpr = EApply (gv (`Variable f), List.map gv vs) }; *)
                      (*   } *)
                      (* in *)
-                     [], SReturn (yield (EApply (gv (`Variable f), List.map gv vs)))
+                     [], SReturn (yield (EApply (gv (Variable f), List.map gv vs)))
                      (* [x_binding], SReturn (EVar x_name) *)
               end
            | _ ->
               [], SReturn (yield (EApply (gv f, List.map gv vs)))
          end
-      | `Special special ->
+      | Special special ->
          generate_special env special
-      | `Case (v, cases, default) ->
+      | Case (v, cases, default) ->
          let v = gv v in
          let scrutineeb = Ident.make ~prefix:"_scrutinee" () in
          let bind_scrutinee scrutinee =
@@ -1645,7 +1659,7 @@ module TrampolinedGenIter = struct
            [], SCase (EAccess (EVar scrutineeb, "_label"), cases, default)
          in
          decls @ [bind_scrutinee v], prog
-      | `If (v, c1, c2) ->
+      | If (v, c1, c2) ->
          [], SIf (gv v, gc c1, gc c2)
   and generate_special : venv -> Ir.special -> Js.program
     = fun env sp ->
@@ -1653,16 +1667,16 @@ module TrampolinedGenIter = struct
       let open Js in
       let gv v = generate_value env v in
       match sp with
-      | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
-      | `DoOperation (name, args, _) ->
+      | Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
+      | DoOperation (name, args, _) ->
          let box = function
            | [v] -> gv v
            | vs -> make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
          in
          [], SReturn (yield (Inst.trap (strlit name) (box args)))
-      | `Handle { ih_comp = m; ih_return = return; ih_cases = cases; ih_depth = depth } ->
+      | Handle { ih_comp = m; ih_return = return; ih_cases = cases; ih_depth = depth } ->
          let open Utility in
-         if depth = `Shallow then failwith "Compilation of shallow handlers is currently not supported.";
+         if depth = Shallow then failwith "Compilation of shallow handlers is currently not supported.";
          let f =
            EFun {
                fname = `Anonymous;
@@ -1743,17 +1757,19 @@ module TrampolinedGenIter = struct
     = fun env ->
       let open Js in
       let open Utility in
+      let open Ir in
       let gv v = generate_value env v in
       function
-      | `Constant c ->
+      | Constant c ->
          ELit (
+           let open CommonTypes.Constant in
            match c with
-           | `Int v  -> LInt v
-           | `Float v  -> LFloat v
-           | `Bool v   -> LBool v
-           | `Char v   -> LChar v
-           | `String v -> LString v)
-      | `Variable var ->
+           | Int v  -> LInt v
+           | Float v  -> LFloat v
+           | Bool v   -> LBool v
+           | Char v   -> LChar v
+           | String v -> LString v)
+      | Variable var ->
        (* HACK *)
          let name = VEnv.lookup env var in
          if Arithmetic.is name then
@@ -1794,7 +1810,7 @@ module TrampolinedGenIter = struct
            | "Nil" -> EPrim "%List.nil"
            |  _ -> EVar name
            end
-      | `Extend (field_map, rest) ->
+      | Extend (field_map, rest) ->
          let dict =
            make_dictionary
              (StringMap.fold
@@ -1808,21 +1824,21 @@ module TrampolinedGenIter = struct
            | Some v ->
               EApply (EPrim "%Record.union", [gv v; dict])
          end
-      | `Project (name, v) ->
+      | Project (name, v) ->
          EAccess (gv v, name)
-      | `Erase (names, v) ->
+      | Erase (names, v) ->
          EApply (EPrim "%Record.erase",
                  [gv v; make_array (List.map strlit (StringSet.elements names))])
-      | `Inject (name, v, _t) ->
+      | Inject (name, v, _t) ->
          make_dictionary [("_label", strlit name); ("_value", gv v)]
     (* erase polymorphism *)
-      | `TAbs (_, v)
-      | `TApp (v, _) -> gv v
-      | `ApplyPure (f, vs) ->
+      | TAbs (_, v)
+      | TApp (v, _) -> gv v
+      | ApplyPure (f, vs) ->
          let f = strip_poly f in
          begin
            match f with
-           | `Variable f ->
+           | Variable f ->
               let f_name = VEnv.lookup env f in
               begin
                 match vs with
@@ -1834,20 +1850,20 @@ module TrampolinedGenIter = struct
                    Comparison.gen ~op:f_name ~args:[gv l; gv r] ()
                 | _ ->
                    if Lib.is_primitive f_name
-                     && Lib.primitive_location f_name <> `Server
+                     && Lib.primitive_location f_name <> CommonTypes.Location.Server
                    then
                      try
                        Functions.gen ~op:f_name ~args:(List.map gv vs) ()
                      with Not_found -> failwith (Printf.sprintf "Unsupported primitive (val): %s.\n" f_name)
                    else
-                     EApply (gv (`Variable f), (List.map gv vs))
+                     EApply (gv (Variable f), (List.map gv vs))
               end
            | _ ->
               EApply (gv f, List.map gv vs)
          end
-      | `Closure (f, v) ->
-         EApply (EPrim "%Closure.apply", [gv (`Variable f); gv v]) (* The closure needs to be generator? *)
-      | `Coerce (v, _) ->
+      | Closure (f, _, v) ->
+         EApply (EPrim "%Closure.apply", [gv (Variable f); gv v]) (* The closure needs to be generator? *)
+      | Coerce (v, _) ->
          gv v
       | _ -> failwith "Unsupported value."
 
@@ -1867,8 +1883,9 @@ module TrampolinedGenIter = struct
       let _xs, xs_names = List.split bs in
       let body_env = List.fold_left VEnv.bind env (fs @ bs) in
       let body =
+        let open CommonTypes.Location in
         match location with
-        | `Client | `Unknown ->
+        | Client | Unknown ->
            snd (generate_computation body_env body)
         | _ -> failwith "Only client side calls are supported."
       in
@@ -1894,7 +1911,7 @@ module TrampolinedGenIter = struct
     = fun u ->
       let open Js in
       let (_nenv, venv, tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
-      let prog = Ir.EtaTailDos.program tenv u.program in
+      let prog = IrTraversals.EtaTailDos.program tenv u.program in
       let (_,prog) = generate_program venv prog in
       let prog =
         match prog with
@@ -1984,12 +2001,13 @@ module CEK = struct
       = fun label args ->
         ir "doOperation" [ELit (LString label); args]
 
-    let constant : Constant.constant -> expr = function
-      | `Int n    -> ir "constant" [ELit (LInt n)]
-      | `Float f  -> ir "constant" [ELit (LFloat f)]
-      | `Char c   -> ir "constant" [ELit (LChar c)]
-      | `Bool b   -> ir "constant" [ELit (LBool b)]
-      | `String s -> ir "constant" [ELit (LString s)]
+    let constant : CommonTypes.Constant.t -> expr =
+      let open CommonTypes.Constant in function
+      | Int n    -> ir "constant" [ELit (LInt n)]
+      | Float f  -> ir "constant" [ELit (LFloat f)]
+      | Char c   -> ir "constant" [ELit (LChar c)]
+      | Bool b   -> ir "constant" [ELit (LBool b)]
+      | String s -> ir "constant" [ELit (LString s)]
 
     let return : expr -> expr
       = fun expr ->
@@ -2072,6 +2090,7 @@ module CEK = struct
   and generate_toplevel_bindings : venv -> Ir.binding list -> venv * Js.expression list * (Js.label * Js.expression) list * Js.decl list
     = fun env bs ->
       let open Js in
+      let open Ir in
       let fun_decl f_name f =
         DLet {
           bkind = `Const;
@@ -2081,8 +2100,8 @@ module CEK = struct
       in
       let rec gbs env bindings fenv decls = function
         | [] -> env, List.rev bindings, fenv, List.rev decls
-        | `Module _ :: bs -> gbs env bindings fenv decls bs
-        | `Fun ((b,_,_,_) as fundef) :: bs ->
+        | Module _ :: bs -> gbs env bindings fenv decls bs
+        | Fun ((b,_,_,_) as fundef) :: bs ->
            let (fb, f_name) = safe_name_binder b in
            let f = generate_function env [] fundef in
            let decl =
@@ -2094,7 +2113,7 @@ module CEK = struct
            in
            let env' = VEnv.bind env (fb, f_name) in
            gbs env' bindings ((f_name, EVar f_name) :: fenv) (decl :: decls) bs
-        | `Rec funs :: bs ->
+        | Rec funs :: bs ->
          let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) funs in
          let env' = List.fold_left VEnv.bind env fs in
          let fenv', decls' =
@@ -2120,11 +2139,12 @@ module CEK = struct
 
   and generate_bindings : venv -> Ir.binding list -> venv * Js.expression list
     = fun env ->
-      (* let open Js in *)
+    (* let open Js in *)
+      let open Ir in
       let gbs env bs = generate_bindings env bs in
       function
-      | `Module _ :: bs -> gbs env bs
-      | `Fun _ :: bs | `Rec _ :: bs -> gbs env bs (* assumed closure converted *)
+      | Module _ :: bs -> gbs env bs
+      | Fun _ :: bs | Rec _ :: bs -> gbs env bs (* assumed closure converted *)
       | b :: bs ->
          let env', expr = generate_binding env b in
          let (env'', expr') = gbs env' bs in
@@ -2133,12 +2153,12 @@ module CEK = struct
 
   and generate_binding : venv -> Ir.binding -> venv * Js.expression
     = fun env ->
-    function
-    | `Let (b, (_, tc)) ->
+    let open Ir in function
+    | Let (b, (_, tc)) ->
        let (b', bname) = safe_name_binder b in
        let env' = VEnv.bind env (b', bname) in
        env', Make.binding bname (generate_tail_computation env tc)
-    | `Alien (bnd, raw_name, _lang) ->
+    | Alien (bnd, raw_name, _lang) ->
        let (a, a_name) = safe_name_binder bnd in
        let env' = VEnv.bind env (a, a_name) in
        env', Make.binding a_name (Make.return (Make.alien raw_name))
@@ -2218,16 +2238,17 @@ module CEK = struct
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.expression
     = fun env tc ->
       let open Js in
+      let open Ir in
       let gv v = generate_value env v in
       let gc c = snd (generate_computation env c) in
       match tc with
-      | `Return v ->
+      | Return v ->
          Make.return (gv v)
-      | `Apply (f, vs) ->
+      | Apply (f, vs) ->
          let f = strip_poly f in
          begin
            match f with
-           | `Variable f ->
+           | Variable f ->
               let f_name = VEnv.lookup env f in
               let f =
                 if Arithmetic.is f_name then
@@ -2240,7 +2261,7 @@ module CEK = struct
                   Make.variable (Functions.prim_name ~op:f_name ())
                 else
                   if Lib.is_primitive f_name
-                    && Lib.primitive_location f_name <> `Server
+                    && Lib.primitive_location f_name <> CommonTypes.Location.Server
                   then
                     match f_name with
                     | "deref" -> Make.variable "%Reference.deref"
@@ -2254,9 +2275,9 @@ module CEK = struct
            | _ ->
               Make.apply (gv f) (List.map gv vs)
          end
-      | `Special special ->
+      | Special special ->
          generate_special env special
-      | `Case (v, cases, default) ->
+      | Case (v, cases, default) ->
          let open Utility in
          let case (b, body) =
            let (b', bname) = safe_name_binder b in
@@ -2268,7 +2289,7 @@ module CEK = struct
            label, case (b, body)
          in
          Make.casesplit (gv v) (List.map case' cases) (opt_map case default)
-      | `If (v, c1, c2) ->
+      | If (v, c1, c2) ->
          Make.ifthenelse (gv v) (gc c1) (gc c2)
   and generate_special : venv -> Ir.special -> Js.expression
     = fun env sp ->
@@ -2276,15 +2297,15 @@ module CEK = struct
       let open Js in
       let gv v = generate_value env v in
       match sp with
-      | `Wrong _ ->
+      | Wrong _ ->
          Make.apply (EVar "%error") [ELit (LString "Internal Error: Pattern matching failed")]
-      | `DoOperation (name, args, _) ->
+      | DoOperation (name, args, _) ->
          let box = function
            | [v] -> gv v
            | vs -> Make.extend (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs) None
          in
          Make.do_operation name (box args)
-      | `Handle { ih_comp; ih_return; ih_cases; ih_depth } ->
+      | Handle { ih_comp; ih_return; ih_cases; ih_depth } ->
          let open Utility in
          let _, m = generate_computation env ih_comp in
          let (return, operations) = (ih_return, ih_cases) in
@@ -2308,7 +2329,7 @@ module CEK = struct
          in
          let env, depth =
            match ih_depth with
-           | `Deep params ->
+           | Deep params ->
               let env, params =
                 List.fold_right
                   (fun (b,v) (env, params) ->
@@ -2319,18 +2340,19 @@ module CEK = struct
                   params (env, [])
               in
               env, `Deep params
-           | `Shallow -> env, `Shallow
+           | Shallow -> env, `Shallow
          in
          Make.handle m (return_case env return) (EObj (List.map (op_case' env) operations)) depth
       | _ -> failwith "Unsupported special."
 
   and generate_value : venv -> Ir.value -> Js.expression
     = fun env ->
+      let open Ir in
       let gv v = generate_value env v in
       function
-      | `Constant c ->
+      | Constant c ->
          Make.constant c
-      | `Variable var ->
+      | Variable var ->
        (* HACK *)
          let name = VEnv.lookup env var in
          if Arithmetic.is name then
@@ -2346,7 +2368,7 @@ module CEK = struct
            | "Nil" -> Make.variable "%List.nil"
            |  _ -> Make.variable name
            end
-      | `Extend (field_map, rest) ->
+      | Extend (field_map, rest) ->
          let open Utility in
          let fields =
            List.map
@@ -2354,21 +2376,21 @@ module CEK = struct
              (StringMap.to_alist field_map)
          in
          Make.extend fields (opt_map gv rest)
-      | `Project (name, v) ->
+      | Project (name, v) ->
          Make.project (gv v) name
-      | `Erase (_names, _v) ->
+      | Erase (_names, _v) ->
          failwith "Record erasure is unsupported."
-      | `Inject (name, v, _t) ->
+      | Inject (name, v, _t) ->
          Make.inject name (gv v)
     (* erase polymorphism *)
-      | `TAbs (_, v)
-        | `TApp (v, _) -> gv v
-      | `ApplyPure (f, vs) ->
-         generate_tail_computation env (`Apply (f, vs))
-      | `Closure (f, v) ->
+      | TAbs (_, v)
+      | TApp (v, _) -> gv v
+      | ApplyPure (f, vs) ->
+         generate_tail_computation env (Apply (f, vs))
+      | Closure (f, _, v) ->
          let f_name = VEnv.lookup env f in
          Make.closure f_name (gv v)
-      | `Coerce (v, _) ->
+      | Coerce (v, _) ->
          gv v
       | _ -> failwith "Unsupported value."
 
@@ -2388,8 +2410,9 @@ module CEK = struct
         List.fold_left VEnv.bind env (fs @ bs)
       in
       let body =
+        let open CommonTypes.Location in
         match location with
-        | `Client | `Unknown ->
+        | Client | Unknown ->
            snd (generate_computation body_env body)
         | _ -> failwith "Only client side calls are supported."
       in
@@ -2428,15 +2451,16 @@ module StackInspection = struct
       after: liveset
     }
   and liveness_map = continuation_point IntMap.t
-                       deriving (Show)
+                       [@@deriving show]
 
   module ProcedureFragmentation = struct
     open Utility
+    open Ir
 
     let liveness tyenv prog =
       let analysis tyenv =
         object (o)
-          inherit Ir.Iter.visitor(tyenv) as super
+          inherit IrTraversals.Iter.visitor(tyenv) as super
 
           val liveness_map = IntMap.empty  (* binder |-> before and after live sets *)
           val liveset = IntSet.empty       (* current live set being built *)
@@ -2463,7 +2487,7 @@ module StackInspection = struct
           (*   o#list (fun o -> o#binding) (List.rev bs) *)
 
           method! binding = function
-          | `Let (b, (_, tc)) ->
+          | Let (b, (_, tc)) ->
              let after = o#get_liveset in
              let o = (o#with_liveset IntSet.empty)#tail_computation tc in (* computes use *)
              let use = o#get_liveset in
@@ -2471,14 +2495,14 @@ module StackInspection = struct
                IntSet.(remove (Var.var_of_binder b) (union_all [use; after]))
              in
              (o#with_liveset before)#register b before after
-          | `Fun (fb, (_, params, body), z, _) ->
+          | Fun (fb, (_, params, body), z, _) ->
              let o = (o#with_liveset IntSet.empty)#computation body in
              let after = IntSet.remove (Var.var_of_binder fb) o#get_liveset in
              let o = o#list (fun o -> o#kill) params in
              let o = o#option (fun o -> o#kill) z in
              let before = o#get_liveset in
              o#register fb before after
-          | `Rec fundefs ->
+          | Rec fundefs ->
              o#list
                (fun o (fb, (_, params, body), z, _loc) ->
                  let o = (o#with_liveset IntSet.empty)#computation body in
@@ -2496,15 +2520,15 @@ module StackInspection = struct
             o#use var
 
           method! tail_computation = function
-          | `If (cond, tt, ff) ->
+          | If (cond, tt, ff) ->
              let o = o#computation tt in
              let after_tt = o#get_liveset in
              let o = o#computation ff in
              let after_ff = o#get_liveset in
              let before_if = IntSet.union_all [after_tt; after_ff] in
-             Printf.eprintf "Liveset before if:%s\n%!" (Show_liveset.show before_if);
+             Printf.eprintf "Liveset before if:%s\n%!" (show_liveset before_if);
              (o#with_liveset before_if)#value cond
-          | `Case (scrutinee, cases, default) ->
+          | Case (scrutinee, cases, default) ->
              let lss, o =
                StringMap.fold
                  (fun _ (xb, comp) (lss, o) ->
@@ -2529,7 +2553,7 @@ module StackInspection = struct
           | e -> super#tail_computation e
 
           method! special = function
-            | `Handle { Ir.ih_comp = m; Ir.ih_return = return; Ir.ih_cases = cases; Ir.ih_depth = depth } ->
+            | Handle { Ir.ih_comp = m; Ir.ih_return = return; Ir.ih_cases = cases; Ir.ih_depth = depth } ->
              let lss, o =
                StringMap.fold
                  (fun _ (xb, rb, comp) (lss, o) ->
@@ -2558,8 +2582,8 @@ module StackInspection = struct
                o, o#get_liveset
              in
              begin match depth with
-             | `Shallow -> o
-             | `Deep params ->
+             | Shallow -> o
+             | Deep params ->
                 let (_lss, o) =
                   List.fold_left
                     (fun (lss, o) (b, v) ->
@@ -2787,7 +2811,7 @@ module StackInspection = struct
       let frame_counter = ref 0 in
       let opt_fragmentise =
         object(o : 'self_type)
-          inherit Ir.Transform.visitor(tyenv)
+          inherit IrTraversals.Transform.visitor(tyenv)
 
           (* Frame binder generation *)
           val basename = "unknown"
@@ -2826,10 +2850,10 @@ module StackInspection = struct
 
           method make_arguments pred (vars : Ir.var list) : Ir.value list =
             match pred with
-            | None -> List.map (fun v -> `Variable v) vars
+            | None -> List.map (fun v -> Variable v) vars
             | Some v' ->
                let vars = List.filter (fun v -> v <> v') vars in
-               (`Variable v') :: List.map (fun v -> `Variable v) vars
+               (Variable v') :: List.map (fun v -> Variable v) vars
 
           (* Keep track of which binders are frame binders *)
           val frame_binders = IntSet.empty
@@ -2880,11 +2904,11 @@ module StackInspection = struct
                first argument of the continuation frame. *)
             let rec generate_frames (o : 'self_type) (pred : Ir.var option) : Ir.binding list -> (Ir.fun_def list * Ir.binding list * 'self_type) = function
               | [] -> [], [], o
-              | [`Let (b, (tyvars, tc))] ->
+              | [Let (b, (tyvars, tc))] ->
                  let var = Var.var_of_binder b in
                  let liveset = IntMap.find var liveness_map in
                  let fb = o#fresh_frame_binder ~var () in
-                 Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset);
+                 Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (show_continuation_point liveset);
                  let o = o#add_frame_binder fb in
                  let (fb, o) = o#binder fb in
                  let fb' = o#fresh_frame_binder () in
@@ -2897,16 +2921,16 @@ module StackInspection = struct
                    let (tc, _, o) = (o#with_liveset liveset.after)#tail_computation cont in
                    let liveset' =
                      match tc with
-                     (* | `Apply (`Variable f, _) -> Printf.eprintf "appl: %d\n%!" f; IntMap.find f liveness_map *)
+                     (* | Apply (Variable f, _) -> Printf.eprintf "appl: %d\n%!" f; IntMap.find f liveness_map *)
                      | _ -> liveset
                    in
                    let o = o#restore st in
                    let frame =
                      let xsb = o#make_parameters (Some var) (IntSet.to_list liveset'.after) in
-                     (fb', ([], xsb, ([], tc)), None, `Unknown)
+                     (fb', ([], xsb, ([], tc)), None, CommonTypes.Location.Unknown)
                    in
                    let cont =
-                     `Apply (`Variable (Var.var_of_binder fb'),
+                     Apply (Variable (Var.var_of_binder fb'),
                              o#make_arguments (Some var) (IntSet.to_list liveset'.after))
                    in
                    frame, o#push_cont cont
@@ -2923,22 +2947,22 @@ module StackInspection = struct
                        let (tc, _, o) = o#tail_computation cont in
                        tc, o
                      in
-                     ([`Let (b, (tyvars, tc))], cont), o
+                     ([Let (b, (tyvars, tc))], cont), o
                    in
                    let xsb = o#make_parameters pred (IntSet.to_list liveset.before) in
-                   (fb, ([], xsb, body), None, `Unknown), o
+                   (fb, ([], xsb, body), None, CommonTypes.Location.Unknown), o
                  in
                  let cont =
-                   `Apply (`Variable (Var.var_of_binder fb),
+                   Apply (Variable (Var.var_of_binder fb),
                            o#make_arguments pred (IntSet.to_list liveset.before))
                  in
                  let o = o#push_cont cont in
                  ([answer_frame; final_frame], [], o)
-              | `Let (b, (tyvars, tc)) :: bs ->
+              | Let (b, (tyvars, tc)) :: bs ->
                  let var = Var.var_of_binder b in
                  let liveset = IntMap.find var liveness_map in
                  let fb = o#fresh_frame_binder ~var () in
-                 Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (Show_continuation_point.show liveset);
+                 Printf.eprintf "Liveset at %d,%s: %s\n%!" var (Var.name_of_binder fb) (show_continuation_point liveset);
                  let o = o#add_frame_binder fb in
                  let (fb, o) = o#binder fb in
                  let (answer_frames, other, o) =
@@ -2963,18 +2987,18 @@ module StackInspection = struct
                        (* in *)
                        tc, o
                      in
-                     ([`Let (b, (tyvars, tc))], cont), o
+                     ([Let (b, (tyvars, tc))], cont), o
                    in
                    let xsb = o#make_parameters pred (IntSet.to_list liveset.before) in
-                   (fb, ([], xsb, body), None, `Unknown), o
+                   (fb, ([], xsb, body), None, CommonTypes.Location.Unknown), o
                  in
                  let cont =
-                   `Apply (`Variable (Var.var_of_binder fb),
+                   Apply (Variable (Var.var_of_binder fb),
                            o#make_arguments pred (IntSet.to_list liveset.before))
                  in
                  let o = o#push_cont cont in
                  (answer_frame :: answer_frames, other, o)
-              (* | `Fun (fb, (tyvars, xsb, body), z, loc) :: bs -> *)
+              (* | Fun (fb, (tyvars, xsb, body), z, loc) :: bs -> *)
               (*    let liveset = IntMap.find (Var.var_of_binder fb) liveness_map in *)
               (*    let st = o#backup in *)
               (*    let o = o#reset in *)
@@ -2999,11 +3023,11 @@ module StackInspection = struct
               (*      in *)
               (*      let (fb, o) = o#binder fb in *)
               (*      let xsb' = o#make_parameters None (IntSet.to_list liveset.before) in *)
-              (*      `Fun (fb, (tyvars, xsb' @ xsb, body), z, loc), o *)
+              (*      Fun (fb, (tyvars, xsb' @ xsb, body), z, loc), o *)
               (*    in *)
               (*    let (answer_frames, other, o) = generate_frames (o#restore st) None bs in *)
               (*    (answer_frames, f :: other, o) *)
-              (* | `Rec defs :: bs -> *)
+              (* | Rec defs :: bs -> *)
               (*    let st = o#backup in *)
               (*    let o  = List.fold_left (fun o -> o#fun_binder) o defs in *)
               (*    let (defs, o) = *)
@@ -3035,15 +3059,15 @@ module StackInspection = struct
               (*        ([], o) defs *)
               (*    in *)
               (*    let (answer_frames, other, o) = generate_frames (o#restore st) None bs in *)
-              (*    (answer_frames, (`Rec (List.rev defs)) :: other, o) *)
-              | `Fun _ :: _ | `Rec _ :: _ -> assert false
+              (*    (answer_frames, (Rec (List.rev defs)) :: other, o) *)
+              | Fun _ :: _ | Rec _ :: _ -> assert false
               | b :: bs ->
                  let (answer_frames, other, o) = generate_frames o None bs in
                  (answer_frames, b :: other, o)
             in
             let splice other = function
               | [] -> other
-              | defs -> other @ [`Rec defs]
+              | defs -> other @ [Rec defs]
             in
             let st = o#backup in
             let o = o#push_cont tc in
@@ -3054,14 +3078,14 @@ module StackInspection = struct
 
           method! program (bs, tc) =
             let rec gbs o = function
-              | `Let (b, (tyvars, tc)) :: bs ->
+              | Let (b, (tyvars, tc)) :: bs ->
                  let envs = o#backup in
                  let (tc, _, o) = o#tail_computation tc in
                  let (b, o) = o#binder b in
                  let (bs, o) = gbs o bs in
                  let o = o#restore envs in
-                 `Let (b, (tyvars, tc)) :: bs, o
-              | `Fun (fb, (tyvars, xsb, body), z, loc) :: bs ->
+                 Let (b, (tyvars, tc)) :: bs, o
+              | Fun (fb, (tyvars, xsb, body), z, loc) :: bs ->
                  (* let liveset = IntMap.find (Var.var_of_binder fb) liveness_map in *)
                  let st = o#backup in
                  let o = o#reset in
@@ -3085,11 +3109,11 @@ module StackInspection = struct
                      (o#with_basename (Var.name_of_binder fb))#computation body
                    in
                    let (fb, o) = o#binder fb in
-                   `Fun (fb, (tyvars, xsb, body), z, loc), o
+                   Fun (fb, (tyvars, xsb, body), z, loc), o
                  in
                  let (bs, o) = gbs (o#restore st) bs in
                  (f :: bs, o)
-              | `Rec defs :: bs ->
+              | Rec defs :: bs ->
                  let st = o#backup in
                  let o  = List.fold_left (fun o -> o#fun_binder) o defs in
                  let (defs, o) =
@@ -3121,12 +3145,12 @@ module StackInspection = struct
                      ([], o) defs
                  in
                  let (bs, o) = gbs (o#restore st) bs in
-                 ((`Rec (List.rev defs)) :: bs, o)
-              | `Alien (b,name,lang) :: bs ->
+                 ((Rec (List.rev defs)) :: bs, o)
+              | Alien (b,name,lang) :: bs ->
                  let (b, o) = o#binder b in
                  let (bs, o) = gbs o bs in
-                 (`Alien (b, name, lang) :: bs, o)
-              | `Module _ :: _ -> assert false
+                 (Alien (b, name, lang) :: bs, o)
+              | Module _ :: _ -> assert false
               | [] -> [], o
             in
             let (bs, o) = gbs o bs in
@@ -3179,7 +3203,7 @@ module StackInspection = struct
     let open Js in
     let incr = SAssign ("_callcount", EApply (EPrim "%int_add", [EVar "_callcount"; ELit (LInt 1)])) in
     let reset = SAssign ("_callcount", ELit (LInt 0)) in
-    let callcc =
+    let _callcc =
       let identity =
         EFun {
           fkind = `Regular;
@@ -3206,6 +3230,7 @@ module StackInspection = struct
   let rec generate_program : venv -> Ir.program -> venv * Js.program
     = fun env (bs,tc) ->
       let open Js in
+      let open Ir in
       let toplevel body =
         EApply
           (EVar (Ident.of_string "Continuation.establishInitialContinuation"),
@@ -3216,16 +3241,16 @@ module StackInspection = struct
              formal_params = [] }])
       in
       let rec gbs env = function
-        | `Module _ :: bs -> gbs env bs
-        | `Alien (bnd, raw_name, _lang) :: bs ->
+        | Module _ :: bs -> gbs env bs
+        | Alien (bnd, raw_name, _lang) :: bs ->
            let (a, _a_name) = safe_name_binder bnd in
            let env' = VEnv.bind env (a, raw_name) in
            gbs env' bs
-        | `Let (b, (_, tc)) :: bs ->
+        | Let (b, (_, tc)) :: bs ->
            let b' = safe_name_binder b in
            let expr =
              match tc with
-             | `Return v ->
+             | Return v ->
                 generate_value env v
              | _ ->
                 toplevel (generate_tail_computation env tc)
@@ -3239,12 +3264,12 @@ module StackInspection = struct
            in
            let (env, decls) = gbs (VEnv.bind env b') bs in
            (env, decl :: decls)
-        | `Fun (fb, xs, z, loc) :: bs ->
+        | Fun (fb, xs, z, loc) :: bs ->
            let fbinding = generate_function env [] (fb, xs, z, loc) in
            let fb = safe_name_binder fb in
            let env', bindings = gbs (VEnv.bind env fb) bs in
            env', (fbinding :: bindings)
-        | `Rec fundefs :: bs ->
+        | Rec fundefs :: bs ->
            let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) fundefs in
            let defs = List.map (generate_function env fs) fundefs in
            let env' = List.fold_left VEnv.bind env fs in
@@ -3342,13 +3367,14 @@ module StackInspection = struct
       env, (bs @ bs', stmt)
 
   and generate_bindings env bs =
+    let open Ir in
     let rec gbs env = function
-      | `Module _ :: bs -> gbs env bs
-      | `Alien (bnd, raw_name, _lang) :: bs ->
+      | Module _ :: bs -> gbs env bs
+      | Alien (bnd, raw_name, _lang) :: bs ->
          let (a, _a_name) = safe_name_binder bnd in
          let env' = VEnv.bind env (a, raw_name) in
          gbs env' bs
-      | `Let (_b, (_, _tc)) :: _bs -> assert false
+      | Let (_b, (_, _tc)) :: _bs -> assert false
     (*  (\* Printf.printf "Var: %d\n%!" (Var.var_of_binder b); *\) *)
     (* (\* Printf.printf "Env: %s\n%!" (Show_venv.show env); *\) *)
     (* let b' = safe_name_binder b in *)
@@ -3370,12 +3396,12 @@ module StackInspection = struct
     (*      env', (bindings' @ bindings, stmt') *)
     (* in *)
     (* env'', (bindings', stmt') *)
-      | `Fun (fb, xs, z, loc) :: bs ->
+      | Fun (fb, xs, z, loc) :: bs ->
          let fbinding = generate_function env [] (fb, xs, z, loc) in
          let fb = safe_name_binder fb in
          let env', bindings = gbs (VEnv.bind env fb) bs in
          env', (fbinding :: bindings)
-      | `Rec fundefs :: bs ->
+      | Rec fundefs :: bs ->
          let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) fundefs in
          let defs = List.map (generate_function env fs) fundefs in
          let env' = List.fold_left VEnv.bind env fs in
@@ -3388,17 +3414,18 @@ module StackInspection = struct
   and generate_tail_computation : venv -> Ir.tail_computation -> Js.program
     = fun env tc ->
       let open Js in
+      let open Ir in
       (* Printf.eprintf "tc: %s\n%!" (Ir.Show_tail_computation.show tc); *)
       let gv v = generate_value env v in
       let gc c = snd (generate_computation env c) in
       match tc with
-      | `Return v ->
+      | Return v ->
          [], SReturn (gv v)
-      | `Apply (f, vs) ->
+      | Apply (f, vs) ->
          let f = strip_poly f in
          begin
            match f with
-           | `Variable f ->
+           | Variable f ->
               let f_name = VEnv.lookup env f in
               begin
                 match vs with
@@ -3410,7 +3437,7 @@ module StackInspection = struct
                    [], SReturn (Comparison.gen ~op:f_name ~args:[gv l; gv r] ())
                 | _ ->
                    if Lib.is_primitive f_name
-                     && Lib.primitive_location f_name <> `Server
+                     && Lib.primitive_location f_name <> CommonTypes.Location.Server
                    then
                      match f_name, vs with
                      | "deref", [v] ->
@@ -3433,14 +3460,14 @@ module StackInspection = struct
                         in
                         [], SReturn expr
                    else
-                     [], SReturn (EApply (gv (`Variable f), List.map gv vs))
+                     [], SReturn (EApply (gv (Variable f), List.map gv vs))
               end
            | _ ->
               [], SReturn (EApply (gv f, List.map gv vs))
          end
-      | `Special special ->
+      | Special special ->
          generate_special env special
-      | `Case (v, cases, default) ->
+      | Case (v, cases, default) ->
          let v = gv v in
          let scrutineeb = Ident.make ~prefix:"_scrutinee" () in
          let bind_scrutinee scrutinee =
@@ -3466,15 +3493,16 @@ module StackInspection = struct
            [], SCase (EAccess (EVar scrutineeb, "_label"), cases, default)
          in
          decls @ [bind_scrutinee v], prog
-      | `If (v, c1, c2) ->
+      | If (v, c1, c2) ->
          [], SIf (gv v, gc c1, gc c2)
   and generate_special : venv -> Ir.special -> Js.program
     = fun env sp ->
       let open Js in
+      let open Ir in
       let gv v = generate_value env v in
       match sp with
-      | `Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
-      | `DoOperation (name, args, _) ->
+      | Wrong _ -> [], SReturn (EApply (EPrim "%error", [ELit (LString "Internal Error: Pattern matching failed")]))
+      | DoOperation (name, args, _) ->
          let box = function
            | [v] -> gv v
            | vs -> make_dictionary (List.mapi (fun i v -> (string_of_int @@ i + 1, gv v)) vs)
@@ -3484,8 +3512,8 @@ module StackInspection = struct
                            ; ("_value", make_dictionary [("p", box args)]) ]
          in
          [], SThrow (ENew (EApply (EVar "PerformOperationError", [op])))
-      | `Handle { Ir.ih_comp = m; Ir.ih_return = return; Ir.ih_cases = cases; Ir.ih_depth = depth } ->
-         if depth = `Shallow then failwith "Compilation of shallow handlers is not supported.";
+      | Handle { Ir.ih_comp = m; Ir.ih_return = return; Ir.ih_cases = cases; Ir.ih_depth = depth } ->
+         if depth = Shallow then failwith "Compilation of shallow handlers is not supported.";
          let new_handle_frame value trap =
            ENew (EApply (EVar "GenericHandleFrame", [value; trap]))
          in
@@ -3724,17 +3752,19 @@ module StackInspection = struct
     = fun env ->
       let open Js in
       let open Utility in
+      let open Ir in
       let gv v = generate_value env v in
       function
-      | `Constant c ->
+      | Constant c ->
          ELit (
+           let open CommonTypes.Constant in
            match c with
-           | `Int v  -> LInt v
-           | `Float v  -> LFloat v
-           | `Bool v   -> LBool v
-           | `Char v   -> LChar v
-           | `String v -> LString v)
-      | `Variable var ->
+           | Int v  -> LInt v
+           | Float v  -> LFloat v
+           | Bool v   -> LBool v
+           | Char v   -> LChar v
+           | String v -> LString v)
+      | Variable var ->
        (* HACK *)
          let name = VEnv.lookup env var in
          if Arithmetic.is name then
@@ -3775,7 +3805,7 @@ module StackInspection = struct
            | "Nil" -> EPrim "%List.nil"
            |  _ -> EVar name
            end
-      | `Extend (field_map, rest) ->
+      | Extend (field_map, rest) ->
          let dict =
            make_dictionary
              (StringMap.fold
@@ -3789,21 +3819,21 @@ module StackInspection = struct
            | Some v ->
               EApply (EPrim "%Record.union", [gv v; dict])
          end
-      | `Project (name, v) ->
+      | Project (name, v) ->
          EAccess (gv v, name)
-      | `Erase (names, v) ->
+      | Erase (names, v) ->
          EApply (EPrim "%Record.erase",
                  [gv v; make_array (List.map strlit (StringSet.elements names))])
-      | `Inject (name, v, _t) ->
+      | Inject (name, v, _t) ->
          make_dictionary [("_label", strlit name); ("_value", gv v)]
     (* erase polymorphism *)
-      | `TAbs (_, v)
-      | `TApp (v, _) -> gv v
-      | `ApplyPure (f, vs) ->
+      | TAbs (_, v)
+      | TApp (v, _) -> gv v
+      | ApplyPure (f, vs) ->
          let f = strip_poly f in
          begin
            match f with
-           | `Variable f ->
+           | Variable f ->
               let f_name = VEnv.lookup env f in
               begin
                 match vs with
@@ -3815,26 +3845,27 @@ module StackInspection = struct
                    Comparison.gen ~op:f_name ~args:[gv l; gv r] ()
                 | _ ->
                    if Lib.is_primitive f_name
-                     && Lib.primitive_location f_name <> `Server
+                     && Lib.primitive_location f_name <> CommonTypes.Location.Server
                    then
                      try
                        Functions.gen ~op:f_name ~args:(List.map gv vs) ()
                      with Not_found -> failwith (Printf.sprintf "Unsupported primitive (val): %s.\n" f_name)
                    else
-                     EApply (gv (`Variable f), (List.map gv vs))
+                     EApply (gv (Variable f), (List.map gv vs))
               end
            | _ ->
               EApply (gv f, List.map gv vs)
          end
-      | `Closure (f, v) ->
-         EApply (EPrim "%Closure.apply", [gv (`Variable f); gv v])
-      | `Coerce (v, _) ->
+      | Closure (f, _, v) ->
+         EApply (EPrim "%Closure.apply", [gv (Variable f); gv v])
+      | Coerce (v, _) ->
          gv v
       | _ -> failwith "Unsupported value."
 
   and generate_function : venv -> (Var.var * string) list -> Ir.fun_def -> Js.decl =
     fun env fs (fb, (_, xsb, body), zb, location) ->
-      let open Js in
+    let open Js in
+    let open Ir in
       (* let new_frame_obj frame_class cont_var args = *)
       (*   ENew (EApply (frame_class, cont_var :: args)) *)
       (* in *)
@@ -3858,12 +3889,12 @@ module StackInspection = struct
       let capture_continuation env (bs,tc) =
         let rec gbs env = function
           | [] -> env, []
-          | [(`Let (b, (_, tc')))] ->
+          | [(Let (b, (_, tc')))] ->
              let b' = safe_name_binder b in
              let env' = VEnv.bind env b' in
              let binding =
                match tc' with
-               | `Return v ->
+               | Return v ->
                   DLet {
                     bkind = `Const;
                     binder = snd b';
@@ -3871,7 +3902,7 @@ module StackInspection = struct
                | tc' ->
                   let cont_var, cont_args =
                     match tc with
-                    | `Apply (cont_var, args) ->
+                    | Apply (cont_var, args) ->
                        generate_value env cont_var, List.(map (generate_value env) (tl args))
                     | _ -> assert false
                   in
@@ -3888,7 +3919,7 @@ module StackInspection = struct
                          []) }
              in
              env', [binding]
-          | `Rec fundefs :: bs ->
+          | Rec fundefs :: bs ->
              let fs = List.map (fun (fb, _, _, _) -> safe_name_binder fb) fundefs in
              let defs = List.map (generate_function env fs) fundefs in
              let env' = List.fold_left VEnv.bind env fs in
@@ -3916,21 +3947,21 @@ module StackInspection = struct
       let _xs, xs_names = List.split bs in
       let body_env = List.fold_left VEnv.bind env (fs @ bs) in
       let body =
+        let open CommonTypes.Location in
         match location with
-
-        | `Client | `Unknown when is_answer_frame fb ->
+        | Client | Unknown when is_answer_frame fb ->
            (* Printf.eprintf "Generating body: %s\n%!" (Ir.Show_computation.show body); *)
            snd (capture_continuation body_env body)
-        | `Client | `Unknown ->
+        | Client | Unknown ->
            begin match body with
-           | (bs, `Apply (cont_var, args)) ->
+           | (bs, Apply (cont_var, args)) ->
               let env', bs = generate_bindings body_env bs in
               let cont_var, cont_args =
                 generate_value env' cont_var, List.map (generate_value env') args
               in
               let trampoline = trampoline cont_var cont_args in
               (bs, SSeq (trampoline, SReturn (EApply (cont_var, cont_args))))
-           | (bs, `Return v) ->
+           | (bs, Return v) ->
               let env', bs = generate_bindings body_env bs in
               (bs, SReturn (generate_value env' v))
            | _ ->
@@ -3953,19 +3984,19 @@ module StackInspection = struct
     = fun u ->
       let open Js in
       let (_nenv, venv, tenv) = initialise_envs (u.envs.nenv, u.envs.tenv) in
-      let tyenv', nenv = Ir.NameMap.(compute Lib.primitive_name tenv u.program) in
-      Printf.eprintf "nenv: %s\n%!" (Ir.NameMap.Show_name_map.show nenv);
-      Printf.eprintf "Before fragmentation: %s\n%!" (Ir.Show_program.show u.program);
+      let tyenv', nenv = IrTraversals.NameMap.(compute Lib.primitive_name tenv u.program) in
+      Printf.eprintf "nenv: %s\n%!" (IrTraversals.NameMap.show_name_map nenv);
+      Printf.eprintf "Before fragmentation: %s\n%!" (Ir.show_program u.program);
       (* let lm = Ir.ProcedureFragmentation.liveness tenv u.program in *)
       (* Printf.eprintf "%s\n%!" (string_of_liveness_map venv lm); *)
       let prog =
-        let prog = Ir.EtaTailDos.program tenv u.program in
+        let prog = IrTraversals.EtaTailDos.program tenv u.program in
         liveness_map := ProcedureFragmentation.liveness tenv prog;
         let prog, answer_frames = ProcedureFragmentation.opt_fragmentise tenv !liveness_map prog in
         answer_frame_set := answer_frames;
         tyenv := tyenv'; prog
       in
-      Printf.eprintf "Fragmented: %s\n%!" (Ir.Show_program.show prog);
+      Printf.eprintf "Fragmented: %s\n%!" (Ir.show_program prog);
       let _, prog = generate_program venv prog in
       let dependencies = List.map (fun f -> Filename.concat (Settings.get_value Basicsettings.Js.lib_dir) f) ["base.js"; "array.js"; "performance.js"; "stack.js"] in
       { u with program = prog; includes = u.includes @ dependencies }

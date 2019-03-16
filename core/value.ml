@@ -830,7 +830,6 @@ and compressed_t = [
 | `ClientFunction of string
 | `Continuation of compressed_continuation
 | `Resumption of compressed_resumption ]
-]
 and compressed_env = compressed_t Env.compressed_t
   [@@deriving yojson]
 

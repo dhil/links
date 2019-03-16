@@ -102,7 +102,7 @@ let spawn_location = {
 let reference = {
     Abstype.id = "Ref";
     name = "Ref";
-    arity = [`Type, (`Any, `Any)];
+    arity = [pk_type, (lin_unl, res_any)];
 }
 
 let performance = {
@@ -114,7 +114,7 @@ let performance = {
 let array = {
   Abstype.id = "Array";
   name = "Array";
-  arity = [`Type, (`Any, `Any)]
+  arity = [pk_type, (lin_unl, res_any)]
 }
 
 type ('t, 'r) session_type_basis =

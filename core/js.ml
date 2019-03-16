@@ -127,26 +127,27 @@ type literal =
   | LFloat of float
   | LString of string
   | LChar of char
-      deriving (Show)
+      [@@deriving show]
 
-module LitMap = Map.Make(struct
-  type t = literal
-  let compare a b =
-    let cmp = Pervasives.compare in
-    match a, b with
-    | LBool x, LBool y -> cmp x y
-    | LInt x, LInt y -> cmp x y
-    | LFloat x, LFloat y -> cmp x y
-    | LString x, LString y -> cmp x y
-    | LChar x, LChar y -> cmp x y
-    | LBool _, _   -> 1 | _, LBool _   -> (-1)
-    | LChar _, _   -> 1 | _, LChar _   -> (-1)
-    | LInt _, _    -> 1 | _, LInt _    -> (-1)
-    | LFloat _, _  -> 1 | _, LFloat _  -> (-1)
-    (* | LString _, _ -> 1 | _, LString _ -> (-1) *)
-
-  module Show_t = Show_literal
-end)
+(* module LitMap = Map.Make(struct
+ *   type t = literal
+ *   let compare a b =
+ *     let cmp = Pervasives.compare in
+ *     match a, b with
+ *     | LBool x, LBool y -> cmp x y
+ *     | LInt x, LInt y -> cmp x y
+ *     | LFloat x, LFloat y -> cmp x y
+ *     | LString x, LString y -> cmp x y
+ *     | LChar x, LChar y -> cmp x y
+ *     | LBool _, _   -> 1 | _, LBool _   -> (-1)
+ *     | LChar _, _   -> 1 | _, LChar _   -> (-1)
+ *     | LInt _, _    -> 1 | _, LInt _    -> (-1)
+ *     | LFloat _, _  -> 1 | _, LFloat _  -> (-1)
+ *     (\* | LString _, _ -> 1 | _, LString _ -> (-1) *\)
+ * 
+ *                                             (\* module Show_t = Show_literal *\)
+ *   let show = show_literal
+ * end) *)
 
 type 'a litmap = 'a StringMap.t
 

@@ -69,3 +69,81 @@ module InstantiateTypes :
 sig
   val computation : Types.datatype Env.Int.t -> (Types.datatype IntMap.t * Types.row IntMap.t * Types.field_spec IntMap.t) -> computation -> computation
 end
+
+  (* Hacky transforms used by the custom JavaScript compiler. *)
+module type ITER =
+sig
+  type environment = Types.datatype Env.Int.t
+
+  class visitor : environment ->
+  object ('self_type)
+    val tyenv : environment
+
+    method lookup_type : var -> Types.datatype
+    method constant : Constant.t -> 'self_type
+    method option :
+      'a.
+      ('self_type -> 'a -> 'self_type) ->
+        'a option -> 'self_type
+    method list :
+      'a.
+      ('self_type -> 'a -> 'self_type) ->
+      'a list -> 'self_type
+    method name_map :
+      'a.
+      ('self_type -> 'a -> 'self_type) ->
+      'a name_map -> 'self_type
+    method var_map :
+      'a.
+      ('self_type -> 'a -> 'self_type) ->
+      'a var_map -> 'self_type
+    method var : var -> 'self_type
+    method value : value -> 'self_type
+
+    method tail_computation : tail_computation -> 'self_type
+    method special : special -> 'self_type
+    method bindings : binding list -> 'self_type
+    method computation : computation -> 'self_type
+    method binding : binding -> 'self_type
+    method binder : binder -> 'self_type
+
+    method program : program -> 'self_type
+
+    method get_type_environment : environment
+  end
+end
+
+module Iter : ITER
+
+module EtaTailDos :
+sig
+  val program : Types.datatype Env.Int.t -> program -> program
+end
+
+(* module ProcedureFragmentation : *)
+(* sig *)
+(*   val liveness : Types.datatype Env.Int.t -> program -> Utility.IntSet.t Utility.IntMap.t *)
+(*   val fragmentise : Types.datatype Env.Int.t -> program -> program *)
+(* end *)
+
+module TreeShaking :
+sig
+  val program : Types.datatype Env.Int.t -> program -> program
+end
+
+module NameMap :
+sig
+  type name_map = string Utility.IntMap.t
+    [@@deriving show]
+  val compute : (Var.var -> string) -> Types.datatype Env.Int.t -> program -> Types.datatype Env.Int.t * name_map
+end
+
+module TidyBindings :
+sig
+  val program : Types.datatype Env.Int.t -> program -> program
+end
+
+module ReplaceReturnWithApply :
+sig
+  val program : Types.datatype Env.Int.t -> value -> value list -> program -> program
+end
