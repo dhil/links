@@ -957,7 +957,7 @@ struct
 
   let expander tyenv env =
   object (o)
-    inherit Transform.visitor(tyenv) as super
+    inherit Transform.visitor(tyenv) as _super
 
     val env = env
 
@@ -1087,7 +1087,7 @@ struct
       fun _ -> o
 
     method value : value -> 'self_type = function
-        | Constant c -> o#constant c
+        | Ir.Constant c -> o#constant c
         | Variable x -> o#var x
         | Extend (fields, base) ->
             let o = o#name_map (fun o -> o#value) fields in
@@ -1121,7 +1121,7 @@ struct
            let o = o#value f in
            o#list (fun o -> o#value) args
         | Special special -> o#special special
-        | Case (v, cases, default) ->
+        | Ir.Case (v, cases, default) ->
             let o = o#value v in
             let o =
               o#name_map
@@ -1298,6 +1298,9 @@ struct
 
   type usage_map = IntSet.t IntMap.t
     [@@deriving show]
+
+  let _pp_usage_map = pp_usage_map
+  let _show_usage_map = show_usage_map
 
   (* Computes a map from functions to a set of variables used in their
      bodies *)
