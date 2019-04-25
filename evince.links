@@ -1,0 +1,174 @@
+## Doodle-like thingie
+## Written by Daniel Hillerström (daniel.hillerstrom@ed.ac.uk), April 2019.
+
+##
+## Utilities
+##
+sig isAsciiLetter : (Char) -> Bool
+fun isAsciiLetter(c) {
+  var c = ord(c);
+  (ord('a') <= c && c <= ord('z')) || (ord('A') <= c && c <= ord('Z'))
+}
+
+sig isSpace : (Char) -> Bool
+fun isSpace(c) { ord(c) == ord(' ') }
+
+sig isValidName : (String) ~> Bool
+fun isValidName(name) {
+  all(fun(c) { isAsciiLetter(c) || isSpace(c) }, explode(name))
+}
+
+##
+## Reader interface
+##
+sig reader : (s, Comp({Ask:s |e}, a)) -> Comp({ |e}, a)
+fun reader(item, m) {
+  (fun() {
+    handle(m()) {
+      case Ask(resume) -> resume(item)
+    }
+  } : (Comp({ |e}, a)) <- (Comp({Ask- |e}, a))) # .. this is just.. well.. broken.
+}
+
+sig ask : () {Ask:a |_}-> a
+fun ask() {do Ask}
+
+##
+## Exception interface
+##
+sig fail : () {Fail:Zero |_}~> a
+fun fail() {switch(do Fail) { }}
+
+sig maybe : (Comp({Fail:Zero |e}, a)) -> Comp({ |e}, Maybe(a))
+fun maybe(m) {
+  (fun() {
+    handle(m()) {
+      case Return(x) -> Just(x)
+      case Fail      -> Nothing
+    }
+  } : (Comp({ |e}, Maybe(a))) <- (Comp({Fail- |e}, Maybe(a))))
+}
+
+##
+## Server API
+##
+typename ProtoEvent(a) = (id:Int,name:String,done:a,timestamp:String);
+typename RawEvent = ProtoEvent(Int);
+typename Event = ProtoEvent(Bool);
+typename NewEvent = (name:String);
+
+typename ProtoRegistrant(e::Row) = (id:Int,event:Int,dietary:String,timestamp:String,name:String);
+typename RawRegistrant = ProtoRegistrant({ });
+typename Registrant = ProtoRegistrant({event-});
+typename NewRegistrant = (name:String,dietary:String);
+
+typename Config = (events: () {}~> TableHandle(RawEvent, RawEvent, RawEvent),
+                   registrants: () {}~> TableHandle(RawRegistrant, RawRegistrant, RawRegistrant));
+
+sig makeConfig : (String) ~> Config
+fun makeConfig(dbname) server {
+  (events = fun() {
+     table "events" with (id:Int,name:String,done:Int,timestamp:String)
+     from database dbname
+   },
+   registrants = fun() {
+     table "registrants" with (id:Int,event:Int,name:String,dietary:String,timestamp:String)
+     from database dbname
+   })
+}
+
+
+sig getEvent : (Int) {Ask:Config, Fail:Zero |_}~> Event
+fun getEvent(id) server {
+  var config = ask();
+  var events = gen0(config.events)();
+  var results = query {
+     for (event <-- events)
+     where (event.id == id)
+     [event]
+  };
+
+  switch (results) {
+    case [event] ->
+      (id=event.id, name=event.name, done = (event.done <> 0), timestamp = event.timestamp)
+    case _ -> fail()
+  }
+}
+
+sig addRegistrant : (Event, NewRegistrant) {Ask:Config, Fail:Zero |_}~> ()
+fun addRegistrant(ev, x) server { () }
+
+sig deleteRegistrant : (Registrant) {Ask:Config, Fail:Zero |_}~> ()
+fun deleteRegistrant(x) server { () }
+
+sig getRegistrant : (Int) {Ask:Config, Fail:Zero |_}~> Registrant
+fun getRegistrant(id) server {
+  var config = ask();
+  var registrants = gen0(config.registrants)();
+  var results = query {
+    for (registrant <-- registrants)
+    where (registrant.id == id)
+    [registrant]
+  };
+
+  switch (results) {
+    case [registrant] -> registrant
+    case _ -> fail()
+  }
+}
+
+sig getRegistrants : (Event) {GetAll:(Event) -> [Registrant] |_}~> [Registrant]
+fun getRegistrants(ev) server {do GetAll(ev)}
+
+sig persistentState : (Comp({Insert:(NewRegistrant, Event) -> (),
+                             Delete: (Int) -> (),
+                             GetAll: (Event) -> [Registrant],
+                             Ask: Config |e}, a))
+                    -> Comp({Ask: Config |e}, a)
+fun persistentState(m) {
+  (fun() {
+    handle(m()) {
+      case Insert(reg, event, resume) ->
+        resume(())
+      case Delete(reg, resume) ->
+        resume(())
+      case GetAll(ev, resume) ->
+        var config = ask();
+        var registrants = gen0(config.registrants)();
+        var results = query {
+            for (registrant <-- registrants)
+            where (registrant.event == ev.id)
+            orderby (registrant.id)
+            [registrant]
+        };
+        resume(results)
+    }
+   } : (Comp({Ask:Config |e}, a)) <- (Comp({Ask:Config,GetAll:(Event) -> [Registrant],Insert:(NewRegistrant, Event) -> (),Delete: (Int) -> () |e}, a)))
+}
+
+typename RegisterService = [&|Add:?(NewRegistrant, Int).![|OK|].End,
+                              Delete:?Int.![|OK|].End|&];
+                              # Get:?Int.![Registrant].End|&];
+sig registerService : (AP(RegisterService)) ~%~> _
+fun registerService(ap) server {
+  var ch = accept(ap);
+  ignore(offer(ch) {
+    case Add(ch) ->
+      var ((data, eventId), ch) = receive(ch);
+      addRegistrant(getEvent(eventId), data);
+      close(send(OK, ch))
+    case Delete(ch) ->
+      var (regId, ch) = receive(ch);
+      deleteRegistrant(getRegistrant(regId));
+      close(send(OK, ch))
+    # case Get(ch) ->
+    #   var (eventId, ch) = receive(ch);
+    #   close(send(getRegistrants(getEvent(eventId)), ch))
+  });
+  registerService(ap)
+}
+
+##
+## Main
+##
+fun main() {}
