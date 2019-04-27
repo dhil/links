@@ -210,9 +210,20 @@ fun formatDate(date) {
 ## Pages
 ##
 
+sig checkDietary : () ~> ()
+fun checkDietary() client {
+  var textarea = getNodeById("input_2");
+  var contents = domGetPropertyFromRef(textarea, "value");
+  if (strlen(contents) < 128) {
+    domSetAttributeFromRef(textarea, "style", "border: none;")
+  } else {
+    domSetAttributeFromRef(textarea, "style", "border: 2px solid red;")
+  }
+}
+
 sig textarea : () ~> Formlet (String)
 fun textarea() {
-  mkInput(fun (name) { <textarea name="{name}"></textarea> },
+  mkInput(fun (name) { <textarea id="{name}" name="{name}" l:onkeyup="{checkDietary()}"></textarea> },
           fun (name,value) { <textarea name="{name}">{stringToXml(value)}</textarea> })
 }
 
