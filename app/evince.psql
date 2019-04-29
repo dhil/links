@@ -10,7 +10,7 @@ CREATE TABLE events(
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name VARCHAR(128) NOT NULL,
   done integer NOT NULL,
-  date VARCHAR(32) DEFAULT '2000-01-01',
+  date VARCHAR(16) DEFAULT '2000-01-01',
   created VARCHAR(64) DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS TZ')
 );
 
@@ -18,8 +18,10 @@ CREATE TABLE registrants(
   id integer UNIQUE DEFAULT nextval('registrant_seq'),
   event UUID REFERENCES events (id),
   name VARCHAR(128) NOT NULL,
+  affiliation VARCHAR(64) NOT NULL,
   dietary VARCHAR(128) NOT NULL,
-  timestamp VARCHAR(64) DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS TZ')
+  timestamp VARCHAR(64) DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS TZ'),
+  stamp VARCHAR(128) NOT NULL
 );
 
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO links;
