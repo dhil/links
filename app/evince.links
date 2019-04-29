@@ -157,7 +157,7 @@ fun addRegistrant(eventId, x) server {
   var registrations = gen0(config.readRegistrants)();
   var result = query {
     for (registrant <-- registrations)
-    where (stringEq(registrant.stamp, x.stamp) && stringEq(registrant.event, eventId))
+    where (registrant.stamp == x.stamp && registrant.event == eventId)
     [registrant]
   };
   switch (result) {
@@ -175,7 +175,7 @@ fun getRegistrant(eventId, id) server {
   var registrants = gen0(config.readRegistrants)();
   var results = query {
     for (registrant <-- registrants)
-    where (intEq(registrant.id, id) && stringEq(registrant.event, eventId))
+    where (registrant.id == id && registrant.event == eventId)
     [registrant]
   };
 
@@ -191,7 +191,7 @@ fun getRegistrants(ev) server {
   var registrants = gen0(config.readRegistrants)();
   var results = query {
      for (registrant <-- registrants)
-     where (stringEq(registrant.event, ev.id))
+     where (registrant.event == ev.id)
      orderby (registrant.id)
      [registrant]
   };
@@ -317,7 +317,7 @@ fun textarea(defaultValue, keyUpListener) {
          ,fun(name, value) { mkTextarea(name, value, keyUpListener) })
 }
 
-fun input(defaultValue, keyUpListener) {
+fun inputField(defaultValue, keyUpListener) {
   fun makeInputField(name, defaultValue, keyUpListener) {
     <input id="{name}" name="{name}" l:onkeyup="{keyUpListener()}" value="{defaultValue}" />
   }
@@ -337,7 +337,7 @@ fun registerForm(eventId) server {
           <td>
             <table border="0">
               <tr>
-                <td>{input("", checkInput(makeInputChecker(nameNodeId, 64, Just("name-message")))) -> name}</td>
+                <td>{input -> name}</td>
               </tr>
               <tr>
                 <td><span id="name-message">{remainingCharacters("", 64)} characters remaining</span></td>
@@ -350,7 +350,7 @@ fun registerForm(eventId) server {
           <td>
             <table border="0">
               <tr>
-                <td>{input("", checkInput(makeInputChecker(affiliationNodeId, 64, Just("affiliation-message")))) -> affiliation}</td>
+                <td>{inputField("", checkInput(makeInputChecker(affiliationNodeId, 64, Just("affiliation-message")))) -> affiliation}</td>
               </tr>
               <tr>
                 <td><span id="affiliation-message">{remainingCharacters("", 64)} characters remaining</span></td>
@@ -395,7 +395,6 @@ fun processRegistration(data) server {
     case Fail      -> error("Failure")
     case Return(x) ->
       #setCookie("rsvp-" ^^ data.event, stamp);
-      freshResource();
       page
        <#>
          <h1>Thank you</h1>
