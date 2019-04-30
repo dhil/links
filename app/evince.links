@@ -41,15 +41,17 @@ fun randomHexadecimal() {
 
 # Poor man's unique identifier generator
 sig pseudoRandomByteString : (String, Int) ~> String
-fun pseudoRandomByteString(seed, len) server {
+fun pseudoRandomByteString(seed, maxlen) server {
   fun gen(buf, len, ubound) {
-    var buf = buf ^^ implode([randomHexadecimal()]);
-    if (len < ubound) gen(buf, len+1, ubound)
-    else if (len > ubound) strsub(buf, 0, ubound)
-    else buf
+    if (len < ubound) {
+      var buf = buf ^^ implode([randomHexadecimal()]);
+      gen(buf, len+1, ubound)
+    } else if (len > ubound) {
+      strsub(buf, 0, ubound)
+    } else { buf }
   }
   var s = hexString(seed);
-  gen(s, strlen(s), len)
+  gen(s, strlen(s), maxlen)
 }
 
 ##
@@ -201,19 +203,79 @@ fun getRegistrants(ev) server {
 ##
 ## Front end utilities
 ##
-sig strsplit : (Char, String) ~> [String]
-fun strsplit(delim, s) server {
-  fun strsplit_aux(cs, acc) {
-    switch (cs) {
-      case [] -> reverse(map(reverse, acc))
-      case c :: cs ->
-        if (c == delim) strsplit_aux(cs, [] :: acc)
-        else switch (acc) {
-             case ks :: kss -> strsplit_aux(cs, (c :: ks) :: kss)
-        }
+
+module String {
+  sig intersperse : (a, [a]) ~> [a]
+  fun intersperse(y, xs) server {
+    switch (xs) {
+      case []      -> []
+      case [x]     -> [x]
+      case x :: xs -> x :: y :: intersperse(y,xs)
     }
   }
-  map(implode, strsplit_aux(explode(s), [[]]))
+
+  sig split : (Char, String) ~> [String]
+  fun split(delim, s) server {
+    fun strsplit_aux(cs, acc) {
+      switch (cs) {
+        case [] -> reverse(map(reverse, acc))
+        case c :: cs ->
+          if (c == delim) strsplit_aux(cs, [] :: acc)
+          else switch (acc) {
+               case ks :: kss -> strsplit_aux(cs, (c :: ks) :: kss)
+          }
+      }
+    }
+    map(implode, strsplit_aux(explode(s), [[]]))
+  }
+
+  sig glue : (String, [String]) ~> String
+  fun glue(glue, strings) server {
+    fold_right(fun(acc, string) { acc ^^ string }, "", intersperse(glue, strings))
+  }
+
+  sig trim : (String) ~> String
+  fun trim(s) server {
+    fun ltrim(cs) {
+      switch (cs) {
+        case c :: cs ->
+          if (isBlank(c)) ltrim(cs)
+          else c::cs
+        case _ -> cs
+      }
+    }
+    implode -<- reverse -<- ltrim -<- reverse -<- ltrim @ explode(s)
+  }
+
+  sig strip : ([Char], String) ~> String
+  fun strip(symbols, s) server {
+    fun strstrip(cs,acc) {
+      switch (cs) {
+        case [] -> reverse(acc)
+        case c :: cs ->
+          if (c `elem` symbols) strstrip(cs, acc)
+          else strstrip(cs, c :: acc)
+      }
+    }
+    implode(strstrip(explode(s), []))
+  }
+
+  sig stripbreaks : (String) ~> String
+  fun stripbreaks(s) server {
+    strip(['\r','\n'], s)
+  }
+
+  sig stripempty : ([String]) ~> [String]
+  fun stripempty(ss) server {
+    filter(fun(s) { s <> "" }, ss)
+  }
+
+  sig endsWith : (String, Char) ~> Bool
+  fun endsWith(s, c) server {
+    var len = strlen(s);
+    if (len == 0) false
+    else strsub(s, len - 1, 1) == implode([c])
+  }
 }
 
 sig formatDate : (String) ~> String
@@ -235,7 +297,7 @@ fun formatDate(date) {
       case _  -> error("bad input")
     }
   }
-  var components = strsplit('-', date);
+  var components = String.split('-', date);
   switch (components) {
     case [y, m, d] ->
       month(m) ^^ " " ^^ d ^^ ", " ^^ y
@@ -423,7 +485,9 @@ fun registrationPage(_) server {
            <h2>Attendees ({numAttendees})</h2>
            <ul>
            { for (registrant <- registrants) {
-               <li>{stringToXml(registrant.name)}</li>
+               <li>
+                 {stringToXml(registrant.name ^^ (if (registrant.affiliation <> "") ", " ^^ registrant.affiliation else ""))}
+               </li>
              }
            }
            </ul>
