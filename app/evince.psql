@@ -17,9 +17,9 @@ CREATE TABLE events(
 CREATE TABLE registrants(
   id integer UNIQUE DEFAULT nextval('registrant_seq'),
   event UUID REFERENCES events (id),
-  name VARCHAR(128) NOT NULL,
+  name VARCHAR(64) NOT NULL,
   affiliation VARCHAR(64) NOT NULL,
-  dietary VARCHAR(128) NOT NULL,
+  dietary VARCHAR(256) NOT NULL,
   timestamp VARCHAR(64) DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS TZ'),
   stamp VARCHAR(128) NOT NULL
 );

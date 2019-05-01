@@ -2,41 +2,167 @@
 ## Written by Daniel Hillerström (daniel.hillerstrom@ed.ac.uk), April 2019.
 
 ##
+## Hacky global knowledge.
+##
+var nameNodeId = "input_1";
+var affiliationNodeId = "input_2";
+var dietaryNodeId = "input_3";
+var submitNodeId = "input_4";
+
+##
 ## Utilities
 ##
-sig isAsciiLetter : (Char) -> Bool
-fun isAsciiLetter(c) {
-  var c = ord(c);
-  (ord('a') <= c && c <= ord('z')) || (ord('A') <= c && c <= ord('Z'))
-}
+module List {
+  sig intersperse : (a, [a]) ~> [a]
+  fun intersperse(y, xs) {
+    switch (xs) {
+      case []      -> []
+      case [x]     -> [x]
+      case x :: xs -> x :: y :: intersperse(y,xs)
+    }
+  }
 
-sig isSpace : (Char) -> Bool
-fun isSpace(c) { ord(c) == ord(' ') }
-
-sig isValidName : (String) ~> Bool
-fun isValidName(name) {
-  all(fun(c) { isAsciiLetter(c) || isSpace(c) }, explode(name))
-}
-
-fun intToHex(d) {
-  switch (mod(d, 16)) {
-    case 10 -> 'a'
-    case 11 -> 'b'
-    case 12 -> 'c'
-    case 13 -> 'd'
-    case 14 -> 'e'
-    case 15 -> 'f'
-    case d  -> chr(48 + d)
+  sig anyWitness : ((a) ~e~> Bool, [a]) ~e~> Maybe(a)
+  fun anyWitness(f, xs) {
+     switch (xs) {
+       case [] -> Nothing
+       case x :: xs ->
+         if (f(x)) Just(x)
+         else anyWitness(f, xs)
+     }
   }
 }
 
-fun hexString(s) {
-  implode(map(intToHex, map(ord, explode(s))))
+module Char {
+  sig isAscii : (Char) -> Bool
+  fun isAscii(c) {
+    var c = ord(c);
+    0 <= c && c < 128
+  }
+
+  sig isAsciiLetter : (Char) -> Bool
+  fun isAsciiLetter(c) {
+    var c = ord(c);
+    (ord('a') <= c && c <= ord('z')) || (ord('A') <= c && c <= ord('Z'))
+  }
+
+  sig isAsciiBlank : (Char) ~> Bool
+  fun isAsciiBlank(c) { isBlank(c) }
+
+  sig isSpace : (Char) -> Bool
+  fun isSpace(c) { ord(c) == ord(' ') }
+
+  sig toCode : (Char) -> Int
+  fun toCode(c) {ord(c)}
+
+  sig fromCode : (Int) -> Char
+  fun fromCode(x) {chr(x)}
 }
 
-fun randomHexadecimal() {
-  var d = floatToInt(floor(random() *. intToFloat(15)));
-  intToHex(d)
+module String {
+  sig toCharList : (String) ~> [Char]
+  fun toCharList(s) {explode(s)}
+
+  sig fromCharList : ([Char]) ~> String
+  fun fromCharList(cs) {implode(cs)}
+
+  sig fromChar : (Char) ~> String
+  fun fromChar(c) { fromCharList([c]) }
+
+  sig split : (Char, String) ~> [String]
+  fun split(delim, s) {
+    fun strsplit_aux(cs, acc) {
+      switch (cs) {
+        case [] -> reverse(map(reverse, acc))
+        case c :: cs ->
+          if (c == delim) strsplit_aux(cs, [] :: acc)
+          else switch (acc) {
+               case ks :: kss -> strsplit_aux(cs, (c :: ks) :: kss)
+          }
+      }
+    }
+    map(fromCharList, strsplit_aux(toCharList(s), [[]]))
+  }
+
+  sig glue : (String, [String]) ~> String
+  fun glue(glue, strings) {
+    fold_right(fun(acc, string) { acc ^^ string }
+               , "", List.intersperse(glue, strings))
+  }
+
+  sig trim : (String) ~> String
+  fun trim(s) {
+    fun ltrim(cs) {
+      switch (cs) {
+        case c :: cs ->
+          if (Char.isAsciiBlank(c)) ltrim(cs)
+          else c::cs
+        case _ -> cs
+      }
+    }
+    fromCharList -<- reverse -<- ltrim -<- reverse -<- ltrim @ toCharList(s)
+  }
+
+  sig strip : ([Char], String) ~> String
+  fun strip(symbols, s) {
+    fun strstrip(cs,acc) {
+      switch (cs) {
+        case [] -> reverse(acc)
+        case c :: cs ->
+          if (c `elem` symbols) strstrip(cs, acc)
+          else strstrip(cs, c :: acc)
+      }
+    }
+    fromCharList(strstrip(toCharList(s), []))
+  }
+
+  sig stripbreaks : (String) ~> String
+  fun stripbreaks(s) {
+    strip(['\r','\n'], s)
+  }
+
+  sig stripempty : ([String]) ~> [String]
+  fun stripempty(ss) {
+    filter(fun(s) { s <> "" }, ss)
+  }
+
+  sig endsWith : (String, Char) ~> Bool
+  fun endsWith(s, c) server {
+    var len = strlen(s);
+    if (len == 0) false
+    else strsub(s, len - 1, 1) == fromChar(c)
+  }
+}
+
+# sig isValidName : (String) ~> Bool
+# fun isValidName(name) {
+#   all(fun(c) { Char.isAsciiLetter(c) || Char.isAsciiBlank(c) }, String.toCharList(name))
+# }
+
+module Hex {
+  sig fromInt : (Int) -> Char
+  fun fromInt(d) {
+    switch (mod(d, 16)) {
+      case 10 -> 'a'
+      case 11 -> 'b'
+      case 12 -> 'c'
+      case 13 -> 'd'
+      case 14 -> 'e'
+      case 15 -> 'f'
+      case d  -> chr(48 + d)
+    }
+  }
+
+  sig encode : (String) ~> String
+  fun encode(s) {
+    String.fromCharList(map(fromInt, map(Char.toCode, String.toCharList(s))))
+  }
+
+  sig randomDecimal : () ~> Char
+  fun randomDecimal() {
+    var d = floatToInt(floor(random() *. intToFloat(15)));
+    fromInt(d)
+  }
 }
 
 # Poor man's unique identifier generator
@@ -44,13 +170,13 @@ sig pseudoRandomByteString : (String, Int) ~> String
 fun pseudoRandomByteString(seed, maxlen) server {
   fun gen(buf, len, ubound) {
     if (len < ubound) {
-      var buf = buf ^^ implode([randomHexadecimal()]);
+      var buf = buf ^^ String.fromChar(Hex.randomDecimal());
       gen(buf, len+1, ubound)
     } else if (len > ubound) {
       strsub(buf, 0, ubound)
     } else { buf }
   }
-  var s = hexString(seed);
+  var s = Hex.encode(seed);
   gen(s, strlen(s), maxlen)
 }
 
@@ -95,6 +221,199 @@ fun lookup(x, xs) {
 }
 
 ##
+## Input Checking
+##
+typename InputValidationResult = [|TooManyCharacters|UnsupportedCharacter:Char|OK:Int|];
+typename InputValidator = (String) {}~> InputValidationResult;
+module InputValidator {
+  sig maxlength : (Int) -> InputValidator
+  fun maxlength(maxlen)(s) {
+    var len = strlen(s);
+    if (len < maxlen) OK(maxlen - len)
+    else TooManyCharacters
+  }
+
+  sig onlyAsciiLetters : InputValidator
+  fun onlyAsciiLetters(s) {
+    fun predicate(c) {
+       not(Char.isAsciiLetter(c)) && not(Char.isSpace(c))
+    }
+    var result = List.anyWitness(predicate, String.toCharList(s));
+    switch (result) {
+      case Nothing -> OK(0)
+      case Just(c) -> UnsupportedCharacter(c)
+    }
+  }
+
+  sig onlyAscii : InputValidator
+  fun onlyAscii(s) {
+    fun predicate(c) {
+      not(Char.isAscii(c))
+    }
+    var result = List.anyWitness(predicate, String.toCharList(s));
+    switch (result) {
+      case Nothing -> OK(0)
+      case Just(c) -> UnsupportedCharacter(c)
+    }
+  }
+
+  sig apply : (InputValidator, String) {}~> InputValidationResult
+  fun apply(validate, arg) { validate(arg) }
+
+  sig compose : (InputValidator, InputValidator) -> InputValidator
+  fun compose(fst, snd)(s) {
+     fun max2(a, b) { if (a < b) b else a }
+
+     switch (fst(s)) {
+       case OK(i) ->
+          switch (snd(s)) {
+            case OK(j) -> OK(max2(i, j))
+            case e     -> e
+          }
+       case e -> e
+     }
+  }
+
+  sig ignore : InputValidator
+  fun ignore(s) { OK(0) }
+
+  sig name : InputValidator
+  fun name(s) { apply(compose(maxlength(64), onlyAsciiLetters), s) }
+
+  sig affiliation : InputValidator
+  fun affiliation(s) {apply(name, s)}
+
+  sig dietary : InputValidator
+  fun dietary(s) { apply(compose(maxlength(64), onlyAscii), s) }
+}
+
+typename InputAction = (InputValidationResult) {}~> ();
+module InputAction {
+  sig highlight : (String) -> InputAction
+  fun highlight(nodeId)(result) {
+    var node = getNodeById(nodeId);
+    switch (result) {
+      case OK(_) -> domSetPropertyFromRef(node, "style", "border-color: none;")
+      case _     -> domSetPropertyFromRef(node, "style", "border-width: 5px; border-color: red;")
+    }
+  }
+
+  sig alert : ((InputValidationResult) {}~> Xml, String) -> InputAction
+  fun alert(f, nodeId)(result) {
+    var node = getNodeById(nodeId);
+    var message = f(result);
+    domReplaceChildren(message, node)
+  }
+
+  sig toggle : (String) -> InputAction
+  fun toggle(nodeId)(result) {
+    var node = getNodeById(nodeId);
+    switch (result) {
+      case OK(_) ->
+        if (domHasAttribute(node, "disabled")) {
+          domRemoveAttributeFromRef(node, "disabled")
+        } else ()
+      case _     ->
+       if (not(domHasAttribute(node, "disabled"))) {
+          domSetAttributeFromRef(node, "disabled", "disabled")
+       } else ()
+    }
+  }
+
+  sig compose : (InputAction, InputAction) -> InputAction
+  fun compose(fst, snd)(result) {
+     fst(result); snd(result)
+  }
+
+  sig ignore : InputAction
+  fun ignore(_) { () }
+}
+
+typename InputListener = () {}~> ();
+module InputListener {
+  sig make : (InputValidator, InputAction, String) -> InputListener
+  fun make(validate, inputHandler, nodeId)() {
+     var inputNode = getNodeById(nodeId);
+     var contents  = domGetPropertyFromRef(inputNode, "value");
+     inputHandler(validate(contents))
+  }
+
+  sig message : (InputValidationResult) ~> Xml
+  fun message(result) {
+    var (msg, err) = switch (result) {
+      case OK(n) -> (intToString(n) ^^ " characters remaining", false)
+      case UnsupportedCharacter(c) -> ("Unsupported character '" ^^ String.fromChar(c) ^^ "'", true)
+      case TooManyCharacters -> ("Too many characters", true)
+    };
+    <span>{stringToXml(msg)}</span>
+  }
+
+  sig name : (String, String) -> InputListener
+  fun name(nameNodeId, messageNodeId) {
+     make( InputValidator.name
+         , InputAction.compose(
+             InputAction.compose( InputAction.toggle(submitNodeId)
+                                 , InputAction.highlight(nameNodeId))
+            , InputAction.alert(message, messageNodeId))
+         , nameNodeId)
+  }
+
+  sig affiliation : (String, String) -> InputListener
+  fun affiliation(affiliationNodeId, messageNodeId) {name(affiliationNodeId, messageNodeId)}
+
+  sig dietary : (String, String) -> InputListener
+  fun dietary(dietaryNodeId, messageNodeId) {
+     make( InputValidator.dietary
+         , InputAction.compose(
+             InputAction.compose( InputAction.toggle(submitNodeId)
+                                 , InputAction.highlight(dietaryNodeId))
+            , InputAction.alert(message, messageNodeId))
+         , dietaryNodeId)
+  }
+}
+
+typename SanitationResult = [|OK:String|BadInput|];
+typename Sanitiser = (String) {}~> SanitationResult;
+module Sanitise {
+  sig apply : (Sanitiser, String) {}~> SanitationResult
+  fun apply(sanitise, arg) { sanitise(arg) }
+
+  sig withCheck : (InputValidator, Sanitiser) -> (String) {}~> SanitationResult
+  fun withCheck(validate, sanitise)(s) {
+    switch (InputValidator.apply(validate, s)) {
+      case OK(_) -> apply(sanitise, s)
+      case _     -> BadInput
+    }
+  }
+
+  sig compose : (Sanitiser, Sanitiser) -> (String) {}~> SanitationResult
+  fun compose(fst, snd)(s) {
+     var result = apply(fst, s);
+     switch (apply(fst, s)) {
+       case BadInput -> BadInput
+       case OK(s)    -> apply(snd, s)
+     }
+  }
+
+  sig trim : Sanitiser
+  fun trim(s) { OK(String.trim(s)) }
+
+  sig escapeAscii : Sanitiser
+  fun escapeAscii(s) { OK(strescape(s)) }
+
+  sig name : Sanitiser
+  fun name(s) { apply(withCheck(InputValidator.name, trim), s) }
+
+  sig affiliation : Sanitiser
+  fun affiliation(s) {apply(name, s)}
+
+  sig dietary : Sanitiser
+  fun dietary(s) {
+    apply(withCheck(InputValidator.dietary, compose(trim, escapeAscii)), s)
+  }
+}
+
+##
 ## Server API
 ##
 typename ProtoEvent(a) = (id:String,name:String,done:a,date:String,created:String);
@@ -112,172 +431,107 @@ typename Config = (events: () {}~> TableHandle(RawEvent, RawEvent, RawEvent),
                    readRegistrants : () {}~> TableHandle(ProtoRegistrant({ }), ProtoRegistrant({ }), ProtoRegistrant({ }))
                    );
 
-sig makeConfig : (String) ~> Config
-fun makeConfig(dbname) server {
-  (events = fun() {
-     table "events" with (id:String,name:String,done:Int,date:String,created:String)
-     from database dbname
-   },
-   writeRegistrants = fun() {
-     table "registrants" with (event:String,name:String,affiliation:String,dietary:String,stamp:String)
-     from database dbname
-   },
-   readRegistrants = fun() {
-     table "registrants" with (id:Int,event:String,name:String,affiliation:String,dietary:String,timestamp:String,stamp:String)
-     from database dbname
-   })
-}
-
-
-sig getEvent : (String) {Ask:Config, Fail:Zero |_}~> Event
-fun getEvent(id) server {
-  var config = ask();
-  var events = gen0(config.events)();
-  var results = query {
-     for (event <-- events)
-     where (event.id == id)
-     [event]
-  };
-
-  switch (results) {
-    case [event] ->
-      (id=event.id, name=event.name, done = (event.done <> 0), date=event.date, created = event.created)
-    case _ -> fail()
+module Config {
+  sig make : (String) ~> Config
+  fun make(dbname) server {
+    (events = fun() {
+       table "events" with (id:String,name:String,done:Int,date:String,created:String)
+       from database dbname
+     },
+     writeRegistrants = fun() {
+       table "registrants" with (event:String,name:String,affiliation:String,dietary:String,stamp:String)
+       from database dbname
+     },
+     readRegistrants = fun() {
+       table "registrants" with (id:Int,event:String,name:String,affiliation:String,dietary:String,timestamp:String,stamp:String)
+       from database dbname
+     })
   }
 }
 
-fun interpRawRegistrant(r) {
-  (name=r.name,affiliation=r.affiliation,dietary=r.dietary,id=r.id)
-}
-
-sig addRegistrant : (String, NewRegistrant) {Ask:Config, Fail:Zero |_}~> Registrant
-fun addRegistrant(eventId, x) server {
-  var config = ask();
-  var registrations = gen0(config.writeRegistrants)();
-  insert registrations values [(event=eventId,stamp=x.stamp, affiliation=x.affiliation, name=x.name, dietary=x.dietary)];
-
-  var registrations = gen0(config.readRegistrants)();
-  var result = query {
-    for (registrant <-- registrations)
-    where (registrant.stamp == x.stamp && registrant.event == eventId)
-    [registrant]
-  };
-  switch (result) {
-    case [x] -> interpRawRegistrant(x)
-    case _ -> fail()
+module Database {
+  sig expectSingle : ((a) {Fail:Zero|e}~> b, [a]) {Fail:Zero |e}~> b
+  fun expectSingle(f, xs) {
+    switch (xs) {
+      case [x] -> f(x)
+      case _   -> fail()
+    }
   }
 }
 
-sig deleteRegistrant : (Registrant) {Ask:Config, Fail:Zero |_}~> ()
-fun deleteRegistrant(x) server { () }
+module Event {
+  sig get : (String) {Ask:Config, Fail:Zero |_}~> Event
+  fun get(id) server {
+    var config = ask();
+    var events = gen0(config.events)();
+    var results = query {
+       for (event <-- events)
+       where (event.id == id)
+       [event]
+    };
 
-sig getRegistrant : (String, Int) {Ask:Config, Fail:Zero |_}~> Registrant
-fun getRegistrant(eventId, id) server {
-  var config = ask();
-  var registrants = gen0(config.readRegistrants)();
-  var results = query {
-    for (registrant <-- registrants)
-    where (registrant.id == id && registrant.event == eventId)
-    [registrant]
-  };
-
-  switch (results) {
-    case [x] -> interpRawRegistrant(x)
-    case _ -> fail()
+    switch (results) {
+      case [event] ->
+        (id=event.id, name=event.name, done = (event.done <> 0), date=event.date, created = event.created)
+      case _ -> fail()
+    }
   }
 }
 
-sig getRegistrants : (Event) {Ask:Config |_}~> [Registrant]
-fun getRegistrants(ev) server {
-  var config = ask();
-  var registrants = gen0(config.readRegistrants)();
-  var results = query {
-     for (registrant <-- registrants)
-     where (registrant.event == ev.id)
-     orderby (registrant.id)
-     [registrant]
-  };
-  map(interpRawRegistrant, results)
+module Registrant {
+  fun interpRaw(r) {
+    (name=r.name,affiliation=r.affiliation,dietary=r.dietary,id=r.id)
+  }
+
+  sig add : (String, NewRegistrant) {Ask:Config, Fail:Zero |_}~> Registrant
+  fun add(eventId, x) server {
+    var config = ask();
+    var registrations = gen0(config.writeRegistrants)();
+    insert registrations values [(event=eventId,stamp=x.stamp, affiliation=x.affiliation, name=x.name, dietary=x.dietary)];
+
+    var registrations = gen0(config.readRegistrants)();
+    var result = query {
+      for (registrant <-- registrations)
+      where (registrant.stamp == x.stamp && registrant.event == eventId)
+      [registrant]
+    };
+
+    Database.expectSingle(interpRaw, result)
+  }
+
+  sig remove : (Registrant) {Ask:Config, Fail:Zero |_}~> ()
+  fun remove(x) server { () }
+
+  sig get : (String, Int) {Ask:Config, Fail:Zero |_}~> Registrant
+  fun get(eventId, id) server {
+    var config = ask();
+    var registrants = gen0(config.readRegistrants)();
+    var results = query {
+      for (registrant <-- registrants)
+      where (registrant.id == id && registrant.event == eventId)
+      [registrant]
+    };
+
+    Database.expectSingle(interpRaw, results)
+  }
+
+  sig getAll : (Event) {Ask:Config |_}~> [Registrant]
+  fun getAll(ev) server {
+    var config = ask();
+    var registrants = gen0(config.readRegistrants)();
+    var results = query {
+       for (registrant <-- registrants)
+       where (registrant.event == ev.id)
+       orderby (registrant.id)
+       [registrant]
+    };
+    map(interpRaw, results)
+  }
 }
 
 ##
 ## Front end utilities
 ##
-
-module String {
-  sig intersperse : (a, [a]) ~> [a]
-  fun intersperse(y, xs) server {
-    switch (xs) {
-      case []      -> []
-      case [x]     -> [x]
-      case x :: xs -> x :: y :: intersperse(y,xs)
-    }
-  }
-
-  sig split : (Char, String) ~> [String]
-  fun split(delim, s) server {
-    fun strsplit_aux(cs, acc) {
-      switch (cs) {
-        case [] -> reverse(map(reverse, acc))
-        case c :: cs ->
-          if (c == delim) strsplit_aux(cs, [] :: acc)
-          else switch (acc) {
-               case ks :: kss -> strsplit_aux(cs, (c :: ks) :: kss)
-          }
-      }
-    }
-    map(implode, strsplit_aux(explode(s), [[]]))
-  }
-
-  sig glue : (String, [String]) ~> String
-  fun glue(glue, strings) server {
-    fold_right(fun(acc, string) { acc ^^ string }, "", intersperse(glue, strings))
-  }
-
-  sig trim : (String) ~> String
-  fun trim(s) server {
-    fun ltrim(cs) {
-      switch (cs) {
-        case c :: cs ->
-          if (isBlank(c)) ltrim(cs)
-          else c::cs
-        case _ -> cs
-      }
-    }
-    implode -<- reverse -<- ltrim -<- reverse -<- ltrim @ explode(s)
-  }
-
-  sig strip : ([Char], String) ~> String
-  fun strip(symbols, s) server {
-    fun strstrip(cs,acc) {
-      switch (cs) {
-        case [] -> reverse(acc)
-        case c :: cs ->
-          if (c `elem` symbols) strstrip(cs, acc)
-          else strstrip(cs, c :: acc)
-      }
-    }
-    implode(strstrip(explode(s), []))
-  }
-
-  sig stripbreaks : (String) ~> String
-  fun stripbreaks(s) server {
-    strip(['\r','\n'], s)
-  }
-
-  sig stripempty : ([String]) ~> [String]
-  fun stripempty(ss) server {
-    filter(fun(s) { s <> "" }, ss)
-  }
-
-  sig endsWith : (String, Char) ~> Bool
-  fun endsWith(s, c) server {
-    var len = strlen(s);
-    if (len == 0) false
-    else strsub(s, len - 1, 1) == implode([c])
-  }
-}
-
 sig formatDate : (String) ~> String
 fun formatDate(date) {
   fun month(m) {
@@ -310,65 +564,11 @@ fun formatDate(date) {
 ## Configuration
 ##
 sig defaultConfig : () ~> Config
-fun defaultConfig() server { makeConfig("evince") }
+fun defaultConfig() server { Config.make("evince") }
 
 ##
 ## Pages
 ##
-var nameNodeId = "input_1";
-var affiliationNodeId = "input_2";
-var dietaryNodeId = "input_3";
-
-typename InputStatus = [|TooManyCharacters|UnsupportedCharacter|OK:Int|];
-typename InputChecker = (inputNodeId:String,
-                         validate:(String) {}~> InputStatus,
-                         render:(DomNode,InputStatus) {}~> ());
-
-
-sig makeInputChecker : (String, Int, Maybe(String)) ~> InputChecker
-fun makeInputChecker(inputNodeId, maxlen, messageNodeId) {
-  sig validate : (String) {}~> InputStatus
-  fun validate(contents) {
-    var contentsLen = strlen(contents);
-    if (contentsLen < maxlen) OK(maxlen - contentsLen)
-    else TooManyCharacters
-  }
-  sig writeMessage : (InputStatus, Maybe(String)) {}~> ()
-  fun writeMessage(status, nodeId) {
-    switch (nodeId) {
-      case Nothing  -> ()
-      case Just(id) ->
-        var node = getNodeById(id);
-        var (message, err) = switch (status) {
-          case OK(rem) -> (intToString(rem) ^^ " characters remaining", false)
-          case TooManyCharacters -> ("too many characters", true)
-          case UnsupportedCharacter -> ("unsupported character", true)
-        };
-        domReplaceChildren(stringToXml(message), node);
-        domSetPropertyFromRef(node, "style", if (err) "color: red;" else "color: black;")
-     }
-  }
-  sig render : (DomNode, InputStatus) {}~> ()
-  fun render(node, status) {
-    switch (status) {
-      case OK(rem) ->
-        domSetPropertyFromRef(node, "style", "border-color: none;");
-        writeMessage(status, messageNodeId)
-      case _ ->
-        domSetPropertyFromRef(node, "style", "border-color: red;border-size: 5px;");
-        writeMessage(status, messageNodeId)
-    }
-  }
-  (inputNodeId=inputNodeId, validate=validate, render=render)
-}
-
-sig checkInput : (InputChecker) -> () {}~> ()
-fun checkInput(checker)() {
-  var inputNode = getNodeById(checker.inputNodeId);
-  var contents  = domGetPropertyFromRef(inputNode, "value");
-  checker.render(inputNode, checker.validate(contents))
-}
-
 sig textarea : (String, () ~> ()) ~> Formlet (String)
 fun textarea(defaultValue, keyUpListener) {
   fun mkTextarea(name, defaultValue, keyUpListener) {
@@ -387,6 +587,11 @@ fun inputField(defaultValue, keyUpListener) {
          ,fun(name, value) { makeInputField(name, value, keyUpListener) })
 }
 
+fun makeSubmitButton(value) {
+  mkInput(fun(name) { <input type="submit" value="{value}" name="{name}" id="{name}" /> },
+          fun(name, _) { <input type="submit" value="{value}" name="{name}" id="{name}" /> })
+}
+
 sig registerForm : (String) ~> Formlet(%)
 fun registerForm(eventId) server {
   fun remainingCharacters(start, max) { stringToXml(intToString(max - strlen(start))) }
@@ -399,7 +604,7 @@ fun registerForm(eventId) server {
           <td>
             <table border="0">
               <tr>
-                <td>{input -> name}</td>
+                <td>{inputField("", InputListener.name(nameNodeId, "name-message")) -> name}</td>
               </tr>
               <tr>
                 <td><span id="name-message">{remainingCharacters("", 64)} characters remaining</span></td>
@@ -412,7 +617,7 @@ fun registerForm(eventId) server {
           <td>
             <table border="0">
               <tr>
-                <td>{inputField("", checkInput(makeInputChecker(affiliationNodeId, 64, Just("affiliation-message")))) -> affiliation}</td>
+                <td>{inputField("", InputListener.affiliation(affiliationNodeId, "affiliation-message")) -> affiliation}</td>
               </tr>
               <tr>
                 <td><span id="affiliation-message">{remainingCharacters("", 64)} characters remaining</span></td>
@@ -425,7 +630,7 @@ fun registerForm(eventId) server {
           <td>
             <table border="0">
               <tr>
-                <td>{textarea("", checkInput(makeInputChecker(dietaryNodeId, 128, Just("dietary-message")))) -> dietary}</td>
+                <td>{textarea("", InputListener.dietary(dietaryNodeId, "dietary-message")) -> dietary}</td>
               </tr>
               <tr>
                 <td><span id="dietary-message">{remainingCharacters("", 128)} characters remaining</span></td>
@@ -434,7 +639,7 @@ fun registerForm(eventId) server {
           </td>
         </tr>
         <tr>
-          <td colspan="2" style="text-align: center;">{submitButton("Register") -> submit}</td>
+          <td colspan="2" style="text-align: center;">{makeSubmitButton("Register") -> submit}</td>
         </tr>
       </table>
     </#>
@@ -450,7 +655,7 @@ fun processRegistration(data) server {
     var stamp = pseudoRandomByteString(data.name ^^ intToString(serverTime()), 128);
     # TODO sanitise input.
     var (registrant : NewRegistrant) = (name=data.name,stamp=stamp,affiliation=data.affiliation,dietary=data.dietary);
-    addRegistrant(data.event, registrant)
+    Registrant.add(data.event, registrant)
   }
 
   handle(reader(defaultConfig(), register)()) {
@@ -509,8 +714,8 @@ fun registrationPage(_) server {
   }
 
   fun loadRegistrationPage(eventId) {
-    var event = getEvent(eventId);
-    var registrants = getRegistrants(event);
+    var event = Event.get(eventId);
+    var registrants = Registrant.getAll(event);
     prepareRegistrationPage(event, registrants)
   }
 
