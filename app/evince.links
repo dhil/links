@@ -2,16 +2,65 @@
 ## Written by Daniel Hillerström (daniel.hillerstrom@ed.ac.uk), April 2019.
 
 ##
+## Foreign functions.
+##
+
+##
 ## Hacky global knowledge.
 ##
-var nameNodeId = "input_1";
-var affiliationNodeId = "input_2";
-var dietaryNodeId = "input_3";
-var submitNodeId = "input_4";
+module Hack {
+  var nameNodeId = "input_0";
+  var affiliationNodeId = "input_1";
+  var dietaryNodeId = "input_2";
+  var submitNodeId = "input_4";
+}
 
 ##
 ## Utilities
 ##
+module Maybe {
+  sig fromJustDefault : (Maybe(a), a) -> a
+  fun fromJustDefault(m, x) {
+    switch (m) {
+      case Nothing -> x
+      case Just(y) -> y
+    }
+  }
+
+  sig unsafeFromJust : (Maybe(a)) ~> a
+  fun unsafeFromJust(m) {
+    switch (m) {
+      case Nothing -> error("fromJust of nothing")
+      case Just(x) -> x
+    }
+  }
+
+  sig map : ((a) -e-> b, Maybe(a)) -e-> Maybe(b)
+  fun map(f, m) {
+    switch (m) {
+      case Nothing -> Nothing
+      case Just(x) -> Just(f(x))
+    }
+  }
+
+  sig isNothing : (Maybe(a)) -> Bool
+  fun isNothing(m) {
+    switch (m) {
+      case Nothing -> true
+      case _       -> false
+    }
+  }
+
+  sig isJust : (Maybe(a)) -> Bool
+  fun isJust(m) {not(isNothing(m))}
+
+  sig just : (a) -> Maybe(a)
+  fun just(x) {Just(x)}
+
+  sig nothing : () -> Maybe(a)
+  fun nothing() {Nothing}
+}
+
 module List {
   sig intersperse : (a, [a]) ~> [a]
   fun intersperse(y, xs) {
@@ -60,6 +109,12 @@ module Char {
 }
 
 module String {
+  sig empty : String
+  var empty = "";
+
+  sig isEmpty : (String) -> Bool
+  fun isEmpty(s) {s == empty}
+
   sig toCharList : (String) ~> [Char]
   fun toCharList(s) {explode(s)}
 
@@ -87,7 +142,7 @@ module String {
   sig glue : (String, [String]) ~> String
   fun glue(glue, strings) {
     fold_right(fun(acc, string) { acc ^^ string }
-               , "", List.intersperse(glue, strings))
+               , String.empty, List.intersperse(glue, strings))
   }
 
   sig trim : (String) ~> String
@@ -123,7 +178,7 @@ module String {
 
   sig stripempty : ([String]) ~> [String]
   fun stripempty(ss) {
-    filter(fun(s) { s <> "" }, ss)
+    filter(fun(s) { not(isEmpty(s)) }, ss)
   }
 
   sig endsWith : (String, Char) ~> Bool
@@ -201,14 +256,12 @@ fun ask() {do Ask}
 sig fail : () {Fail:Zero |_}~> a
 fun fail() {switch(do Fail) { }}
 
-sig maybe : (Comp({Fail:Zero |e}, a)) -> Comp({ |e}, Maybe(a))
+sig maybe : (Comp({Fail:Zero |e}, a)) {Fail{_} |e}~> Maybe(a)
 fun maybe(m) {
-  (fun() {
-    handle(m()) {
-      case Return(x) -> Just(x)
-      case Fail      -> Nothing
-    }
-  } : (Comp({ |e}, Maybe(a))) <- (Comp({Fail- |e}, Maybe(a))))
+  handle(m()) {
+    case Return(x) -> Just(x)
+    case Fail      -> Nothing
+  }
 }
 
 sig lookup : (a, [(a, b)]) {Fail:Zero |_}~> b
@@ -221,7 +274,7 @@ fun lookup(x, xs) {
 }
 
 ##
-## Input Checking
+## Handling of input
 ##
 typename InputValidationResult = [|TooManyCharacters|UnsupportedCharacter:Char|OK:Int|];
 typename InputValidator = (String) {}~> InputValidationResult;
@@ -284,7 +337,7 @@ module InputValidator {
   fun affiliation(s) {apply(name, s)}
 
   sig dietary : InputValidator
-  fun dietary(s) { apply(compose(maxlength(64), onlyAscii), s) }
+  fun dietary(s) { apply(compose(maxlength(128), onlyAscii), s) }
 }
 
 typename InputAction = (InputValidationResult) {}~> ();
@@ -345,14 +398,16 @@ module InputListener {
       case UnsupportedCharacter(c) -> ("Unsupported character '" ^^ String.fromChar(c) ^^ "'", true)
       case TooManyCharacters -> ("Too many characters", true)
     };
-    <span>{stringToXml(msg)}</span>
+    var xmlMsg = stringToXml(msg);
+    if (err) <span style="color:red;">{xmlMsg}</span>
+    else xmlMsg
   }
 
   sig name : (String, String) -> InputListener
   fun name(nameNodeId, messageNodeId) {
      make( InputValidator.name
          , InputAction.compose(
-             InputAction.compose( InputAction.toggle(submitNodeId)
+             InputAction.compose( InputAction.toggle(Hack.submitNodeId)
                                  , InputAction.highlight(nameNodeId))
             , InputAction.alert(message, messageNodeId))
          , nameNodeId)
@@ -365,7 +420,7 @@ module InputListener {
   fun dietary(dietaryNodeId, messageNodeId) {
      make( InputValidator.dietary
          , InputAction.compose(
-             InputAction.compose( InputAction.toggle(submitNodeId)
+             InputAction.compose( InputAction.toggle(Hack.submitNodeId)
                                  , InputAction.highlight(dietaryNodeId))
             , InputAction.alert(message, messageNodeId))
          , dietaryNodeId)
@@ -423,7 +478,7 @@ typename NewEvent = (name:String);
 
 typename ProtoRegistrant(e::Row) = (id:Int,event:String,dietary:String,affiliation:String,timestamp:String,name:String,stamp:String);
 typename RawRegistrant = (event:String,dietary:String,affiliation:String,name:String,stamp:String);
-typename Registrant = (id:Int,dietary:String,affiliation:String,name:String);
+typename Registrant = (id:Int,dietary:String,affiliation:String,name:String,stamp:String);
 typename NewRegistrant = (name:String,affiliation:String,dietary:String,stamp:String);
 
 typename Config = (events: () {}~> TableHandle(RawEvent, RawEvent, RawEvent),
@@ -480,7 +535,7 @@ module Event {
 
 module Registrant {
   fun interpRaw(r) {
-    (name=r.name,affiliation=r.affiliation,dietary=r.dietary,id=r.id)
+    (name=r.name,affiliation=r.affiliation,dietary=strunescape(r.dietary),id=r.id,stamp=r.stamp)
   }
 
   sig add : (String, NewRegistrant) {Ask:Config, Fail:Zero |_}~> Registrant
@@ -499,8 +554,22 @@ module Registrant {
     Database.expectSingle(interpRaw, result)
   }
 
-  sig remove : (Registrant) {Ask:Config, Fail:Zero |_}~> ()
-  fun remove(x) server { () }
+  sig remove : (String, Registrant) {Ask:Config, Fail:Zero |_}~> ()
+  fun remove(eventId, registrant) server {
+    var config = ask();
+    var registrants = gen0(config.readRegistrants)();
+    delete (dbregistrant <-- registrants)
+    where (dbregistrant.id == registrant.id && dbregistrant.event == eventId && dbregistrant.stamp == registrant.stamp);
+  }
+
+  sig modify : (String, Registrant) {Ask:Config |_}~> ()
+  fun modify(eventId, registrant) server {
+    var config = ask();
+    var registrants = gen0(config.readRegistrants)();
+    update (dbregistrant <-- registrants)
+    where (dbregistrant.id == registrant.id && dbregistrant.event == eventId)
+    set (name=registrant.name,affiliation=registrant.affiliation,dietary=registrant.dietary)
+  }
 
   sig get : (String, Int) {Ask:Config, Fail:Zero |_}~> Registrant
   fun get(eventId, id) server {
@@ -515,6 +584,19 @@ module Registrant {
     Database.expectSingle(interpRaw, results)
   }
 
+  sig getUsing : (String, Int, String) {Ask:Config, Fail:Zero |_}~> Registrant
+  fun getUsing(eventId, id, stamp) server {
+    var config = ask();
+    var registrants = gen0(config.readRegistrants)();
+    var results = query {
+      for (registrant <-- registrants)
+      where (registrant.stamp == stamp && registrant.id == id && registrant.event == eventId)
+      [registrant]
+    };
+
+    Database.expectSingle(interpRaw, results)
+  }
+
   sig getAll : (Event) {Ask:Config |_}~> [Registrant]
   fun getAll(ev) server {
     var config = ask();
@@ -522,10 +604,10 @@ module Registrant {
     var results = query {
        for (registrant <-- registrants)
        where (registrant.event == ev.id)
-       orderby (registrant.id)
+       orderby (registrant.name)
        [registrant]
     };
-    map(interpRaw, results)
+    map(interpRaw, reverse(results))
   }
 }
 
@@ -592,22 +674,45 @@ fun makeSubmitButton(value) {
           fun(name, _) { <input type="submit" value="{value}" name="{name}" id="{name}" /> })
 }
 
-sig registerForm : (String) ~> Formlet(%)
-fun registerForm(eventId) server {
-  fun remainingCharacters(start, max) { stringToXml(intToString(max - strlen(start))) }
+sig closedForm : () ~> Formlet(%)
+fun closedForm() server {
   formlet
     <#>
-      { inputA([("style", "display:none"), ("value", eventId)]) -> eventId }
+      {stringToXml("Registration is closed.")}
+    </#>
+    yields
+      (event = "",
+       name = "",
+       affiliation = "",
+       dietary = "",
+       deleteMe = false,
+       id = Nothing,
+       stamp = Nothing)
+}
+
+sig registerForm : (Event, Maybe(Registrant)) ~> Formlet(%)
+fun registerForm(event, registrant) server {
+  fun remainingCharacters(start, max) { stringToXml(intToString(max - strlen(start))) }
+  var name = Maybe.fromJustDefault(Maybe.map(fun(r) { r.name }, registrant), String.empty);
+  var affiliation = Maybe.fromJustDefault(Maybe.map(fun(r) { r.affiliation }, registrant), String.empty);
+  var dietary = Maybe.fromJustDefault(Maybe.map(fun(r) { r.dietary }, registrant), String.empty);
+  var uid = Maybe.map(fun(r) { r.id }, registrant);
+  var stamp = Maybe.map(fun(r) { r.stamp }, registrant);
+  var (submitButtonLabel, deleteStyle) =
+     if (Maybe.isNothing(uid)) ("Register", "display:none")
+     else ("Update", "");
+  formlet
+    <#>
       <table border="1">
         <tr>
           <td>Name:</td>
           <td>
             <table border="0">
               <tr>
-                <td>{inputField("", InputListener.name(nameNodeId, "name-message")) -> name}</td>
+                <td>{inputField(name, InputListener.name(Hack.nameNodeId, "name-message")) -> name}</td>
               </tr>
               <tr>
-                <td><span id="name-message">{remainingCharacters("", 64)} characters remaining</span></td>
+                <td><span id="name-message">{remainingCharacters(name, 64)} characters remaining</span></td>
               </tr>
             </table>
           </td>
@@ -617,10 +722,10 @@ fun registerForm(eventId) server {
           <td>
             <table border="0">
               <tr>
-                <td>{inputField("", InputListener.affiliation(affiliationNodeId, "affiliation-message")) -> affiliation}</td>
+                <td>{inputField(affiliation, InputListener.affiliation(Hack.affiliationNodeId, "affiliation-message")) -> affiliation}</td>
               </tr>
               <tr>
-                <td><span id="affiliation-message">{remainingCharacters("", 64)} characters remaining</span></td>
+                <td><span id="affiliation-message">{remainingCharacters(affiliation, 64)} characters remaining</span></td>
               </tr>
             </table>
            </td>
@@ -630,102 +735,195 @@ fun registerForm(eventId) server {
           <td>
             <table border="0">
               <tr>
-                <td>{textarea("", InputListener.dietary(dietaryNodeId, "dietary-message")) -> dietary}</td>
+                <td>{textarea(dietary, InputListener.dietary(Hack.dietaryNodeId, "dietary-message")) -> dietary}</td>
               </tr>
               <tr>
-                <td><span id="dietary-message">{remainingCharacters("", 128)} characters remaining</span></td>
+                <td><span id="dietary-message">{remainingCharacters(dietary, 128)} characters remaining</span></td>
               </tr>
             </table>
           </td>
         </tr>
+        <tr style="{deleteStyle}">
+          <td>Delete</td>
+          <td>{checkbox -> deleteMe}</td>
+        </tr>
         <tr>
-          <td colspan="2" style="text-align: center;">{makeSubmitButton("Register") -> submit}</td>
+          <td colspan="2" style="text-align: center;">
+            {makeSubmitButton(submitButtonLabel) -> submit}
+          </td>
         </tr>
       </table>
     </#>
     yields
-      (event = eventId,
-       name=name,
-       affiliation=affiliation,
-       dietary=dietary)
+      (event = event.id,
+       name = name,
+       affiliation = affiliation,
+       dietary = dietary,
+       deleteMe = deleteMe,
+       id = uid,
+       stamp = stamp)
 }
 
-fun processRegistration(data) server {
-  fun register() {
-    var stamp = pseudoRandomByteString(data.name ^^ intToString(serverTime()), 128);
-    # TODO sanitise input.
-    var (registrant : NewRegistrant) = (name=data.name,stamp=stamp,affiliation=data.affiliation,dietary=data.dietary);
-    Registrant.add(data.event, registrant)
+module RegistrationPage {
+  sig failurePage : (String) ~> Page
+  fun failurePage(errorMessage) {
+    page
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Error</title>
+        </head>
+        <body>
+          <h1>Error: {stringToXml(errorMessage)}</h1>
+        </body>
+      </html>
   }
 
-  handle(reader(defaultConfig(), register)()) {
-    case Fail      -> error("Failure")
-    case Return(x) ->
-      #setCookie("rsvp-" ^^ data.event, stamp);
-      page
-       <#>
-         <h1>Thank you</h1>
-       </#>
+mutual {
+  sig mainPage : (Event, [Registrant], Maybe(Registrant)) ~> Page
+  fun mainPage(event, registrants, registrant) {
+    var name = stringToXml(event.name);
+    var date = stringToXml(formatDate(event.date));
+    var numAttendees = intToXml(length(registrants));
+
+    page
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>RSVP for {name} ({date})</title>
+          <link rel="stylesheet" type="text/css" href="static/css/style.css" />
+        </head>
+        <body>
+          <h1>Event {name}, {date}</h1>
+          <h2>Register</h2>
+          { (if (event.done) closedForm() else registerForm(event, registrant)) => processRegistration }
+          <h2>Attendees ({numAttendees})</h2>
+          <ul>
+          { for (registrant <- registrants) {
+              var nameAffiliation =
+                registrant.name ^^
+                  (if (not(String.isEmpty(registrant.affiliation))) ", " ^^ registrant.affiliation else String.empty);
+              <li>
+                {stringToXml(nameAffiliation)}
+              </li>
+            }
+          }
+          </ul>
+          <hr />
+          <h2>About this application</h2>
+          <p>This application is powered by <a href="http://links-lang.org">modern programming technology based on cutting-edge research</a> for implementing modular, expressive, efficient, robust, and safe multi tier web applications.</p>
+          <p>In fact, this application is so robust and safe, that users may only input characters from the US-ASCII character set.</p>
+          <h3>References</h3>
+          <ul>
+            <li>S. Fowler, S. Lindley, J. G. Morris, and S. Decova,
+                <a href="http://www.simonjf.com/writing/zap.pdf">Exceptional Asynchronous Session Types: Session Types without Tiers</a>, POPL 2019</li>
+            <li>D. Hillerstrom and S. Lindley, <a href="http://homepages.inf.ed.ac.uk/slindley/papers/handlers-cps.pdf">Continuation Passing Style for Effect Handlers</a>, FSCD 2017</li>
+            <li>S. Lindley and J. G. Morris, <a href="http://homepages.inf.ed.ac.uk/slindley/papers/fst.pdf">Lightweight functional session types</a>, in <i>Behavioural Types: from Theory to Tools</i> 2017</li>
+            <li>D. Hillerstrom and S. Lindley, <a href="http://homepages.inf.ed.ac.uk/s1467124/papers/liberating_effects-tyde2016.pdf">Liberating Effects with Rows and Handlers</a>, TyDe@ICFP 2016</li>
+            <li>S. Lindley and J. Cheney, <a href="http://homepages.inf.ed.ac.uk/slindley/papers/corelinks.pdf">Row-based effect types for database integration</a>, TLDI 2012</li>
+            <li>E. Cooper, S. Lindley, P. Wadler, and J. Yallop, <a href="http://links-lang.org/formlets/">The essence of form abstraction</a>, APLAS 2008</li>
+            <li>E. Cooper, S. Lindley, P. Wadler, and J. Yallop, <a href="http://links-lang.org/papers/links-fmco06.pdf">Links: web programming without tiers</a>, FMCO 2006</li>
+          </ul>
+        </body>
+      </html>
+  }
+
+  fun processRegistration(data) server {
+    fun sanitise(data) {
+      switch ((gen1(Sanitise.name)(data.name)
+             , gen1(Sanitise.affiliation)(data.affiliation)
+             , gen1(Sanitise.dietary)(data.dietary))) {
+       case (OK(name), OK(affiliation), OK(dietary)) ->
+         (data with name = name, affiliation = affiliation, dietary = dietary)
+       case _ -> fail()
+      }
+    }
+
+    fun register(event, data) {
+      var stamp = pseudoRandomByteString(data.name ^^ intToString(serverTime()), 128);
+      var (registrant : NewRegistrant) = (name=data.name,stamp=stamp,affiliation=data.affiliation,dietary=data.dietary);
+      var registrant = Registrant.add(data.event, registrant);
+      # Set cookie parameters.
+      setCookie("rsvp-" ^^ event.id, intToString(registrant.id) ^^ ":" ^^ stamp);
+      Just(registrant)
+    }
+
+    fun modify(event, data) {
+      var registrant = Registrant.getUsing(event.id, data.id, data.stamp);
+      var registrant = (registrant with name = data.name, affiliation = data.affiliation, dietary = strunescape(data.dietary));
+      Registrant.modify(event.id, registrant);
+      Just(registrant)
+    }
+
+    fun remove(event, data) {
+      # Unset cookie.
+      setCookie("rsvp-" ^^ event.id, "");
+      Registrant.remove(event.id, Registrant.getUsing(event.id, data.id, data.stamp));
+      Nothing
+    }
+
+    fun processData() {
+      var event =
+        if (String.isEmpty(data.event)) fail()
+        else Event.get(data.event);
+      var registrant = switch ((data.id, data.stamp)) {
+        case (Nothing, Nothing)  -> register(event, sanitise(data))
+        case (Just(id), Just(stamp)) ->
+          var data = sanitise((data with id = id, stamp = stamp));
+          if (data.deleteMe) remove(event, data)
+          else modify(event, data)
+        case _ -> fail()
+      };
+
+      switch (registrant) {
+        case Just(registrant) -> loadUsing(event, registrant)("")
+        case Nothing ->
+          page
+           <#>
+            <h1>Thank you</h1>
+           </#>
+      }
+    }
+
+    handle(reader(defaultConfig(), processData)()) {
+      case Fail      -> failurePage("fatal internal error")
+      case Return(successPage) -> successPage
+    }
+  }
+
+  sig loadUsingEnvironment : (String) {Ask:Config,Fail{_} |_}~> Page
+  fun loadUsingEnvironment(resource) {
+    fun tryLoadRegistrant(event)() {
+      var data = getCookie("rsvp-" ^^ event.id);
+      if (not(String.isEmpty(data))) {
+        var (id, stamp) = switch (String.split(':', data)) {
+          case [id, stamp] -> (stringToInt(id), stamp)
+          case _           -> fail()
+        };
+        Registrant.getUsing(event.id, id, stamp)
+      } else fail()
+    }
+
+    handle(Event.get(lookup("id", environment()))) {
+      case Fail -> failurePage("no such event")
+      case Return(event) ->
+        handle(Registrant.getAll(event)) {
+          case Fail -> failurePage("fatal internal error")
+          case Return(registrants) ->
+            var registrant = maybe(tryLoadRegistrant(event));
+            mainPage(event, registrants, registrant)
+        }
+    }
+  }
+
+  sig loadUsing : (Event, Registrant) -> (String) {Ask:Config,Fail{_} |_}~>Page
+  fun loadUsing(event, registrant)(resource) {
+    handle(Registrant.getAll(event)) {
+      case Fail -> failurePage("fatal internal error")
+      case Return(registrants) -> mainPage(event, registrants, Maybe.just(registrant))
+    }
   }
 }
-
-
-fun registrationPage(_) server {
-  fun prepareRegistrationPage(event, registrants)() {
-     var name = stringToXml(event.name);
-     var date = stringToXml(formatDate(event.date));
-     var numAttendees = intToXml(length(registrants));
-
-     page
-       <html>
-         <head>
-           <meta charset="utf-8" />
-           <title>RSVP for {name} ({date})</title>
-           <link rel="stylesheet" type="text/css" href="static/css/style.css" />
-         </head>
-         <body>
-           <h1>Event {name}, {date}</h1>
-           <h2>Register</h2>
-           { registerForm(event.id) => processRegistration }
-           <h2>Attendees ({numAttendees})</h2>
-           <ul>
-           { for (registrant <- registrants) {
-               <li>
-                 {stringToXml(registrant.name ^^ (if (registrant.affiliation <> "") ", " ^^ registrant.affiliation else ""))}
-               </li>
-             }
-           }
-           </ul>
-         </body>
-       </html>
-  }
-
-  fun onFailurePage() {
-     page
-       <html>
-         <head>
-           <meta charset="utf-8" />
-           <title>Error</title>
-         </head>
-         <body>
-           <h1>Error: no such event</h1>
-         </body>
-       </html>
-  }
-
-  fun loadRegistrationPage(eventId) {
-    var event = Event.get(eventId);
-    var registrants = Registrant.getAll(event);
-    prepareRegistrationPage(event, registrants)
-  }
-
-  handle({
-    var id = lookup("id", environment());
-    loadRegistrationPage(id)
-  }) {
-    case Fail                -> onFailurePage()
-    case Return(successPage) -> successPage()
-  }
 }
 
 ##
@@ -737,7 +935,7 @@ fun preparePage(genPage)(resource) {
 
 
 fun main() server {
-  addRoute("/", preparePage(registrationPage));
+  addRoute("/", preparePage(RegistrationPage.loadUsingEnvironment));
 
   addStaticRoute("/static/css", "app/static/css", [("css", "text/css")]);
 
