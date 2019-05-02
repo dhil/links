@@ -811,16 +811,18 @@ mutual {
           </ul>
           <hr />
           <h2>About this application</h2>
-          <p>This application is powered by <a href="http://links-lang.org">modern programming technology based on cutting-edge research</a> for implementing modular, expressive, efficient, robust, and safe multi tier web applications.</p>
-          <p>In fact, this application is so robust and safe, that users may only input characters from the US-ASCII character set.</p>
+          <p>This application is powered by <a href="http://links-lang.org">modern programming technology based on cutting-edge research</a> for implementing modular, expressive, efficient, robust, and safe multi-tier web applications.</p>
+          <p>In fact, this application is so robust and safe, that users may only input characters from the "modern" US-ASCII character set.</p>
           <h3>References</h3>
           <ul>
             <li>S. Fowler, S. Lindley, J. G. Morris, and S. Decova,
                 <a href="http://www.simonjf.com/writing/zap.pdf">Exceptional Asynchronous Session Types: Session Types without Tiers</a>, POPL 2019</li>
-            <li>D. Hillerström and S. Lindley, <a href="http://homepages.inf.ed.ac.uk/slindley/papers/handlers-cps.pdf">Continuation Passing Style for Effect Handlers</a>, FSCD 2017</li>
+            <!--<li>D. Hillerstrom and S. Lindley, <a href="http://homepages.inf.ed.ac.uk/slindley/papers/shallow-extended.pdf">Shallow Effect Handlers</a>, APLAS 2018</li>-->
+            <li>D. Hillerstrom and S. Lindley, <a href="http://homepages.inf.ed.ac.uk/slindley/papers/handlers-cps.pdf">Continuation Passing Style for Effect Handlers</a>, FSCD 2017</li>
             <li>S. Lindley and J. G. Morris, <a href="http://homepages.inf.ed.ac.uk/slindley/papers/fst.pdf">Lightweight functional session types</a>, in <i>Behavioural Types: from Theory to Tools</i> 2017</li>
-            <li>D. Hillerström and S. Lindley, <a href="http://homepages.inf.ed.ac.uk/s1467124/papers/liberating_effects-tyde2016.pdf">Liberating Effects with Rows and Handlers</a>, TyDe@ICFP 2016</li>
+            <li>D. Hillerstrom and S. Lindley, <a href="http://homepages.inf.ed.ac.uk/s1467124/papers/liberating_effects-tyde2016.pdf">Liberating Effects with Rows and Handlers</a>, TyDe@ICFP 2016</li>
             <li>S. Lindley and J. Cheney, <a href="http://homepages.inf.ed.ac.uk/slindley/papers/corelinks.pdf">Row-based effect types for database integration</a>, TLDI 2012</li>
+            <li>E. Cooper, <a href="http://www.ezrakilty.net/pubs/dbpl-sqlizability.pdf">The Script-Writer's Dream: How to Write Great SQL in Your Own Language, and Be Sure It Will Succeed</a>, DBPL 2009</li>
             <li>E. Cooper, S. Lindley, P. Wadler, and J. Yallop, <a href="http://links-lang.org/formlets/">The essence of form abstraction</a>, APLAS 2008</li>
             <li>E. Cooper, S. Lindley, P. Wadler, and J. Yallop, <a href="http://links-lang.org/papers/links-fmco06.pdf">Links: web programming without tiers</a>, FMCO 2006</li>
           </ul>
@@ -904,7 +906,7 @@ mutual {
       } else fail()
     }
 
-    handle(Event.get(lookup("id", environment()))) {
+    handle(Event.get(lookup("event", environment()))) {
       case Fail -> failurePage("no such event")
       case Return(event) ->
         handle(Registrant.getAll(event)) {

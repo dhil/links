@@ -2,3 +2,15 @@
 td {
   vertical-align: top;
 }
+
+li {
+  line-height: 1.5em;
+}
+
+input, textarea {
+  width: 228px;
+}
+
+textarea {
+    height:50px;
+}
