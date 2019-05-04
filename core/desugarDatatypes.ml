@@ -204,14 +204,14 @@ struct
             let _qtycon_expanded_name =
               try
                 begin match FrontendTypeEnv.lookup_tycons_with_orig_path type_env qtycon with
-                  | None, _ -> QualifiedName.canonical_name qtycon
+                  | None, _ -> QualifiedName.to_string qtycon
                   | Some prefix, _ ->
-                     QualifiedName.canonical_name (QualifiedName.append prefix qtycon)
+                     QualifiedName.to_string (QualifiedName.append prefix qtycon)
                 end
               with | FrontendTypeEnv.ModuleNotFound _
                    | FrontendTypeEnv.TyConsNotFound _ ->
                       (* We ignore these errors for now, they will be handled further down *)
-                      QualifiedName.canonical_name qtycon
+                      QualifiedName.to_string qtycon
             in
             let match_quantifiers qs =
               let match_kinds i (q, t) =
@@ -224,7 +224,7 @@ struct
                 let t_kind = primary_kind_of_type_arg t in
                 if q_kind <> t_kind then
                   raise (TypeApplicationKindMismatch {pos;
-                    name=QualifiedName.canonical_name qtycon;
+                    name=QualifiedName.to_string qtycon;
                     tyarg_number=i;
                     expected=PrimaryKind.to_string q_kind;
                     provided=PrimaryKind.to_string t_kind})
@@ -246,7 +246,7 @@ struct
                 with
                 | ListUtils.Lists_length_mismatch ->
                     raise (TypeApplicationArityMismatch {pos;
-                      name=QualifiedName.canonical_name qtycon;
+                      name=QualifiedName.to_string qtycon;
                       expected=List.length qs; provided=List.length ts})
               end in
 
@@ -719,8 +719,9 @@ object (self : 'self_type)
        ({< type_env = updated_type_env;
            cur_module_additions = updated_additions_env>},
         Module (name, module_t, bs))
-    | Import qname ->
-       ({< type_env = FrontendTypeEnv.open_module qname type_env type_env >}, Import qname)
+    | Import import when Import.is_local import -> (* TODO remove this; name resolution should makes this redundant. *)
+       let qname = Import.as_qualified_name import in
+       ({< type_env = FrontendTypeEnv.open_module qname type_env type_env >}, Import import)
 
     | b -> super#bindingnode b
 

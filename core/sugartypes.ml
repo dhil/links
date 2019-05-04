@@ -35,6 +35,29 @@ module Binder = struct
       )
 end
 
+(* Open and import expressions. *)
+module Import = struct
+  type kind = Local | Global
+  and t = QualifiedName.t * kind
+   [@@deriving show]
+
+  let local qname = (qname, Local)
+  let global qname = (qname, Global)
+
+  let is_local = function (_, Local) -> true | _ -> false
+  let is_global import = not (is_local import)
+
+  let map f (qname, kind) = (f qname, kind)
+
+  let reduce f (qname, _) = f qname
+
+  let reduce_map f (qname, kind) =
+       let (x, qname') = f qname in
+       (x, (qname', kind))
+
+  let as_qualified_name (qname, _) = qname
+end
+
 (* type variables *)
 type tyvar = Types.quantifier
   [@@deriving show]
@@ -276,6 +299,7 @@ and bindingnode =
   | Exp     of phrase
   | Module  of name * Types.module_t option * binding list
   | AlienBlock of name * name * ((Binder.with_pos * datatype') list)
+  | Import  of Import.t
 and binding = bindingnode WithPos.t
 and block_body = binding list * phrase
 and cp_phrasenode =

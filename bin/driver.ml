@@ -172,9 +172,9 @@ let run_files_and_dependencies
   paths
     : Evaluation_env.t * (Value.t * Types.datatype) list =
 
-
   let sources_and_dependencies =
-    Loader.load_source_files_and_dependencies paths in
+    Loader.load_source_files_and_dependencies paths
+  in
 
   (* First, we perform the processing from source to ir on each file *)
   let process_file source (cur_env, bss) =

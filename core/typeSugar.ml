@@ -1367,10 +1367,10 @@ end
                "variable " ^ v ^ " is linear.")
 
     let unknown_variable pos var =
-      die pos ("Unknown variable " ^ QualifiedName.canonical_name var)
+      die pos (Printf.sprintf "Unknown variable %s" (QualifiedName.to_string var))
 
-    let unknown_module pos moodule =
-      die pos ("Unknown module " ^ QualifiedName.canonical_name moodule)
+    let unknown_module pos module' =
+      die pos (Printf.sprintf "Unknown module %s" (QualifiedName.to_string module'))
 end
 
 type context = FrontendTypeEnv.t
@@ -3989,10 +3989,13 @@ and type_binding : context -> binding -> binding * context * usagemap =
            bind_module empty_context (module_name, module_type) in
          let module_usages = usage_builder StringMap.empty in
           Module (module_name, Some module_type, bindings), context', module_usages
-      | Import module_path ->
+      | Import import when Import.is_local import -> (* TODO remove this. *)
+         let module_path = Import.as_qualified_name import in
          let full_path, _ = resolve_qualified_module_name pos context module_path in
          let context' = open_module module_path context empty_context in
-         Import full_path, context', StringMap.empty
+         Import (Import.local full_path), context', StringMap.empty
+      | (Import _) as e -> (* TODO remove this. *)
+         e, context, StringMap.empty
     in
       WithPos.make ~pos typed, ctxt, usage
 and type_regex typing_env : regex -> regex =

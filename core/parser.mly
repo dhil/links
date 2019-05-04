@@ -240,7 +240,7 @@ end
 
 %token END
 %token EQ IN
-%token MODULE OPEN
+%token MODULE OPEN IMPORT
 %token FUN LINFUN RARROW LOLLI FATRARROW VAR OP
 %token SQUIGRARROW SQUIGLOLLI TILDE
 %token IF ELSE
@@ -387,15 +387,16 @@ nofun_declaration:
                                                                  set assoc (from_option default_fixity $2) (WithPos.node $3);
                                                                  with_pos $loc Infix }
 | signature? tlvarbinding SEMICOLON                            { val_binding' ~ppos:$loc($2) (sig_of_opt $1) $2 }
-| typedecl SEMICOLON | module_binding | module_import          { $1 }
+| typedecl SEMICOLON | module_binding | module_open          { $1 }
+| IMPORT separated_nonempty_list(DOT, CONSTRUCTOR) SEMICOLON   { import ~ppos:$loc Import.(global (QualifiedName.of_path $2)) }
 
 module_binding:
 | MODULE CONSTRUCTOR LBRACE declarations? RBRACE               { let decls = match $4 with
                                                                     | None -> []
                                                                     | Some xs -> xs
                                                                  in with_pos $loc (Module ($2, None, decls)) }
-module_import:
-| OPEN separated_nonempty_list(DOT, CONSTRUCTOR) SEMICOLON     { with_pos $loc (Import (QualifiedName.of_path $2)) }
+module_open:
+| OPEN separated_nonempty_list(DOT, CONSTRUCTOR) SEMICOLON     { import ~ppos:$loc Import.(local (QualifiedName.of_path $2)) }
 
 alien_datatype:
 | VARIABLE COLON datatype SEMICOLON                            { (binder ~ppos:$loc($1) $1, datatype $3) }
@@ -924,7 +925,7 @@ binding:
 | linearity VARIABLE arg_lists block                           { fun_binding ~ppos:$loc  NoSig   ($1, $2, $3, loc_unknown, $4) }
 | typed_handler_binding                                        { handler_binding ~ppos:$loc NoSig $1 }
 | typedecl SEMICOLON | alien_block
-| module_binding | module_import                               { $1 }
+| module_binding | module_open                               { $1 }
 
 mutual_binding_block:
 | MUTUAL LBRACE mutual_bindings RBRACE                         { MutualBindings.flatten $3 }

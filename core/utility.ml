@@ -86,6 +86,20 @@ module String = struct
   include String
   let pp = Format.pp_print_string
   let show = fun x -> x
+
+  let is_capitalized_ascii s =
+    let _A = 65 in
+    let _Z = 90 in
+    String.compare s "" <> 0
+    && (let c = Char.code (String.get s 0) in
+        _A <= c && c <= _Z)
+
+  let is_uncapitalized_ascii s =
+    let a = 97 in
+    let z = 122 in
+    String.compare s "" <> 0
+    && (let c = Char.code (String.get s 0) in
+        a <= c && c <= z)
 end
 
 module Int = struct
@@ -259,6 +273,145 @@ struct
   end
 end
 
+(* The trie / prefix tree implementation is based on the trie
+   structure from Jean-Christophe Filliatre's data structures library
+   (see https://www.lri.fr/~filliatr/ftp/ocaml/ds/). This
+   implementation has been slightly optimised to reduce the amount
+   allocations such as closure allocations and pairs. *)
+module Trie = struct
+  (* Subset of Map.S *)
+  module type S = sig
+    type key
+    type +'a t
+
+    val empty : 'a t
+    val is_empty : 'a t -> bool
+    val add : key -> 'a -> 'a t -> 'a t
+    val find : key -> 'a t -> 'a
+    val remove : key -> 'a t -> 'a t
+    val mem : key -> 'a t -> bool
+    val map : ('a -> 'b) -> 'a t -> 'b t
+    val iter : (key -> 'a -> unit) -> 'a t -> unit
+    val fold : (key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
+    val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+    val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
+  end
+
+  module Make(M : S) = struct
+    type key = M.key list
+    type 'a t = Node of 'a option * 'a t M.t
+
+    let empty = Node (None, M.empty)
+
+    let is_empty = function
+      | Node (None, m) -> M.is_empty m
+      | _ -> false
+
+    let rec find prefix trie =
+      match prefix, trie with
+      | [], Node (None, _) -> raise Not_found
+      | [], Node (Some v, _) -> v
+      | key :: prefix, Node (_, m) -> find prefix (M.find key m)
+
+    let mem prefix trie =
+      try ignore(find prefix trie); true
+      with Not_found -> false
+
+    let add prefix value trie =
+      let rec insert prefix value trie =
+        match prefix, trie with
+        | [], Node (_, m) -> Node (Some value, m)
+        | key :: prefix, Node (value', m) ->
+           let trie' = try M.find key m with Not_found -> empty in
+           Node (value', M.add key (insert prefix value trie') m)
+      in
+      insert prefix value trie
+
+    (* This alternative version of [add] calls [if_absent] with
+       [value] whenever [prefix] leads to the empty tree, and
+       [if_present] whenever [prefix] leads to a value. This interface
+       enables efficient non-overwriting insertions.  *)
+    let add' : if_absent:('b -> 'a) ->
+               if_present:('b -> 'a -> 'a) ->
+               key -> 'b -> 'a t -> 'a t
+      = fun ~if_absent ~if_present prefix value trie ->
+      let rec insert if_absent if_present prefix value trie =
+        match prefix, trie with
+        | [], Node (None, m) -> Node (Some (if_absent value), m)
+        | [], Node (Some value', m) -> Node (Some (if_present value value'), m)
+        | key :: prefix, Node (value', m) ->
+           let trie' = try M.find key m with Notfound.NotFound _ -> empty in
+           Node (value', M.add key (insert if_absent if_present prefix value trie') m)
+      in
+      insert if_absent if_present prefix value trie
+
+    let rec remove prefix trie =
+      match prefix, trie with
+      | [], Node (_, m) -> Node (None, m)
+      | key :: prefix, Node (value, m) ->
+         try
+           let trie' = remove prefix (M.find key m) in
+           let trie' =
+             if is_empty trie'
+             then M.remove key m
+             else M.add key trie' m
+           in
+           Node (value, trie')
+         with Not_found -> trie
+
+    let rec map f = function
+      | Node (None, m)   -> Node (None, M.map (map f) m)
+      | Node (Some v, m) -> Node (Some (f v), M.map (map f) m)
+
+    let fold f trie z =
+      let rec loop prefix trie z =
+        match trie with
+        | Node (None, m) ->
+           M.fold (fun key -> loop (key :: prefix)) m z
+        | Node (Some v, m) ->
+           f (List.rev prefix) v (M.fold (fun key -> loop (key :: prefix)) m z)
+      in
+      loop [] trie z
+
+    let iter f trie =
+      let rec loop prefix trie =
+        match trie with
+        | Node (None, m) ->
+           M.iter (fun key -> loop (key :: prefix)) m
+        | Node (Some v, m) ->
+           f (List.rev prefix) v;
+           M.iter (fun key -> loop (key :: prefix)) m
+      in
+      loop [] trie
+
+    let compare value_compare m m' =
+      let rec compare m m' =
+        match m, m' with
+        | Node (Some _, _), Node (None, _) -> 1
+        | Node (None, _), Node (Some _, _) -> -1
+        | Node (None, m), Node (None, m') ->
+           M.compare compare m m'
+        | Node (Some x, m), Node (Some y, m') ->
+           let result = value_compare x y in
+           if result <> 0
+           then result
+           else M.compare compare m m'
+      in
+      compare m m'
+
+    let equal value_eq m m' =
+      let rec compare m m' =
+        match m, m' with
+        | Node (None, m), Node (None, m') ->
+           M.equal compare m m'
+        | Node (Some x, m), Node (Some y, m') ->
+           value_eq x y && M.equal compare m m'
+        | _ -> false
+      in
+      compare m m'
+  end
+end
+
 module type INTSET = Set with type elt = int
 module IntSet = Set.Make(Int)
 module IntMap = Map.Make(Int)
@@ -273,6 +426,8 @@ module StringMap : STRINGMAP = Map.Make(String)
 module type CHARSET = Set with type elt = char
 module CharSet : CHARSET = Set.Make(Char)
 module CharMap = Map.Make(Char)
+
+module StringTrie = Trie.Make(StringMap)
 
 type stringset = StringSet.t
     [@@deriving show]
@@ -727,13 +882,6 @@ let filter_through : command:string -> string -> string =
 let newer f1 f2 =
    ((Unix.stat f1).Unix.st_mtime > (Unix.stat f2).Unix.st_mtime)
 
-(** Given a path name, possibly relative to CWD, return an absolute
-    path to the same file. *)
-let absolute_path filename =
-  if Filename.is_relative filename then
-    Filename.concat (Sys.getcwd()) filename
-  else filename
-
 (** Is the UID of the process is the same as that of the file's owner? *)
 let getuid_owns file =
   Unix.getuid() == (Unix.stat file).Unix.st_uid
@@ -1041,3 +1189,26 @@ let strip_slashes = (strip_leading_slash -<- strip_trailing_slash)
 
 
 let format_omission : Format.formatter -> unit = fun fmt -> Format.pp_print_string fmt "..."
+
+module Filename = struct
+  include Filename
+
+  (* Computes the absolute path of [filename] irrespective of whether
+     [filename] actually exists. *)
+  let absolute_path filename =
+    let filename =
+      if is_relative filename
+      then concat (Sys.getcwd ()) filename
+      else filename
+    in
+    let rec simplify filename =
+      let base = basename filename in
+      let dir = dirname filename in
+      (* Simplify '.' and '..' components. *)
+      if String.equal base current_dir_name then simplify dir
+      else if String.equal base parent_dir_name then dirname (simplify dir)
+      else if String.equal dir filename then dir
+      else concat (simplify dir) base
+    in
+    simplify filename
+end

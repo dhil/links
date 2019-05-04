@@ -66,11 +66,30 @@ let process_arg_exprs exprs initial_env : Evaluation_env.t =
   initial_env
   exprs
 
+(* Preload experiment *)
+let load files =
+  let open Links_core in
+  let module Parser = struct
+      let parse file = Parse.parse_file Parse.program file
+    end
+  in
+  let module Locator = Locator.Make(Parser) in
+  let path =
+    String.split_on_char ':' (Settings.get_value Basicsettings.links_file_paths)
+  in
+  let loader = Locator.make ~path () in
+  let loader =
+    List.fold_right
+      (fun file loader -> Locator.preload file loader)
+      files loader
+  in
+  ()
 
 
 let main () =
   let prelude_eval_env = measure "prelude" prelude_evaluation_environment () in
 
+  ignore (load !file_list);
   let argfiles_eval_env = process_arg_files !file_list prelude_eval_env in
 
   let arg_expr_eval_env = process_arg_exprs !to_evaluate argfiles_eval_env in

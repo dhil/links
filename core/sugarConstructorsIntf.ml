@@ -134,6 +134,8 @@ module type SugarConstructorsSig = sig
   val val_binding
       : ?ppos:t -> Pattern.with_pos -> phrase
      -> binding
+  val import
+      : ?ppos:t -> Import.t -> binding
 
   (* Database queries *)
   val db_exps

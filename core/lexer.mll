@@ -191,6 +191,7 @@ let keywords = [
  "lensjoin" , LENSJOIN;
  "yields"   , YIELDS;
  "insert"   , INSERT;
+ "import"   , IMPORT;
  "linfun"   , LINFUN;
  "module"   , MODULE;
  "mu"       , MU;

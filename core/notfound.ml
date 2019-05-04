@@ -318,6 +318,12 @@ struct
   let getnameinfo x y =
     try getnameinfo x y
     with Not_found -> not_found "Unix.getnameinfo" x
+
+  let is_symlink file =
+    let open Unix in
+    match let { st_kind = kind; _ } = stat file in kind with
+    | S_LNK -> true
+    | _ -> false
 end
 
 module UnixLabels =

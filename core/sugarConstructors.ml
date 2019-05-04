@@ -208,6 +208,9 @@ module SugarConstructors (Position : Pos)
   let val_binding ?(ppos=dp) pat phrase =
     val_binding' ~ppos NoSig (Pat pat, phrase, loc_unknown)
 
+  let import ?(ppos=dp) import =
+    with_pos ppos (Import import)
+
 
   (** Database queries *)
 

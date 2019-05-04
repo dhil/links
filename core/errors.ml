@@ -64,7 +64,7 @@ let format_exception =
   | UnboundTyCon (pos, tycon) ->
       let pos, _ = Position.resolve_start_expr pos in
       Printf.sprintf "%s:%d: Unbound type constructor %s\n"
-                    pos.pos_fname pos.pos_lnum (QualifiedName.canonical_name tycon)
+                    pos.pos_fname pos.pos_lnum (QualifiedName.to_string tycon)
   | Runtime_error s -> "*** Runtime error: " ^ s
   | Position.ASTSyntaxError (pos, s) ->
       let pos, expr = Position.resolve_start_expr pos in

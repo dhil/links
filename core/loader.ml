@@ -323,7 +323,8 @@ object(o : 'self_type)
           let o = o#set_env extended_env in
           o, Some (n, ModT submodule_map)
 
-      | Import qname ->
+      | Import import when Import.is_local import ->
+        let qname = Import.as_qualified_name import in
         let o, (ModT  imported_module_env) = o#resolve_qualified_module_name qname in
         let extended_env = StringMap.superimpose imported_module_env module_env in
         let o = o#set_env extended_env in
