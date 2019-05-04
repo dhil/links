@@ -1212,3 +1212,47 @@ module Filename = struct
     in
     simplify filename
 end
+
+module MutablePair: sig
+  type ('a, 'b) t =
+    { mutable fst: 'a;
+      mutable snd: 'b }
+
+  val make : 'a -> 'b -> ('a, 'b) t
+
+  val fst : ('a, 'b) t -> 'a
+  val snd : ('a, 'b) t -> 'b
+end = struct
+  type ('a, 'b) t =
+    { mutable fst: 'a;
+      mutable snd: 'b }
+
+  let make fst snd = { fst; snd }
+
+  let fst { fst; _ } = fst
+  let snd { snd; _ } = snd
+end
+
+module MutableTriple: sig
+  type ('a, 'b, 'c) t =
+    { mutable fst: 'a;
+      mutable snd: 'b;
+      mutable thd: 'c }
+
+  val make : 'a -> 'b -> 'c -> ('a, 'b, 'c) t
+
+  val fst : ('a, _, _) t -> 'a
+  val snd : (_, 'b, _) t -> 'b
+  val thd : (_, _, 'c) t -> 'c
+end = struct
+  type ('a, 'b, 'c) t =
+    { mutable fst: 'a;
+      mutable snd: 'b;
+      mutable thd: 'c }
+
+  let make fst snd thd = { fst; snd; thd }
+
+  let fst { fst; _ } = fst
+  let snd { snd; _ } = snd
+  let thd { thd; _ } = thd
+end

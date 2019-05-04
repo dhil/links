@@ -1,3 +1,7 @@
+(* TODO FIXME: change the representation of qualified names to a list, e.g.
+     type t = string list
+   Then using a qualified name as a cursor in symbol tables would be a no-op.
+*)
 type t =
   | Ident of string     (* identifier name x *)
   | Dot of string * t   (* access to a module component A.B.C.x *)

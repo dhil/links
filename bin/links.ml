@@ -75,7 +75,9 @@ let load files =
   in
   let module Locator = Locator.Make(Parser) in
   let path =
-    String.split_on_char ':' (Settings.get_value Basicsettings.links_file_paths)
+    match String.split_on_char ':' (Settings.get_value Basicsettings.links_file_paths) with
+    | [""] -> []
+    | paths -> paths
   in
   let loader = Locator.make ~path () in
   let loader =

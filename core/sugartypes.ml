@@ -293,13 +293,12 @@ and bindingnode =
   | Handler of Binder.with_pos * handlerlit * datatype' option
   | Foreign of Binder.with_pos * name * name * name * datatype'
                (* Binder, raw function name, language, external file, type *)
-  | Import  of QualifiedName.t
+  | Import  of Import.t
   | Typenames of typename list
   | Infix
   | Exp     of phrase
   | Module  of name * Types.module_t option * binding list
   | AlienBlock of name * name * ((Binder.with_pos * datatype') list)
-  | Import  of Import.t
 and binding = bindingnode WithPos.t
 and block_body = binding list * phrase
 and cp_phrasenode =
