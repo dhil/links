@@ -309,20 +309,21 @@ module Trie = struct
 
     let rec find prefix trie =
       match prefix, trie with
-      | [], Node (None, _) -> raise Not_found
+      | [], Node (None, _) ->
+         raise (Notfound.NotFound ("<prefix> (in Trie.find)")) (* TODO FIXME: show prefix. *)
       | [], Node (Some v, _) -> v
       | key :: prefix, Node (_, m) -> find prefix (M.find key m)
 
     let mem prefix trie =
       try ignore(find prefix trie); true
-      with Not_found -> false
+      with Notfound.NotFound _ -> false
 
     let add prefix value trie =
       let rec insert prefix value trie =
         match prefix, trie with
         | [], Node (_, m) -> Node (Some value, m)
         | key :: prefix, Node (value', m) ->
-           let trie' = try M.find key m with Not_found -> empty in
+           let trie' = try M.find key m with Notfound.NotFound _ -> empty in
            Node (value', M.add key (insert prefix value trie') m)
       in
       insert prefix value trie
@@ -357,7 +358,7 @@ module Trie = struct
              else M.add key trie' m
            in
            Node (value, trie')
-         with Not_found -> trie
+         with Notfound.NotFound _ -> trie
 
     let rec map f = function
       | Node (None, m)   -> Node (None, M.map (map f) m)
