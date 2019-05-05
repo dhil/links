@@ -1,50 +1,117 @@
 (* An abstraction for locating and importing compilation units. *)
 open Utility
 
-(* module File = struct
- *   type t = File of string
- *          | Directory of string
- * 
- *   let map f = function
- *     | File s -> File (f s)
- *     | Directory s -> Directory (f s)
- * 
- *   let eject = function
- *     | File s | Directory s -> s
- * 
- *   let map_eject f file = eject (map f file)
- * 
- *   let basename : t -> string
- *     = fun x -> Filename.basename (eject x)
- * 
- *   let dirname : t -> string
- *     = fun x -> Filename.dirname (eject x)
- * 
- *   let is_relative : t -> bool
- *     = fun x -> Filename.is_relative (eject x)
- * 
- *   let is_absolute : t -> bool
- *     = fun x -> not (is_relative x)
- * end *)
+let normalise component = String.uncapitalize_ascii component
+let to_filename components = String.concat Filename.dir_sep components
+let links_ext = ".links"
+
+module Root = struct
+  type t = string list
+
+  let dir_sep = Str.regexp Filename.dir_sep
+
+  let of_filename filename =
+    let components = Str.split dir_sep filename in
+    if Filename.is_relative filename
+    then "" :: components
+    else components
+
+  let of_filenames : string list -> t array
+    = fun roots ->
+    let rec unduplicate roots abs_roots =
+      match roots, abs_roots with
+      | [], [] -> []
+      | _ :: roots, abs_root :: abs_roots when List.mem abs_root abs_roots ->
+         unduplicate roots abs_roots
+      | root :: roots, _ :: abs_roots ->
+         of_filename root :: unduplicate roots abs_roots
+      | _ -> assert false
+    in
+    Array.of_list (unduplicate roots (List.map Filename.absolute_path roots))
+
+  let to_filename components =
+    to_filename components
+
+  let to_strings components = components
+end
+
+module Cursor: sig
+  type 'a t
+  type physical
+  type rooted
+  type unrooted
+
+  val to_filename : 'a t -> string
+  val of_filename : string -> physical t
+  val of_strings : string list -> unrooted t
+  val to_strings : 'a t -> string list
+  val root : Root.t -> unrooted t -> rooted t
+  val unroot : rooted t -> unrooted t
+  val to_qualified_name : unrooted t -> QualifiedName.t
+  val realise : rooted t -> physical t
+end = struct
+  type _ t =
+    | Unrooted : string list -> unrooted t
+    | Rooted : rooted -> rooted t
+    | Physical : physical -> physical t
+  and unrooted = string list
+  and rooted = { root: Root.t; cursor: unrooted t }
+  and physical = { proot: Root.t; pcursor: unrooted t }
+  (* Hack: reusing the root structure even
+     though a physical file may not necessary be
+     a root in the name space sense. *)
+
+  let empty = Unrooted []
+
+  let rec to_filename : type a. a t -> string = function
+    | Unrooted components ->
+       String.concat Filename.dir_sep components ^ links_ext
+    | Rooted { root; cursor } ->
+       Filename.concat
+         (Root.to_filename root)
+         (to_filename cursor)
+    | Physical { proot; pcursor } ->
+       Filename.concat
+         (Root.to_filename proot)
+         (to_filename pcursor)
+
+
+  let of_filename filename =
+    let filename = Filename.chop_extension filename in
+    Physical { proot = Root.of_filename filename; pcursor = empty }
+
+  let of_strings components = Unrooted (List.map normalise components)
+  let rec to_strings : type a. a t -> string list = function
+    | Unrooted components -> components
+    | Rooted { root; cursor } ->
+       Root.to_strings root @ to_strings cursor
+    | Physical { proot; pcursor } ->
+       Root.to_strings proot @ to_strings pcursor
+  let root root cursor = Rooted { root; cursor }
+  let unroot : rooted t -> unrooted t
+    = fun (Rooted { cursor; _ }) -> cursor
+
+  let realise : rooted t -> physical t
+    = fun (Rooted { root; cursor }) -> Physical { proot = root; pcursor = cursor }
+
+  let to_qualified_name (Unrooted components) =
+    QualifiedName.of_path components
+end
+type rooted = Cursor.rooted
+type unrooted = Cursor.unrooted
+type physical = Cursor.physical
 
 module PhysicalNamespace: sig
   type t
-  type cursor = string list
-  type rooted_cursor
 
   val of_directories : string list -> t
-  val find : string list -> t -> rooted_cursor list
-  val to_filename : rooted_cursor -> t -> string
-  val to_cursor : rooted_cursor -> cursor
+  val find : unrooted Cursor.t -> t -> rooted Cursor.t list
 end = struct
-  type cursor = string list
-  type rooted_cursor = { root: int; cursor: cursor }
-  type root = int
+  type root_ptr = int
   type t =
-    { roots: string array;
-      mutable space: root list StringTrie.t }
+    { roots: Root.t array;
+      mutable space: root_ptr list StringTrie.t }
 
-  let suffix = ".links"
   let namespace_depth_limit = 5
 
   let if_absent x = [x]
@@ -52,7 +119,7 @@ end = struct
     if List.mem x xs then xs
     else x :: xs
 
-  let rec scan_dir : int -> t -> root -> string list -> string -> unit
+  let rec scan_dir : int -> t -> root_ptr -> string list -> string -> unit
     = fun depth ns root prefix cwd ->
     if depth < namespace_depth_limit then
       let is_dir = try Sys.is_directory cwd with Sys_error _ -> false in
@@ -71,9 +138,9 @@ end = struct
          if Sys.is_directory file' then
            (* Scan the sub directory. *)
            scan_dir (depth + 1) ns root (file :: prefix) file'
-         else if Filename.check_suffix file suffix then
+         else if Filename.check_suffix file links_ext then
            (* Add this file to the namespace [ns] with origin [root]. *)
-           let basename = Filename.chop_suffix file suffix in
+           let basename = Filename.chop_suffix file links_ext in
            ns.space <- StringTrie.add'
                          ~if_absent ~if_present
                          (List.rev (basename :: prefix)) root ns.space
@@ -82,7 +149,9 @@ end = struct
   let print ns =
     let build prefix root =
       let root = Array.get ns.roots root in
-      Printf.sprintf "%s%s" (Filename.concat root (String.concat Filename.dir_sep prefix)) suffix
+      Printf.sprintf "%s%s" (Filename.concat
+                               (Root.to_filename root)
+                               (to_filename prefix)) links_ext
     in
     StringTrie.iter
       (fun prefix roots ->
@@ -91,33 +160,24 @@ end = struct
 
   let of_directories : string list -> t
     = fun roots ->
-    let roots =
-      let roots' = ListUtils.unduplicate String.equal (List.map Filename.absolute_path roots) in
-      Array.of_list roots'
-    in
+    let roots = Root.of_filenames roots in
     let num_roots = Array.length roots - 1 in
     let namespace = { roots; space = StringTrie.empty } in
     for i = 0 to num_roots do
-      scan_dir 0 namespace i [] roots.(i)
+      scan_dir 0 namespace i [] (Root.to_filename roots.(i))
     done;
     print namespace; namespace
 
-  let normalise component =
-    String.uncapitalize_ascii component
+  let resolve root { roots; _ } = roots.(root)
 
-  let to_filename { root; cursor } ns =
-    let cursor = List.map normalise cursor in
-    let root = ns.roots.(root) in
-    (Filename.concat root (String.concat Filename.dir_sep cursor)) ^ suffix
-
-  let to_cursor { cursor; _ } = cursor
-
-  let find : string list -> t -> rooted_cursor list
+  let find : unrooted Cursor.t -> t -> rooted Cursor.t list
     = fun cursor ns ->
     try
-      let roots = StringTrie.find cursor ns.space in
+      let roots = StringTrie.find (Cursor.to_strings cursor) ns.space in
       List.fold_left
-        (fun rcursors root -> { root; cursor } :: rcursors) [] roots
+        (fun rcursors root ->
+          Cursor.root (resolve root ns) cursor :: rcursors)
+        [] roots
     with Notfound.NotFound _ -> []
 end
 
@@ -139,38 +199,33 @@ module type PARSER = sig
   val parse : string -> Sugartypes.program * Scanner.position_context
 end
 
+exception ImportError of { source_file: string;
+                           position: SourceCode.Position.t;
+                           error: exn; }
+exception CyclicDependency of string * SourceCode.Position.t
+exception NonexistentDependency of string * SourceCode.Position.t
+let is_import_error = function
+  | ImportError _ | CyclicDependency _ | NonexistentDependency _ -> true
+  | _ -> false
+
 module Make(P : PARSER) = struct
-  exception ImportError of { source_file: string;
-                             position: SourceCode.Position.t;
-                             error: exn; }
-  exception CyclicDependency of string * SourceCode.Position.t
-  exception NonexistentDependency of string * SourceCode.Position.t
-
-  let is_import_error = function
-    | ImportError _ | CyclicDependency _ | NonexistentDependency _ -> true
-    | _ -> false
-
   type comp_unit = (Sugartypes.program * Scanner.position_context) Compilation_unit.t
 
   type t = {
     loaded: comp_unit StringTrie.t; (* Local cache. *)
     index: PhysicalNamespace.t Lazy.t;
-    active: (string, unit) Hashtbl.t (* Set of opened files. *)
+    mutable active: unit StringTrie.t;
   }
 
   let make : ?path:string list -> unit -> t
     = fun ?(path=[]) () ->
     { loaded = StringTrie.empty;
       index  = lazy (PhysicalNamespace.of_directories path);
-      active = Hashtbl.create 32 }
+      active = StringTrie.empty }
 
-  let locate : string list -> t -> PhysicalNamespace.rooted_cursor list
+  let locate : unrooted Cursor.t -> t -> rooted Cursor.t list
     = fun cursor { index; _ } ->
     PhysicalNamespace.find cursor (Lazy.force index)
-
-  let to_filename : PhysicalNamespace.rooted_cursor -> t -> string
-    = fun rcursor { index; _ } ->
-    PhysicalNamespace.to_filename rcursor (Lazy.force index)
 
   let make_preload_obj () =
     let open SourceCode in
@@ -197,18 +252,69 @@ module Make(P : PARSER) = struct
       method! program (bs, exp) =
         let open SourceCode.WithPos in
         let open Sugartypes in
-        (* The function [process_imports] handles global imports. As a
+        (* The function [collect_imports] collects global imports. As a
            side-effect it rewrites the AST to remove the handled
            import nodes. *)
-        let rec process_imports = function
+        let rec collect_imports = function
           | [] -> []
           | { node = Import import; pos } :: bs when Import.is_global import ->
              self#add (Import.as_qualified_name import) pos;
-             process_imports bs
-          | b :: bs -> b :: process_imports bs
+             collect_imports bs
+          | b :: bs -> b :: collect_imports bs
         in
-        (process_imports bs, exp)
+        (collect_imports bs, exp)
     end
+
+  (* Attempts to resolve a symbolic import to a physical file name.
+     Hypothesis: The [imports] set is typically small. *)
+  let resolve imports st =
+    StringTrie.fold
+      (fun prefix pos rcursors ->
+        let cursor = Cursor.of_strings prefix in
+        match locate cursor st with
+        | [] -> raise (NonexistentDependency ((String.concat "." prefix), pos))
+        | [rcursor] -> (rcursor, pos) :: rcursors
+        | rcursor :: (_ :: _) as candidates ->
+           (* TODO emit warning. *)
+           Printf.fprintf stderr "Warning: Ambiguous import for %s\n%!" (QualifiedName.to_string (Cursor.to_qualified_name cursor));
+           Printf.fprintf stderr "disambiguating by arbitrarily picking %s; alternatives were:\n%!" (Cursor.to_filename rcursor);
+           List.iter
+             (fun candidate ->
+               Printf.fprintf stderr "   %s\n%!" (Cursor.to_filename candidate))
+             candidates;
+           (rcursor, pos) :: rcursors)
+      imports []
+
+  let rec load visitor fcursor pos st =
+    (* Check whether the file is currently opened by a parent process... *)
+    let fcursor' = Cursor.to_strings fcursor in
+    (if StringTrie.mem fcursor' st.active
+     then raise (CyclicDependency ("FIXME" , pos)));
+    (* ... otherwise mark it as being open. *)
+    st.active <- StringTrie.add fcursor' () st.active;
+    (* Parse the file. *)
+    let (ast, pos_ctxt) = P.parse (Cursor.to_filename fcursor) in
+    (* Get the imports. *)
+    ignore(visitor#reset);
+    let ast = visitor#program ast in
+    let source = (ast, pos_ctxt) in
+    let rooted_cursors = resolve visitor#get_imports st in
+    (* Recursively attempt to load each dependency. *)
+    let st = load_dependencies visitor st rooted_cursors in
+    (* Unmark the file. *)
+    st.active <- StringTrie.remove fcursor' st.active;
+    (* Mark the file as loaded. *)
+    (* TODO FIXME: handle redundant imports. *)
+    assert false
+  and load_dependencies visitor st rooted_cursors =
+    match rooted_cursors with
+    | [] -> st
+    | (rooted_cursor, pos) :: rooted_cursors ->
+       let st =
+         try load visitor (Cursor.realise rooted_cursor) pos st
+         with e when is_import_error e ->
+           raise (ImportError { source_file = Cursor.to_filename rooted_cursor; position = pos; error = e })
+       in load_dependencies visitor st rooted_cursors
 
   (* Attempts to (pre)load the compilation unit induced by the given
      file name. As a side effect, dependencies of the compilation unit
@@ -216,57 +322,8 @@ module Make(P : PARSER) = struct
   let preload : string -> t -> t
     = fun source_file st ->
     let visitor = make_preload_obj () in
-    let rec load visitor file pos st =
-      (* Check whether the file is currently opened by a parent process... *)
-      (if Hashtbl.mem st.active file
-       then raise (CyclicDependency (file, pos)));
-      (* ... otherwise mark it as being open. *)
-      Hashtbl.add st.active file ();
-      (* Parse the file. *)
-      let (ast, pos_ctxt) = P.parse file in
-      (* Get the imports. *)
-      ignore(visitor#reset);
-      let ast = visitor#program ast in
-      let source = (ast, pos_ctxt) in
-      (* Hypothesis: The import set is typically small. *)
-      let resolve imports =
-        StringTrie.fold
-          (fun prefix pos cursors ->
-            match locate prefix st with
-            | [] -> raise (NonexistentDependency ((String.concat "." prefix), pos))
-            | [cursor] -> (cursor, pos) :: cursors
-            | cursor :: (_ :: _) as candidates ->
-               (* TODO emit warning. *)
-               Printf.fprintf stderr "Warning: Ambiguous import for %s\n%!" (String.concat "." prefix);
-               Printf.fprintf stderr "disambiguating by arbitrarily picking %s; alternatives were:\n%!" (to_filename cursor st);
-               List.iter
-                 (fun candidate ->
-                   Printf.fprintf stderr "   %s\n%!" (to_filename candidate st))
-                 candidates;
-               (cursor, pos) :: cursors)
-        imports []
-      in
-      let rooted_cursors = resolve visitor#get_imports in
-      (* Recursively attempt to load each dependency. *)
-      let rec load_dependencies visitor st rooted_cursors =
-        match rooted_cursors with
-        | [] -> st
-        | (rooted_cursor, pos) :: rooted_cursors ->
-           let st =
-             let file = to_filename rooted_cursor st in
-             try load visitor file pos st
-             with e when is_import_error e ->
-               raise (ImportError { source_file = file; position = pos; error = e })
-           in load_dependencies visitor st rooted_cursors
-      in
-      let st = load_dependencies visitor st rooted_cursors in
-      (* Unmark the file. *)
-      Hashtbl.remove st.active file;
-      (* Mark the file as loaded. *)
-      (* TODO FIXME: handle redundant imports. *)
-      assert false
-    in
-    load visitor source_file SourceCode.Position.dummy st
+    load visitor (Cursor.of_filename source_file) SourceCode.Position.dummy st
+
 end
 
 (* module LinkSet: sig
