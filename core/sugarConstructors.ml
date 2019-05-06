@@ -118,7 +118,7 @@ module SugarConstructors (Position : Pos)
 
   (** Imports **)
 
-  let import ?(ppos=dp) name = with_pos ppos (Import name)
+  let import ?(ppos=dp) names = with_pos ppos (Import names)
 
   (** Patterns *)
 
