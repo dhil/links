@@ -86,6 +86,20 @@ module String = struct
   include String
   let pp = Format.pp_print_string
   let show = fun x -> x
+
+  let is_capitalized_ascii s =
+    let _A = 65 in
+    let _Z = 90 in
+    String.compare s "" <> 0
+    && (let c = Char.code (String.get s 0) in
+        _A <= c && c <= _Z)
+
+  let is_uncapitalized_ascii s =
+    let a = 97 in
+    let z = 122 in
+    String.compare s "" <> 0
+    && (let c = Char.code (String.get s 0) in
+        a <= c && c <= z)
 end
 
 module Int = struct
