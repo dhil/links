@@ -82,7 +82,10 @@ let load files =
   let loader = Locator.make ~path () in
   let loader =
     List.fold_right
-      (fun file loader -> Locator.preload file loader)
+      (fun file loader ->
+        let loader = Locator.preload file loader in
+        Printf.printf "=== Loader state after input %s\n%!" file;
+        Locator.dump stderr loader; loader)
       files loader
   in
   ()

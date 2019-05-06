@@ -410,6 +410,18 @@ module Trie = struct
         | _ -> false
       in
       compare m m'
+
+    let size trie =
+      fold (fun _ _ acc -> acc + 1) trie 0
+
+    let of_alist : (key * 'a) list -> 'a t
+      = fun xs ->
+      List.fold_left
+        (fun m (prefix, item) -> add prefix item m)
+        empty xs
+
+    let union : 'a t -> 'a t -> 'a t
+      = fun m m' -> assert false
   end
 end
 
@@ -1194,6 +1206,7 @@ let format_omission : Format.formatter -> unit = fun fmt -> Format.pp_print_stri
 module Filename = struct
   include Filename
 
+  (* This is a poor substitute for [realpath]. *)
   (* Computes the absolute path of [filename] irrespective of whether
      [filename] actually exists. *)
   let absolute_path filename =
