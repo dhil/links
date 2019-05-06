@@ -828,6 +828,7 @@ class transform (env : Types.typing_environment) =
       | Exp e -> let (o, e, _) = o#phrase e in (o, Exp e)
       | AlienBlock _ -> assert false
       | Module _ -> assert false
+      | Import _ -> assert false
       | QualifiedImport _ -> assert false
 
     method binding : binding -> ('self_type * binding) =

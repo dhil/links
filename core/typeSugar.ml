@@ -111,6 +111,7 @@ struct
     | DBUpdate _ -> false
   and is_pure_binding ({node ; _ }: binding) = match node with
       (* need to check that pattern matching cannot fail *)
+    | Import _
     | QualifiedImport _
     | AlienBlock _
     | Module _
@@ -3909,6 +3910,7 @@ and type_binding : context -> binding -> binding * context * usagemap =
             (pos_and_typ e, no_pos Types.unit_type) in
           Exp (erase e), empty_context, usages e
       | Handler _
+      | Import _
       | QualifiedImport _
       | AlienBlock _
       | Module _ -> assert false
