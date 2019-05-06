@@ -259,6 +259,174 @@ struct
   end
 end
 
+(* The trie / prefix tree implementation is based on the trie
+   structure from Jean-Christophe Filliatre's data structures library
+   (see https://www.lri.fr/~filliatr/ftp/ocaml/ds/). This
+   implementation has been slightly optimised to reduce the amount
+   allocations such as closure allocations and pairs. *)
+module Trie = struct
+  (* Subset of Map.S *)
+  module type S = sig
+    type key
+    type +'a t
+
+    val empty : 'a t
+    val is_empty : 'a t -> bool
+    val add : key -> 'a -> 'a t -> 'a t
+    val find : key -> 'a t -> 'a
+    val remove : key -> 'a t -> 'a t
+    val mem : key -> 'a t -> bool
+    val map : ('a -> 'b) -> 'a t -> 'b t
+    val iter : (key -> 'a -> unit) -> 'a t -> unit
+    val fold : (key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
+    val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+    val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
+    val union : (key -> 'a -> 'a -> 'a option) -> 'a t -> 'a t -> 'a t
+  end
+
+  module Make(M : S) = struct
+    type key = M.key list
+    type 'a t = Node of 'a option * 'a t M.t
+
+    let empty = Node (None, M.empty)
+
+    let is_empty = function
+      | Node (None, m) -> M.is_empty m
+      | _ -> false
+
+    let rec find prefix tr =
+      match prefix, tr with
+      | [], Node (None, _) ->
+         raise (Notfound.NotFound ("<prefix> (in Trie.find)")) (* TODO FIXME: show prefix. *)
+      | [], Node (Some v, _) -> v
+      | key :: prefix, Node (_, m) -> find prefix (M.find key m)
+
+    let mem prefix tr =
+      try ignore(find prefix tr); true
+      with Notfound.NotFound _ -> false
+
+    let add prefix value tr =
+      let rec insert prefix value tr =
+        match prefix, tr with
+        | [], Node (_, m) -> Node (Some value, m)
+        | key :: prefix, Node (value', m) ->
+           let tr' = try M.find key m with Notfound.NotFound _ -> empty in
+           Node (value', M.add key (insert prefix value tr') m)
+      in
+      insert prefix value tr
+
+    (* This alternative version of [add] calls [if_absent] with
+       [value] whenever [prefix] leads to the empty tree, and
+       [if_present] whenever [prefix] leads to a value. This interface
+       enables efficient non-overwriting insertions.  *)
+    let add' : if_absent:('b -> 'a) ->
+               if_present:('b -> 'a -> 'a) ->
+               key -> 'b -> 'a t -> 'a t
+      = fun ~if_absent ~if_present prefix value tr ->
+      let rec insert if_absent if_present prefix value tr =
+        match prefix, tr with
+        | [], Node (None, m) -> Node (Some (if_absent value), m)
+        | [], Node (Some value', m) -> Node (Some (if_present value value'), m)
+        | key :: prefix, Node (value', m) ->
+           let tr' = try M.find key m with Notfound.NotFound _ -> empty in
+           Node (value', M.add key (insert if_absent if_present prefix value tr') m)
+      in
+      insert if_absent if_present prefix value tr
+
+    let rec remove prefix tr =
+      match prefix, tr with
+      | [], Node (_, m) -> Node (None, m)
+      | key :: prefix, Node (value, m) ->
+         try
+           let tr' = remove prefix (M.find key m) in
+           let tr' =
+             if is_empty tr'
+             then M.remove key m
+             else M.add key tr' m
+           in
+           Node (value, tr')
+         with Notfound.NotFound _ -> tr
+
+    let rec map f = function
+      | Node (None, m)   -> Node (None, M.map (map f) m)
+      | Node (Some v, m) -> Node (Some (f v), M.map (map f) m)
+
+    let fold f tr z =
+      let rec loop prefix tr z =
+        match tr with
+        | Node (None, m) ->
+           M.fold (fun key -> loop (key :: prefix)) m z
+        | Node (Some v, m) ->
+           f (List.rev prefix) v (M.fold (fun key -> loop (key :: prefix)) m z)
+      in
+      loop [] tr z
+
+    let iter f tr =
+      let rec loop prefix tr =
+        match tr with
+        | Node (None, m) ->
+           M.iter (fun key -> loop (key :: prefix)) m
+        | Node (Some v, m) ->
+           f (List.rev prefix) v;
+           M.iter (fun key -> loop (key :: prefix)) m
+      in
+      loop [] tr
+
+    let compare value_compare tr tr' =
+      let rec compare tr tr' =
+        match tr, tr' with
+        | Node (Some _, _), Node (None, _) -> 1
+        | Node (None, _), Node (Some _, _) -> -1
+        | Node (None, m), Node (None, m') ->
+           M.compare compare m m'
+        | Node (Some x, m), Node (Some y, m') ->
+           let result = value_compare x y in
+           if result <> 0
+           then result
+           else M.compare compare m m'
+      in
+      compare tr tr'
+
+    let equal value_eq tr tr' =
+      let rec compare tr tr' =
+        match tr, tr' with
+        | Node (None, m), Node (None, m') ->
+           M.equal compare m m'
+        | Node (Some x, m), Node (Some y, m') ->
+           value_eq x y && M.equal compare m m'
+        | _ -> false
+      in
+      compare tr tr'
+
+    let size : 'a t -> int
+      = fun tr ->
+      fold (fun _ _ acc -> acc + 1) tr 0
+
+    let of_alist : (key * 'a) list -> 'a t
+      = fun xs ->
+      List.fold_left
+        (fun tr (prefix, item) -> add prefix item tr)
+        empty xs
+
+    let union : (key -> 'a -> 'a -> 'a option) -> 'a t -> 'a t -> 'a t
+      = fun f tr tr' ->
+      let rec union prefix f tr tr' =
+        match tr, tr' with
+        | Node (None, m), Node (None, m') ->
+           Node (None, M.union (clash prefix f) m m')
+        | Node ((Some _) as v, m), Node (None, m')
+          | Node (None, m), Node ((Some _) as v, m') ->
+           Node (v, M.union (clash prefix f) m m')
+        | Node (Some v, m), Node (Some v', m') ->
+           let v'' = f (List.rev prefix) v v' in
+           Node (v'', M.union (clash prefix f) m m')
+      and clash prefix f key tr tr' =
+        Some (union (key :: prefix) f tr tr')
+      in
+      union [] f tr tr'
+  end
+end
+
 module type INTSET = Set with type elt = int
 module IntSet = Set.Make(Int)
 module IntMap = Map.Make(Int)
@@ -273,6 +441,8 @@ module StringMap : STRINGMAP = Map.Make(String)
 module type CHARSET = Set with type elt = char
 module CharSet : CHARSET = Set.Make(Char)
 module CharMap = Map.Make(Char)
+
+module StringTrie = Trie.Make(StringMap)
 
 type stringset = StringSet.t
     [@@deriving show]
