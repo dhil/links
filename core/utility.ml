@@ -1213,3 +1213,27 @@ let strip_slashes = (strip_leading_slash -<- strip_trailing_slash)
 
 
 let format_omission : Format.formatter -> unit = fun fmt -> Format.pp_print_string fmt "..."
+
+module Filename = struct
+  include Filename
+
+  (* This is a poor substitute for [realpath]. *)
+  (* Computes the absolute path of [filename] irrespective of whether
+     [filename] actually exists. *)
+  let absolute_path filename =
+    let filename =
+      if is_relative filename
+      then concat (Sys.getcwd ()) filename
+      else filename
+    in
+    let rec simplify filename =
+      let base = basename filename in
+      let dir = dirname filename in
+      (* Simplify '.' and '..' components. *)
+      if String.equal base current_dir_name then simplify dir
+      else if String.equal base parent_dir_name then dirname (simplify dir)
+      else if String.equal dir filename then dir
+      else concat (simplify dir) base
+    in
+    simplify filename
+end
