@@ -1,0 +1,44 @@
+# Microbenchmark stateful counting (Handlers)
+
+# Handlers
+fun countAbs() client {
+    var i = do Get;
+    if (i == 0) { i }
+    else { do Put(i - 1); countAbs() }
+}
+
+fun evalState(m)(s)() client {
+  var run =
+    handle(m) {
+      case Get(k)    -> fun(st) { k(s)(s)  }
+      case Put(p,k)  -> fun(st) { k(())(p) }
+      case Return(x) -> fun(st) { x }
+  };
+  run(s)
+}
+
+fun b(n) client {
+    var x = evalState(countAbs)(n)();
+    ()
+}
+
+var n = 1;
+
+fun mainPage(_) {
+  page
+   <html>
+     <body>
+       <h2>Stateful counting with n = {intToXml(n)}</h2>
+       <form l:onsubmit="{b(n)}">
+         <input type="submit" value="Start" />
+       </form>
+     </body>
+   </html>
+}
+
+fun main() {
+  addRoute("/", mainPage);  
+  servePages()
+}
+
+main()

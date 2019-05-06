@@ -1,0 +1,427 @@
+#
+# An implementation of simply-typed, call-by-value PCF
+#    - Syntax-directed interpreter
+#    - Abstract machine
+#    - JavaScript compiler
+#
+
+typename Option(a) = [|Some:a|None|];
+
+# Some infrastructure
+
+## Abstract syntax
+
+typename Type = [|Unit
+                 |Nat
+                 |Fun:(Type, Type)
+                 |Prod:(Type, Type)
+                 |Sum:(Type, Type)|];
+
+# Auxiliary functions
+fun domain(ft) {
+  switch (ft) {
+    case Fun(d, _) -> d
+    case _         -> error("Non-function type argument")
+  }
+}
+
+fun codomain(ft) {
+  switch (ft) {
+    case Fun(_, c) -> c
+    case _         -> error("Non-function type argument")
+  }
+}
+
+# We differentiate between the binding site and use site of variables
+typename Name = String;
+typename Var = Int;
+typename Binder = (Name, Var, Type);
+
+#sig freshBinder : (String, Type) -> Binder
+fun freshBinder(name, ty) {
+  (name, gensym(), ty)
+}
+
+#sig binderToVar : (Binder) -> Var
+fun binderToVar(b) { b.2 }
+
+#sig typeOfBinder : (Binder) -> Type
+fun typeOfBinder(b) { b.3 }
+
+
+typename Constant = [|Unit
+                     |Nat:Int
+                     |];
+
+typename Primitive = [|PrintNat
+                      |AddNat
+                      |SubNat
+                      |MulNat
+                      |];
+
+typename Term = [|Const:Constant
+                 |Var:Var
+                 |Lam:(Binder, Term)
+                 |Rec:(Binder, Binder, Term)
+                 |App:(Term, Term)
+                 |Let:(Binder, Term, Term)
+                 |Pair:(Term, Term)
+                 |Fst:Term
+                 |Snd:Term
+                 |Inl:(Term, Type)
+                 |Inr:(Term, Type)
+                 |Case:(Term, (Binder, Term), (Binder, Term))
+                 |IfZero:(Term, Term, Term)
+                 |Prim:Primitive
+                 |];
+
+fun mult(a, b) {
+   App(Prim(MulNat), Pair(a, b))
+}
+
+# Builders
+#sig const : (Constant) -> Term
+fun const(c) { Const(c) }
+
+#sig var_ : (Var) -> Term
+fun var_(v) { Var(v) }
+
+#sig lam : (Binder, Term) -> Term
+fun lam(b, body) { Lam(b, body) }
+
+#sig app : (Term, Term) -> Term
+fun app(m, n) { App(m, n) }
+
+#sig rec : (Binder, Binder, Term) -> Term
+fun rec(fb, xb, body) { Rec(fb, xb, body) }
+
+#sig let : (Binder, Term, Term) -> Term
+fun let(b, ex0, ex1) { Let(b, ex0, ex1) }
+
+#sig pair : (Term, Term) -> Term
+fun pair(m, n) { Pair(m, n) }
+
+#sig fst : (Term) -> Term
+fun fst(m) { Fst(m) }
+
+#sig snd : (Term) -> Term
+fun snd(n) { Snd(n) }
+
+#sig inl : (Term, Type) -> Term
+fun inl(m, ty) { Inl(m, ty) }
+
+#sig inr : (Term, Type) -> Term
+fun inr(n, ty) { Inr(n, ty) }
+
+#sig case_ : (Term, (Binder, Term), (Binder, Term)) -> Term
+fun case_(scrutinee, left, right) { Case(scrutinee, left, right) }
+
+#sig ifzero : (Term, Term, Term) -> Term
+fun ifzero(n, tt, ff) { IfZero(n, tt, ff) }
+
+#sig prim : (Primitive) -> Term
+fun prim(p) { Prim(p) }
+
+var addition = prim(AddNat);
+var subtract = prim(SubNat);
+var multiply = prim(MulNat);
+var printNat = prim(PrintNat);
+
+sig fact : () -> Term
+fun fact() {
+  var n = freshBinder("n", Nat);
+  var v = binderToVar(n);
+  var fact0 = freshBinder("fact", Fun(Nat, Nat));
+  var f = binderToVar(fact0);
+    rec(fact0, n,
+         ifzero(var_(v),
+                const(Nat(1)),
+                app(multiply,
+                    pair(var_(v),
+                         app(var_(f),
+                             app(subtract,
+                                 pair(var_(v), const(Nat(1)))))))))
+}
+
+fun runFact(n) {
+  app(fact(), const(Nat(n)))
+}
+
+## Parsing
+
+## Static semantics
+
+#
+#
+#
+#
+
+#sig remember : (Var, a) {Remember:(Var, a) -> () |_}-> ()
+fun remember(v, obj) { do Remember(v, obj) }
+
+#sig recall : (Var) {Recall:(Var) -> Maybe(a) |_}-> Maybe(a)
+fun recall(v) { do Recall(v) }
+
+#sig forget : (Var) {Forget:(Var) -> () |_}-> ()
+fun forget(v) { do Forget(v) }
+
+typename Env(a) = [(Var, a)];
+#sig getEnv : () {Env: Env(a) |_}-> Env(a)
+fun getEnv() { do Env }
+
+#sig env : (Comp({Remember:(Var, a) -> (), Recall: (Var) -> Maybe(a), Forget: (Var) -> (), Env: Env(a)|e}, b), Env(a)) {Remember{_}, Recall{_}, Forget{_}, Env{_} |e}~> b
+fun env(m, env0) {
+  handle(m())(env0 -> env1) {
+     case Env(resume) ->
+        resume(env1, env1)
+     case Forget(v, resume) ->
+        var env1 = removeAssoc(v, env1);
+        resume((), env1)
+     case Recall(v, resume) ->
+        var obj = lookup(v, env1);
+        resume(obj, env1)
+     case Remember(v, obj, resume) ->
+        resume((), (v, obj) :: env1)
+  }
+}
+
+fun typeError(msg) { error("type error: " ^^ msg) }
+
+sig compatible : (Type, Type) -> Bool
+fun compatible(ty0, ty1) {
+  switch ((ty0, ty1)) {
+    case (Fun(dom, cod), t) -> dom == t
+    case _ -> false
+  }
+}
+
+#sig typeConst : (Constant) -> Type
+fun typeConst(const) {
+  switch (const) {
+    case Unit -> Unit
+    case Nat(_) -> Nat
+  }
+}
+
+#sig typePrim : (Primitive) -> Type
+fun typePrim(prim) {
+  switch (prim) {
+    case PrintNat ->
+      Fun(Nat, Unit)
+    case _ ->
+      var domain = Prod(Nat,Nat);
+      var codomain = Nat;
+      Fun(domain, codomain)
+  }
+}
+
+#sig typeTerm : (Term) {Remember:(Var, Type) -> (), Recall:(Var) -> Maybe(Type), Forget:(Var) -> () |_}~> Type
+fun typeTerm(term) {
+  (switch (term ) {
+     case (Const(c) ) ->
+       typeConst(c) 
+     case (Var(v) ) ->
+       switch (recall(v)) {
+         case Nothing -> typeError("Unbound variable " ^^ (intToString(v)))
+         case Just(ty) -> ty 
+       }
+     case (Lam(b, body) ) ->
+       var tyArg = typeOfBinder(b);
+       remember(binderToVar(b), tyArg);
+       var tyBody = typeTerm(body);
+       Fun(tyArg, tyBody) 
+     case (Rec(fb, xb, body) ) ->
+       var tyfb = typeOfBinder(fb);
+       var tyxb = typeOfBinder(xb);
+       ignore(
+         if (not(compatible(tyfb, tyxb))) typeError("Rec")
+         else ());
+       remember(binderToVar(fb), tyfb);
+       remember(binderToVar(xb), tyxb);
+
+       var ty0 = typeTerm(body);
+       ignore(
+         if (codomain(tyfb) <> ty0) typeError("The codomain of function binder does match its body type.")
+         else ());
+       tyfb 
+     case (App(f, x) ) ->
+       var ft = typeTerm(f);
+       var xt = typeTerm(x);
+       if (compatible(ft, xt))
+         codomain(ft)
+       else
+         typeError("Ill-typed application")
+     case (Let(b, ex0, ex1) ) ->
+       var tyb = typeOfBinder(b);
+       var ty0 = typeTerm(ex0);
+       ignore(
+         if (not(tyb == ty0))
+           typeError("(Let) Type of binder and its expression differ")
+         else ());
+       remember(binderToVar(b), tyb);
+       typeTerm(ex1) 
+     case (Pair(m, n) ) ->
+       var ty0 = typeTerm(m);
+       var ty1 = typeTerm(n);
+       Prod(ty0, ty1) 
+     case (Fst(m) ) ->
+       switch (typeTerm(m)) {
+         case Prod(ty0,_) -> ty0 
+         case _ -> typeError("Projection (fst)")
+       }
+     case (Snd(n) ) ->
+       switch (typeTerm(n)) {
+         case Prod(_, ty1) -> ty1 
+         case _ -> typeError("Projection (snd)")
+       }
+     case (Case(scrutinee, (bl, m), (br, n)) ) ->
+       var tybl = typeOfBinder(bl);
+       remember(binderToVar(bl), tybl);
+       var tyl = typeTerm(m);
+       forget(binderToVar(bl));
+
+       var tybr = typeOfBinder(br);
+       remember(binderToVar(br), tybr);
+       var tyr = typeTerm(n);
+       forget(binderToVar(br));
+
+       ignore(
+         if (tyl <> tyr) typeError("Both branches of a case expression must have the same type.")
+         else ());
+
+       var tys = typeTerm(scrutinee);
+       var ty = Sum(tybl, tybr) ;
+       ignore(
+         if (tys <> ty) typeError("The type of the scrutinee must match the type of cases")
+         else ());
+       ty 
+     case (Inl(m, ty1) ) ->
+       var ty0 = typeTerm(m);
+       Sum(ty0, ty1) 
+     case (Inr(n, ty0) ) ->
+       var ty1 = typeTerm(n);
+       Sum(ty0, ty1) 
+     case (IfZero(c, tt, ff) ) ->
+       var tyc = typeTerm(c);
+       ignore(
+         if (not(tyc == Nat))
+         typeError("Argument to ifzero must be a natural")
+         else ());
+       var (tytt, tyff) = (typeTerm(tt), typeTerm(ff));
+       if (tytt == tyff) tytt 
+       else typeError("Both branches in ifzero must have the same type")
+     case (Prim(p) )  ->
+       typePrim(p) 
+  }) 
+}
+
+fun typeCheck(prog) {
+  var ty = env(fun() { typeTerm(prog) }, []);
+  (prog, ty)
+}
+
+## Dynamic semantics (syntax-directed)
+# typename Value = [|Unit
+#                   |Nat:Int
+#                   |Pair:(Value, Value)
+#                   |Inl:Value
+#                   |Inr:Value
+#                   |Closure:(Env(Value), Var, Term)
+#                   |RecClosure:(Env(Value), Var, Var, Term)
+#                   |Prim:Primitive
+#                   |];
+
+# fun evalError(msg) { error("eval error: " ^^ msg) }
+
+# sig evalPrim : (Primitive, Value) ~> Value
+# fun evalPrim(p, v) {
+#   fun perform(f, v) {
+#     var res = switch (v) {
+#       case Pair(Nat(a), Nat(b)) -> f(a, b)
+#       case _ -> evalError("Primitive error: expected a pair of naturals")
+#     };
+#     Nat(res)
+#   }
+#   switch ((p, v)) {
+#     case (PrintNat, Nat(n)) -> println(intToString(n)); Unit
+#     case (AddNat, v) -> perform((+), v)
+#     case (MulNat, v) -> perform((*), v)
+#     case (SubNat, v) -> perform((-), v)
+#   }
+# }
+
+# sig eval : (Term) {Remember: (Var, Value) -> (), Recall: (Var) -> Maybe(Value), Env: Env(Value) |_}~> Value
+# fun eval(prog) {
+#   switch (prog) {
+#     case Const(c) -> (c : (Value) <- (Constant))
+#     case Var(v) ->
+#       switch (recall(v)) {
+#         case Just(w) -> w
+#         case Nothing -> evalError("Unbound variable")
+#       }
+#     case Lam(b, body) ->
+#       Closure(getEnv(), binderToVar(b), body)
+#     # case Rec(fb, xb, body) ->
+#     #   RecClosure(getEnv(), binderToVar(fb), binderToVar(xb), body)
+#     # case App(m, n) ->
+#     #   switch (eval(m)) {
+#     #     case Prim(p) ->
+#     #       evalPrim(p, eval(n))
+#     #     case Closure(env0, x, body) ->
+#     #       var v = eval(n);
+#     #       env(fun() { remember(x, v); eval(body) }, env0)
+#     #     # case RecClosure(env0, f, x, body) as clo ->
+#     #     #   var v = eval(n);
+#     #     #   env(fun() {
+#     #     #     remember(f, clo);
+#     #     #     remember(x, v);
+#     #     #     eval(body)
+#     #     #   }, env0)
+#     #     case _ -> evalError("Non-function argument")
+#     #   }
+#     case Let(b, ex0, ex1) ->
+#       var v = eval(ex0);
+#       remember(binderToVar(b), v);
+#       eval(ex1)
+#     case Pair(m, n) ->
+#       Pair(eval(m), eval(n))
+#     case Fst(m) ->
+#       switch (eval(m)) {
+#         case Pair(v, _) -> v
+#         case _ -> evalError("Fst applied to non-pair")
+#       }
+#     case Snd(n) ->
+#       switch (eval(n)) {
+#         case Pair(_, w) -> w
+#         case _ -> evalError("Snd applied to non-pair")
+#       }
+#     case Inl(m, _) ->
+#       Inl(eval(m))
+#     case Inr(n, _) ->
+#       Inr(eval(n))
+#     case Case(scrutinee, (lb, left), (rb, right)) ->
+#       switch (eval(scrutinee)) {
+#         case Inl(v) ->
+#           remember(binderToVar(lb), v);
+#           eval(left)
+#         case Inr(w) ->
+#           remember(binderToVar(rb), w);
+#           eval(right)
+#         case _ -> evalError("Non-tagged value")
+#       }
+#     case IfZero(c, tt, ff) ->
+#       switch (eval(c)) {
+#         case Nat(0) -> eval(tt)
+#         case Nat(_) -> eval(ff)
+#         case _ -> evalError("Ill-formed conditional")
+#       }
+#     case Prim(p : Primitive) -> Prim(p) : Value
+#     case _ -> error("N/A")
+#   }
+# }
+
+## A-normalisation
+
+## Abstract machine
+
+## Code generator

@@ -1,0 +1,38 @@
+# Validation
+fun validateCount(startValue, resultValue) client {resultValue == 0}
+
+# Timing
+#fun now() client { clientTime() }
+alien javascript now : () ~e~> Float;
+fun elapsed(startTime, endTime) client { endTime - startTime }
+
+# Update
+fun displayResults(results) client {
+   ignore $ domSetPropertyFromRef(getNodeById("result"), "value", floatToString(results))
+}
+
+
+fun run() client {
+    displayResults(now())
+}
+
+# Page
+fun mainPage(_) {
+  page
+    <html>
+      <body>
+        <form l:onsubmit="{run()}">
+          <input type="submit" value="Run" />
+          <input type="text" id="result" readonly="readonly" value="" />
+        </form>
+      </body>
+    </html>
+}
+
+
+fun main() {
+  addRoute("/", mainPage);
+  servePages()
+}
+
+main()

@@ -1,0 +1,95 @@
+# Inspired by Trampolined Style (Ganz, Friedman, and Wand; 1999)
+
+alien javascript "/home/dhil/projects/links/my-links/examples/handlers/js/yield.js" sysYield : (() ~e~> a) ~e~> a;
+#fun sysYield(f) { print("--System yield--"); f() }
+
+sig bounce : () {Bounce |_}~> ()
+fun bounce() {do Bounce}
+
+fun pogostick(f) {
+  handle(f()) {
+    case Return(x) -> x
+    case Bounce(resume) -> sysYield(fun() { resume(()) })
+  }
+}
+
+fun fact(n) {
+  if (n == 0) 1
+  else {
+    bounce();
+    n * fact(n-1)
+  }
+}
+
+fun fact_acc(n, acc) {
+  if (n == 0) acc
+  else {
+    bounce();
+    fact_acc(n-1, n * acc)
+  }
+}
+
+fun fibb(n) {
+  if (n == 0) 0
+  else if (n == 1) 1
+  else {
+    bounce();
+    fibb(n-1) + fibb(n-2)
+  }
+}
+
+fun trampolined(n) {
+ var a = fibb;
+ pogostick(fun() {
+   # var result = fact_acc(n, 1);
+   # print("Result (acc)   : " ^^ intToString(result));
+   # var result = fact(n);
+   # print("Result (direct): " ^^ intToString(result))
+   var result = fibb(n);
+   print("Result: " ^^ intToString(result))
+ })
+}
+
+fun fibd(n) {
+  if (n == 0) 0
+  else if (n == 1) 1
+  else {
+    fibd(n-1) + fibd(n-2)
+  }
+}
+
+
+fun direct(n) {
+  var result = fibd(n);
+  print("Result: " ^^ intToString(result))
+}
+
+
+# fun mainPage(_) {
+#   page
+#     <html>
+#       <body>
+#         <form l:onsubmit="{trampolined(n)}">
+#           Input: <input type="text" l:name="n" />
+#           <input type="submit" value="Compute (trampolined)!" />
+#         </form>
+
+#         <form l:onsubmit="{direct(n)}">
+#           Input: <input type="text" l:name="n" />
+#           <input type="submit" value="Compute (direct)!" />
+#         </form>
+#       </body>
+#     </html>
+# }
+
+
+# fun main() {
+#   addRoute("/", mainPage);
+#   addStaticRoute("/examples/handlers/js", "examples/handlers/js", [("js", "text/javascript")]);
+#   servePages()
+# }
+
+# main()
+
+var x = trampolined(0);
+direct(0)

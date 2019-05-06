@@ -1,0 +1,198 @@
+fun gen(f) {
+  (f : (Comp({ |%},a)) <- (Comp({ }, a)))
+}
+
+# Structured Asynchrony with Algebraic Effects
+
+# Section 2.1: Exceptions as Algebraic Effects
+sig throw : (a) {Throw:(a) {}-> Zero|_}-> _
+fun throw(s) {switch (do Throw(s)) { }}
+
+fun safeDiv(x, y) {
+  if (y == 0) throw("divide by zero") else x / y
+}
+
+sig catch : ( ()  {Throw:(a) {}-> Zero |e}~> b
+            , (a) {                    |e}~> b) { |e}~> b
+fun catch(action,h) {
+  handle(action()) {
+    case Return(x)  -> x
+    case Throw(s,_) -> h(s)
+  }
+}
+
+fun zeroDiv(x,y) {
+  catch(fun() {
+    safeDiv(x,y)
+  }, fun(_) {0})
+}
+
+sig toMaybe : (Comp({Throw:(_) {}-> Zero |e}, a)) {Throw{_} |e}~> Maybe(a)
+fun toMaybe(action) {
+  handle(action()) {
+    case Return(x)  -> Just(x)
+    case Throw(_,_) -> Nothing
+  }
+}
+
+# Alternatively
+# sig toMaybe : (Comp({Throw:(_) {}-> Zero |e}, a)) -> Comp({Throw{_} |e}, Maybe(a))
+# var toMaybe = handler {
+#   case Return(x)  -> Just(x)
+#   case Throw(_,_) -> Nothing
+# };
+
+sig try : (Comp({Throw:(a) {}-> Zero |e}, b)) {Throw{_} |e}~> Either(a,b)
+fun try(m) {
+  handle(m()) {
+    case Return(x)    -> Right(x)
+    case Throw(exn,_) -> Left(exn)
+  }
+}
+
+sig untry : (Either(a,b)) {Throw:(a) {}-> Zero |e}-> b
+fun untry(ex) {
+  switch(ex) {
+    case Left(exn) -> throw(exn)
+    case Right(x)  -> x
+  }
+}
+
+# Section 2.2: Resuming Operations
+sig getstr : () {Getstr:String|_}-> String
+fun getstr() {do Getstr}
+
+fun hello() {
+  var name = getstr();
+  print("Hello " ^^ name)
+}
+
+fun alwaysThere(m) {
+  handle(m()) {
+    case Return(x) -> x
+    case Getstr(resume) -> resume("there")
+  }
+}
+
+# Section 2.3: State
+sig get : () {Get:s|_}-> s
+fun get() {do Get}
+
+sig put : (s) {Put:(s) {}-> () |_}-> ()
+fun put(st) {do Put(st)}
+
+fun counter() {
+  var i = get();
+  if (i <= 0) ()
+  else {
+    print("hi");
+    put(i - 1);
+    counter()
+  }
+}
+
+var state = handler(st) {
+  case Return(x)      -> (x, st)
+  case Get(resume)    -> resume(st)(st)
+  case Put(st,resume) -> resume(())(st)
+};
+
+# Section 2.4: Iterators
+sig yield : (a) {Yield:(a) {}-> ()|_}-> ()
+fun yield(x) {do Yield(x)}
+
+sig iterate : ([a]) {Yield:(a) {}-> () |_}~> ()
+fun iterate(xs) {
+  switch (xs) {
+    case []      -> ()
+    case x :: xs -> yield(x); iterate(xs)
+  }
+}
+
+sig foreach : ( (a) {Yield{p}           |e}~> Bool
+              , Comp({Yield:(a) {}-> () |e},  _)) {Yield{p} |e}~> ()
+fun foreach(f, action) {
+  handle(action()) {
+    case Return(_)       -> ()
+    case Yield(x,resume) ->
+      if (f(x)) resume(())
+      else ()
+  }
+}
+
+# Section 2.5: Multiple Resumptions
+sig flip : () {Flip:Bool |_}-> Bool
+fun flip() {do Flip}
+
+fun xor() {
+  var p = flip();
+  var q = flip();
+  (p || q) && not(p && q)
+}
+
+fun coinflip(m) {
+  handle(m()) {
+    case Return(x)    -> x
+    case Flip(resume) -> resume(random() > 0.5)
+  }
+}
+
+fun amb(m) {
+  handle(m()) {
+    case Return(x)    -> [x]
+    case Flip(resume) -> resume(false) ++ resume(true)
+  }
+}
+
+fun surprising() {
+  var p = flip();
+  var i = get();
+  put(i + 1);
+  if (i >= 1 && p) xor()
+  else false
+}
+
+# Section 3.1: An Asynchronous Effect
+typename Exception = String;
+typename Result(a::Type) = Either(Exception,a);
+
+#sig await : (((Result(a)) {Await{p} |e}~> ()) {Await{p} |e}~> ()) {Await:(((Result (a)) {Await{p}|e}~> ()) {Await{p}|e}~> ()) {}-> () |_}~> Result(a)
+#sig await : ( ((Result(a)) -d-> ()) -c-> ()) {Await:(((Result(a)) -d-> ()) -c-> ()) {}-> () |e}-> Result(a)
+fun await(initiate) { switch(do Await(initiate)) { }}
+
+sig await1 : (((a) -b-> ()) -c-> ()) {Await:(((Result (a)) -b-> ()) -c-> ()) {}-> (),Throw:(Exception) {}-> Zero|_}-> a
+fun await1(initiate) {
+  untry(await(fun(cb) {
+    initiate(fun(x) { cb(Right(x)) })
+  }))
+}
+
+fun await0(initiate) {
+  await1(fun(cb) {
+    initiate(fun() {
+      cb(())
+    })
+  })
+}
+
+# Section 3.2: Implementing an asynchronous handler
+#sig async : (Comp({Await:(((Result(a)) {Await{p} |e}~> ()) {Await{p} |e}~> ()) {}-> () |e}, ())) {Await{p} |e}~> ()
+sig async : (() -%-> ()) -%-> ()
+fun async(m) {
+  handle(m()) {
+    case Await(initiate,resume) -> initiate(resume)
+    case Return(x)              -> x
+  }
+}
+
+# Section 3.3: Interleaving
+fun exit() {
+ untry(await(fun(cb) { }))
+}
+
+fun fork() {
+ await1(fun(cb) {
+   ignore(cb(true));
+   cb(false)
+ })
+}
