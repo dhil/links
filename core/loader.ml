@@ -39,6 +39,25 @@ let read_program filename : (envs * program) =
 (** Read source code from a file, parse, infer types and desugar to
     the IR *)
 let read_file_source (nenv, tyenv) (filename:string) =
+  let module Parser = struct
+      let parse file = Parse.parse_file Parse.program file
+    end
+  in
+  let module Preloader = Preloader.Make(Parser) in
+  let path =
+    match String.split_on_char ':' (Settings.get_value Basicsettings.links_file_paths) with
+    | [""] -> []
+    | paths -> paths
+  in
+  let loader = Preloader.make ~path () in
+  let () =
+    let loader = Preloader.preload filename loader in
+    Printf.printf "=== Loader state after input %s\n%!" filename;
+    Preloader.dump stderr loader;
+    let order = Preloader.compute_load_order loader in
+    let order = List.fold_left (fun order p -> fst p :: order) [] order in
+    Printf.printf "%s\n%!" (String.concat " -> " order)
+  in
   let sugar, pos_context =
     ModuleUtils.try_parse_file filename in
   (* printf "AST: \n %s \n" (Sugartypes.show_program sugar); *)
