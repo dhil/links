@@ -145,7 +145,8 @@ let rec rename_binders_get_shadow_tbl module_table
             let (o, bnd') = o#binder bnd in
             (o, (bnd', dt))) decls in
           (o, AlienBlock (lang, lib, decls'))
-      | Open [] -> assert false
+      | Import [] | Open [] -> assert false
+      | Import ((hd :: tl) as ns)
       | Open ((hd :: tl) as ns) ->
           (* Try to resolve head of PQN. This will either resolve to itself, or
            * to a prefix. Once we have the prefix, we can construct the FQN. *)

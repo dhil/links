@@ -39,6 +39,7 @@ object(self)
     {< shadow_table = shadow_table >}
 
   method! bindingnode = function
+    | Import ns
     | Open ns ->
         (* Try to resolve the import; if not, add to ICs list *)
         let lookup_ref = List.hd ns in
