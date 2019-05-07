@@ -398,3 +398,12 @@ module Make(P : PARSER) = struct
         | _ -> order)
       st.loaded []
 end
+
+(* Load order abstraction *)
+(* TODO: make [compute_load_order] return an instance of this. *)
+module LoadOrder = struct
+  type t = (string * Compilation_unit.t) list
+
+  let load : (t -> 'a -> 'a) -> t list -> 'a -> 'a
+    = List.fold_right
+end
