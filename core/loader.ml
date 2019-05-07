@@ -43,20 +43,32 @@ let read_file_source (nenv, tyenv) (filename:string) =
       let parse file = Parse.parse_file Parse.program file
     end
   in
-  let module Preloader = Preloader.Make(Parser) in
   let path =
     match String.split_on_char ':' (Settings.get_value Basicsettings.links_file_paths) with
     | [""] -> []
     | paths -> paths
   in
+  let module Preloader = Preloader.Make(Parser) in
+  (* Bootstrapping *)
   let loader = Preloader.make ~path () in
-  let () =
-    let loader = Preloader.preload filename loader in
+  let _, loader = Preloader.bootstrap "lib.links" loader in
+  let prelude, loader = Preloader.bootstrap (Settings.get_value Basicsettings.prelude_file) loader in
+  let _ =
+    Printf.printf "=== Loader state after bootstrapping %s\n%!" filename;
+    Preloader.dump stderr loader;
+  in
+  (* After bootstrapping *)
+  let open Preloader in
+  let _ =
+    let _, loader = Preloader.preload ~implicit_dependencies:[prelude] filename loader in
     Printf.printf "=== Loader state after input %s\n%!" filename;
     Preloader.dump stderr loader;
-    let order = Preloader.compute_load_order loader in
-    let order = List.fold_left (fun order p -> fst p :: order) [] order in
-    Printf.printf "%s\n%!" (String.concat " -> " order)
+    let lo = Preloader.compute_load_order loader in
+    LoadOrder.load (fun comp_unit store _ ->
+        let open Compilation_unit in
+        let qname = Store.ById.as_qualified_name comp_unit.id store in
+        Printf.printf "(%d) %s ->\n%!" comp_unit.id (String.concat "." qname))
+      lo ()
   in
   let sugar, pos_context =
     ModuleUtils.try_parse_file filename in

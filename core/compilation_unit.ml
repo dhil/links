@@ -1,67 +1,55 @@
 open Utility
 
-module LinkSet = struct
-  type 'a t = 'a StringTrie.t
-
-  let empty : unit -> 'a t
-    = fun () -> StringTrie.empty
-
-  let union : 'a t -> 'a t -> 'a t =
-    fun ls ls' -> StringTrie.union (fun _ _ v -> Some v) ls ls'
-
-  let add : string list -> 'a -> 'a t -> 'a t
-    = fun prefix pos ls -> StringTrie.add prefix pos ls
-end
-
 type state = Empty
            | Loaded
-
-type colour = White
-            | Black
-            | Grey
+           | Ready
 
 type t =
-  { mutable source: Sugartypes.program * Scanner.position_context;
+  { id: int;
+    mutable source: Sugartypes.program * Scanner.position_context;
     mutable aliens: string list;
-    mutable linkset: t LinkSet.t;
-    mutable state: state;
-    mutable colour: colour }
+    mutable linkset: int list;
+    mutable state: state }
 
 let dummy_source = ([], None), new SourceCode.source_code
 
+let id = ref (-1)
+
 let empty : unit -> t
   = fun () ->
-  { source = dummy_source;
+  { id = (incr id; !id);
+    source = dummy_source;
     aliens = [];
-    linkset = StringTrie.empty;
-    state = Empty;
-    colour = White }
+    linkset = [];
+    state = Empty }
 
-let to_colour : t -> colour = function
-  | { colour; _ } -> colour
+let make_ready : unit -> t
+  = fun () ->
+  let comp_unit = empty () in
+  comp_unit.state <- Ready; comp_unit
 
-let paint : t -> colour -> unit
-  = fun comp_unit colour -> comp_unit.colour <- colour
-
-let string_of_colour = function
-  | White -> "White"
-  | Black -> "Black"
-  | Grey -> "Grey"
+let is_synthetic : t -> bool
+  = fun { source; _ } -> source == dummy_source (* Pointer equality. *)
 
 let is_loaded : t -> bool = function
-  | { state = Loaded; _ } -> true
-  | _ -> false
+  | { state = Empty; _ } -> false
+  | _ -> true
 
-let promote : t -> t
+let promote : t -> unit
   = fun comp_unit ->
-  comp_unit.state <- Loaded; comp_unit
+  match comp_unit.state with
+  | Empty -> comp_unit.state <- Loaded
+  | Loaded -> comp_unit.state <- Ready
+  | _ -> assert false (* TODO FIXME. *)
 
 let to_string : t -> string
-  = fun { aliens; linkset; state; colour; _ } ->
+  = fun { id; aliens; linkset; state; _ } ->
   let aliens =
     Printf.sprintf "[%s]" (String.concat ";" aliens)
   in
   let linkset =
-    Printf.sprintf "[%s]" (String.concat ";" (StringTrie.fold (fun prefix _ acc -> String.concat "." prefix :: acc) linkset []))
+    Printf.sprintf "[%s]" (String.concat ";" (List.map string_of_int linkset))
   in
-  Printf.sprintf "{ aliens = %s; linkset = %s; state = %s; colour = %s }" aliens linkset (match state with Empty -> "Empty" | Loaded -> "Loaded") (string_of_colour colour)
+  Printf.sprintf "{ id = %d; aliens = %s; linkset = %s; state = %s; }" id aliens linkset (match state with Empty -> "Empty" | Loaded -> "Loaded" | Ready -> "Ready")
+
+let dummy = empty ()

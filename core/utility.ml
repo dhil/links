@@ -296,6 +296,7 @@ module Trie = struct
     val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
     val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
     val union : (key -> 'a -> 'a -> 'a option) -> 'a t -> 'a t -> 'a t
+    val union_disjoint : 'a t -> 'a t -> 'a t
   end
 
   module Make(M : S) = struct
@@ -396,6 +397,16 @@ module Trie = struct
       in
       loop [] tr
 
+    let iter' f tr =
+      let rec loop tr =
+        match tr with
+        | Node (None, m) ->
+           M.iter (fun _ -> loop) m
+        | Node (Some v, m) ->
+           f v; M.iter (fun _ -> loop) m
+      in
+      loop tr
+
     let compare value_compare tr tr' =
       let rec compare tr tr' =
         match tr, tr' with
@@ -448,6 +459,9 @@ module Trie = struct
         Some (union (key :: prefix) f tr tr')
       in
       union [] f tr tr'
+
+    let union_disjoint tr tr' =
+      union (fun _ _ _ -> raise (Invalid_argument "The tries are not disjoint.")) tr tr'
   end
 end
 
