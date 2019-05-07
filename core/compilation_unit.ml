@@ -42,6 +42,10 @@ let promote : t -> unit
   | Loaded -> comp_unit.state <- Ready
   | _ -> assert false (* TODO FIXME. *)
 
+let is_ready : t -> bool = function
+  | { state = Ready; _ } -> true
+  | _ -> false
+
 let to_string : t -> string
   = fun { id; aliens; linkset; state; _ } ->
   let aliens =
