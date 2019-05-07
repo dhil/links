@@ -456,8 +456,8 @@ module Make(P : PARSER) = struct
 
       (* This overloading of [binding] collects imports. *)
       method! binding = function
-        | ({ node = Import name; pos } as b) ->
-           self#add (normalise [name]) pos; b
+        | ({ node = Import names; pos } as b) ->
+           self#add (normalise names) pos; b
         | ({ node = Foreign (_, _, _, lib, _); _ } as b) ->
            self#add_alien lib; b
         | b -> super#binding b
