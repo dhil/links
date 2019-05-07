@@ -366,7 +366,6 @@ module Make(P : PARSER) = struct
   end
 
   (* Load order abstraction *)
-  (* TODO: make [compute_load_order] return an instance of this. *)
   module LoadOrder: sig
     type t
 
@@ -561,8 +560,8 @@ module Make(P : PARSER) = struct
     in List.map fst sorted
 
   (* Attempts to (pre)load the compilation unit induced by the given
-     file name. As a side effect, dependencies of the compilation unit
-     will loaded transitively. *)
+     file name. As a side effect, it loads the dependencies of the
+     compilation unit transitively. *)
   let preload : ?implicit_dependencies:Compilation_unit.t list -> string -> t -> (Compilation_unit.t * t)
     = fun ?(implicit_dependencies=[]) source_file st ->
     let visitor = make_preload_obj () in
