@@ -155,6 +155,7 @@ end = struct
   type root_ptr = int
   type t =
     { mutable roots: Root.t array;
+      (* TODO FIXME: use a compact encoding based on powers of two. *)
       mutable space: root_ptr list StringTrie.t;
       mutable scanned: bool }
 

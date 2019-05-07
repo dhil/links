@@ -30,6 +30,7 @@ let load_file (nenv, tyenv) (filename:string) =
   let loader = Preloader.make ~path () in
   let _, loader = Preloader.bootstrap "lib.links" loader in
   let prelude, loader = Preloader.bootstrap (Settings.get_value Basicsettings.prelude_file) loader in
+  (* TODO patch prelude. *)
   let _ =
     Printf.printf "=== Loader state after bootstrapping %s\n%!" filename;
     Preloader.dump stderr loader;
