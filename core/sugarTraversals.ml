@@ -683,9 +683,9 @@ class map =
           let _x_i4 = o#datatype' _x_i4 in
           Foreign ((_x, _x_i1, _x_i2, _x_i3, _x_i4))
       | Import x -> Import (o#name x)
-      | QualifiedImport _xs ->
+      | Open _xs ->
           let _xs = o#list (fun o -> o#name) _xs in
-          QualifiedImport _xs
+          Open _xs
       | Typenames (ts) ->
           let ts = o#list (fun o (_x, _x_i1, _x_i2, _x_i3) ->
             let _x = o#name _x in
@@ -1342,7 +1342,7 @@ class fold =
           let o = o#name _x_i3 in
           let o = o#datatype' _x_i4 in o
       | Import x -> o#name x
-      | QualifiedImport _xs ->
+      | Open _xs ->
           let o = o#list (fun o -> o#name) _xs in
           o
       | Typenames (ts) ->
@@ -2132,9 +2132,9 @@ class fold_map =
       | Import x ->
          let (o, x) = o#name x in
          (o, Import x)
-      | QualifiedImport _xs ->
+      | Open _xs ->
           let (o, _xs) = o#list (fun o n -> o#name n) _xs in
-          (o, QualifiedImport _xs)
+          (o, Open _xs)
       | Typenames (ts) ->
           let (o, ts) = o#list (fun o (_x, _x_i1, _x_i2, _x_i3) ->
             let (o, _x) = o#name _x in
