@@ -387,7 +387,7 @@ module Make(P : PARSER) = struct
         (fun id z ->
           let comp_unit = Store.ById.find id store in
           (* Skip synthetic units. *)
-          if Compilation_unit.is_synthetic comp_unit
+          if Compilation_unit.is_ready comp_unit
           then z
           else f comp_unit store z)
         seq z
