@@ -10,8 +10,26 @@ open Utility
 open Sugartypes
 open SourceCode.WithPos
 
-(* The following data structures model scopes. *)
 (* TODO FIXME: use ropes rather than strings to build names. *)
+module Prefix = struct
+  type t = string
+
+  let to_string : t -> string
+    = fun x -> x
+
+  let of_string : string -> t
+    = fun x -> x
+
+  let add_suffix : t -> string -> t
+    = fun prefix suffix -> prefix ^ suffix
+
+  let empty : t = ""
+
+  let length : t -> int
+    = String.length
+end
+
+(* The following data structures model scopes. *)
 type t =
   { modules: module_member StringTrie.t;
     typenames: type_member StringTrie.t;
@@ -25,6 +43,10 @@ let empty =
     typenames = StringTrie.empty;
     terms = StringTrie.empty }
 
+(* We do not produce an error if a name fails to resolve, which
+   happens if a variable is unbound. We defer error handling to the
+   type checker. We produce a "best guess" of its name, which is
+   simply its qualified form. *)
 let best_guess : name list -> name
   = String.concat "."
 
@@ -50,48 +72,79 @@ let resolve_typename : name -> t -> name
 
 let desugar (program : Sugartypes.program) =
   let open Sugartypes in
-  let desugar (current : t) (_global : t) =
+  let desugar =
     object(self)
       inherit SugarTraversals.map as super
+
+      val next : int ref = ref 0
+      val scope : t ref = ref empty
+      val prefix = ref Prefix.empty
+
+      method backup = (!scope, !prefix, !next)
+      method restore (scope', prefix', next') =
+        scope := scope';
+        next := next';
+        prefix := prefix'
 
       method type_binder : name -> name
         = fun _name -> assert false
       method term_binder : Binder.with_pos -> Binder.with_pos
         = fun _bndr -> assert false
+      method module_binder : name -> (t * string * int) -> (t * string * int)
+        = fun name (scope', prefix, next) ->
+        ({ !scope with modules = StringTrie.add [name] scope' !scope.modules }, prefix, next)
+
+      method bind_term names name =
+        scope := { !scope with terms = StringTrie.add names name !scope.terms }
+
+      method bind_type names name =
+        scope := { !scope with typenames = StringTrie.add names name !scope.typenames }
+
+      (* method bind_module names module' =
+       *   scope := { !scope with modules = StringTrie.add names module' !scope.modules } *)
 
       (* Every binder should be processed by one of the subsequent methods. *)
       method! binder _ = assert false
 
       method! patternnode = let open Pattern in function
-        | Variable bndr ->
-        (* Affects [current]. *)
-          Variable (self#term_binder bndr)
+        | (Variable bndr) as node ->
+         (* Affects [scope]. Binders in variable patterns are always
+            unqualified. *)
+          let name = Binder.to_name bndr in
+          self#bind_term [name] name; node
         | As (bndr, pat) ->
-        (* Affects [current] *)
-          As (self#term_binder bndr, self#pattern pat)
+         (* Affects [scope]. Binders in as patterns are always
+            unqualified. *)
+          let name = Binder.to_name bndr in
+          self#bind_term [name] name;
+          As (bndr, self#pattern pat)
         | p -> super#patternnode p
 
       method! phrasenode = function
-        | Block (_bs, _body) ->
-        (* Introduces a new scope *)
-          assert false
+        | Block (bs, body) ->
+         (* Introduces a new scope *)
+          let st = self#backup in
+          let bs' = self#bindings bs in
+          let body' = self#phrase body in
+          let () = self#restore st in
+          Block (bs', body')
         | Var name ->
         (* Must be resolved. *)
-          Var (resolve_var name current)
+          Var (resolve_var name !scope)
         | QualifiedVar names ->
         (* Must be resolved. *)
-          Var (resolve_qualified_var names current)
+          Var (resolve_qualified_var names !scope)
         | p -> super#phrasenode p
 
       method! datatypenode = let open Datatype in function
         | TypeApplication (name, args) ->
         (* Must be resolved. *)
           let args' = self#list (fun o -> o#type_arg) args in
-          TypeApplication (resolve_typename name current, args')
+          TypeApplication (resolve_typename name !scope, args')
         | QualifiedTypeApplication (names, args) ->
         (* Must be resolved. *)
           let args' = self#list (fun o -> o#type_arg) args in
-          TypeApplication (resolve_qualified_typename names current, args')
+          TypeApplication (resolve_qualified_typename names !scope, args')
         | dt -> super#datatypenode dt
 
       method! bindingnode = function
@@ -100,14 +153,46 @@ let desugar (program : Sugartypes.program) =
           let funlit' = self#funlit funlit in
           let bndr' = self#term_binder bndr in
           Fun (bndr', lin, (tvs, funlit'), loc, dt')
-        | Funs _fs ->
+        | Funs fs ->
           (* Assumes mutual typenames have been processed already,
              which appears to be guaranteed by the parser. *)
-          assert false
-        | Typenames _ts ->
+          (* Two passes:
+             1) Register all the names such that they are available
+              inside of each function body.
+             2) Process the function bodies. *)
+           let (fs' : recursive_function list) =
+             List.fold_right
+               (fun (bndr, lin, lit, loc, dt, pos) fs ->
+                 (self#term_binder bndr, lin, lit, loc, dt, pos) :: fs)
+               fs []
+           in
+           let fs'' =
+             List.fold_right
+               (fun (bndr, lin, (tvs, funlit), loc, dt, pos) fs ->
+                 let dt' = self#option (fun o -> o#datatype') dt in
+                 let funlit' = self#funlit funlit in
+                 (bndr, lin, (tvs, funlit'), loc, dt', pos) :: fs)
+               fs' []
+           in
+           Funs fs''
+        | Typenames ts ->
           (* Must be processed before any mutual function bindings in
              the same mutual binding group. *)
-          assert false
+          (* Same procedure as above. *)
+           let ts' =
+             List.fold_right
+               (fun (name, tyvars, dt, pos) ts ->
+                 (self#type_binder name, tyvars, dt, pos) :: ts)
+               ts []
+           in
+           let ts'' =
+             List.fold_right
+               (fun (name, tyvars, dt, pos) ts ->
+                 let dt' = self#datatype' dt in
+                 (name, tyvars, dt', pos) :: ts)
+               ts' []
+           in
+           Typenames ts''
         | Val (pat, (tvs, body), loc, dt) ->
           let pat' = self#pattern pat in
           let body' = self#phrase body in
@@ -138,11 +223,13 @@ let desugar (program : Sugartypes.program) =
         (* TODO FIXME: Imports should be bring a synthetic module into scope. *)
         | { node = Import _names; _ } :: bs
         | { node = Open _names; _ } :: bs ->
-        (* Affects [current]. *)
+         (* Affects [scope]. *)
           self#bindings bs
-        | { node = Module (_name, bs'); _ } :: bs ->
-        (* Affects [global] and hoists [bs'] *)
+        | { node = Module (name, bs'); _ } :: bs ->
+          (* Affects [scope] and hoists [bs'] *)
+          let st = self#backup in
           let bs'' = self#bindings bs' in
+          self#restore (self#module_binder name st);
           bs'' @ self#bindings bs
         | b :: bs ->
           super#binding b :: self#bindings bs
@@ -151,4 +238,4 @@ let desugar (program : Sugartypes.program) =
        (self#bindings bs, self#option (fun o -> o#phrase) exp)
     end
   in
-  (desugar empty empty)#program program
+  desugar#program program
