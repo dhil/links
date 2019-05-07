@@ -365,6 +365,16 @@ module Trie = struct
       | Node (None, m)   -> Node (None, M.map (map f) m)
       | Node (Some v, m) -> Node (Some (f v), M.map (map f) m)
 
+    let map_keys f tr =
+      let rec map_keys f = function
+        | Node (v, m) ->
+          let m' = M.fold
+             (fun key x m -> M.add (f key) x (M.map (map_keys f) m))
+             m M.empty
+          in
+          Node (v, m')
+      in map_keys f tr
+
     let fold f tr z =
       let rec loop prefix tr z =
         match tr with
