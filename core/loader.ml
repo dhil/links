@@ -1,5 +1,4 @@
 open Utility
-open Performance
 
 type envs = Var.var Env.String.t * Types.typing_environment
 type program = Ir.binding list * Ir.computation * Types.datatype
@@ -14,31 +13,9 @@ type source = {
   external_dependencies: ext_dep list
 }
 
-
-
-(** Unmarshal an IR program from a file along with naming and typing
-    environments and the fresh variable counters.
-*)
-let read_a filename : ('a) =
-  let x, (gc, tc, vc) =
-    call_with_open_infile filename ~binary:true Marshal.from_channel
-  in
-    Utility.gensym_counter := gc;
-    Types.type_variable_counter := tc;
-    Var.variable_counter := vc;
-    x
-
-let read_program filename : (envs * program) = read_a filename
-
-(* measuring only *)
-let read_program filename : (envs * program) =
-  measure ("read_program "^filename) read_program filename
-
-
-
 (** Read source code from a file, parse, infer types and desugar to
     the IR *)
-let read_file_source (nenv, tyenv) (filename:string) =
+let load_file (nenv, tyenv) (filename:string) =
   let module Parser = struct
       let parse file = Parse.parse_file Parse.program file
     end
@@ -86,15 +63,6 @@ let read_file_source (nenv, tyenv) (filename:string) =
     external_dependencies = ffi_files
   }
 
-
-
-(** Loads a named file and prints it as syntax *)
-let print filename =
-   let _envs, (globals, (locals, main), _t) = read_program filename in
-     print_string (Ir.show_program (globals @ locals, main))
-
-
-let load_file = read_file_source
 
 
 

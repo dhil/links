@@ -11,7 +11,4 @@ type source = {
   external_dependencies: ext_dep list
 }
 
-val read_file_source : envs -> string -> source
 val load_file : envs -> string -> source
-
-val print : string -> unit
