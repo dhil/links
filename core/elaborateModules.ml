@@ -11,7 +11,8 @@ open Sugartypes
 open SourceCode.WithPos
 
 (* TODO FIXME: use ropes rather than strings to build names. *)
-module Baptiser = struct
+(* TODO: Generate unique names for local typenames. *)
+module Epithet = struct
   type t =
     { mutable next: int;
       prefix: (int * string) list }
@@ -25,17 +26,22 @@ module Baptiser = struct
     st.next <- next + 1;
     { empty with prefix = (next, name) :: st.prefix }
 
-  (* Stateful *)
-  let baptise st name =
-    let next = st.next in
-    st.next <- next + 1;
-    let components =
+  let build components =
+    let components' =
       List.fold_left
         (fun suffix (i, name) ->
-          (Printf.sprintf "%s%d" name i) :: suffix)
-         [] ((next, name) :: st.prefix)
+          (if i < 0 then name else Printf.sprintf "%s%d" name i) :: suffix)
+        [] components
     in
-    String.concat "$" components
+    String.concat "." components'
+
+  let expand st name =
+    build ((-1, name) :: st.prefix)
+
+  let expand_escapee st name =
+    let next = st.next in
+    st.next <- next + 1;
+    build ((-1, name) :: (next, "?") :: st.prefix)
 end
 
 (* The following data structures model scopes. *)
@@ -63,54 +69,54 @@ let rec spaces n buffer =
 let put buffer s = Buffer.add_string buffer s
 let nl buffer = Buffer.add_char buffer '\n'
 
-(* let rec string_of_scope buffer indent { modules; typenames; terms } =
- *   spaces indent buffer;
- *   put buffer "modules = {";
- *   nl buffer;
- *   StringTrie.iter
- *     (fun prefix item ->
- *       spaces (indent + 1) buffer;
- *       put buffer (Printf.sprintf "[%s]:" (String.concat ";" prefix));
- *       nl buffer;
- *       let _ = string_of_scope buffer (indent + 2) item in
- *       nl buffer)
- *     modules;
- *   nl buffer;
- *   spaces indent buffer;
- *   put buffer "}\n";
- *   spaces indent buffer;
- *   put buffer "typenames = {";
- *   nl buffer;
- *   StringTrie.iter
- *     (fun prefix item ->
- *       spaces (indent + 2) buffer;
- *       put buffer (Printf.sprintf "[%s] -> %s" (String.concat ";" prefix) item);
- *       nl buffer)
- *     typenames;
- *   spaces indent buffer;
- *   put buffer "}\n";
- *   spaces indent buffer;
- *   put buffer "terms = {";
- *   nl buffer;
- *   StringTrie.iter
- *     (fun prefix item ->
- *       spaces (indent + 2) buffer;
- *       put buffer (Printf.sprintf "[%s] -> %s" (String.concat ";" prefix) item);
- *       nl buffer)
- *     terms;
- *   spaces indent buffer;
- *   put buffer "}"; buffer
- * and string_of_scopes { outer; inner } =
- *   let buffer = Buffer.create 32 in
- *   put buffer "outer = {";
- *   nl buffer;
- *   let buffer = string_of_scope buffer 1 outer in
- *   nl buffer;
- *   put buffer "}\n";
- *   put buffer "inner = {";
- *   nl buffer;
- *   let buffer = string_of_scope buffer 1 inner in
- *   nl buffer; Buffer.contents buffer *)
+let rec string_of_scope buffer indent { modules; typenames; terms } =
+  spaces indent buffer;
+  put buffer "modules = {";
+  nl buffer;
+  StringMap.iter
+    (fun key item ->
+      spaces (indent + 1) buffer;
+      put buffer (Printf.sprintf "[%s]:" key);
+      nl buffer;
+      let _ = string_of_scope buffer (indent + 2) item in
+      nl buffer)
+    modules;
+  nl buffer;
+  spaces indent buffer;
+  put buffer "}\n";
+  spaces indent buffer;
+  put buffer "typenames = {";
+  nl buffer;
+  StringMap.iter
+    (fun key item ->
+      spaces (indent + 2) buffer;
+      put buffer (Printf.sprintf "[%s] -> %s" key item);
+      nl buffer)
+    typenames;
+  spaces indent buffer;
+  put buffer "}\n";
+  spaces indent buffer;
+  put buffer "terms = {";
+  nl buffer;
+  StringMap.iter
+    (fun key item ->
+      spaces (indent + 2) buffer;
+      put buffer (Printf.sprintf "[%s] -> %s" key item);
+      nl buffer)
+    terms;
+  spaces indent buffer;
+  put buffer "}"; buffer
+and string_of_scopes { outer; inner } =
+  let buffer = Buffer.create 32 in
+  put buffer "outer = {";
+  nl buffer;
+  let buffer = string_of_scope buffer 1 outer in
+  nl buffer;
+  put buffer "}\n";
+  put buffer "inner = {";
+  nl buffer;
+  let buffer = string_of_scope buffer 1 inner in
+  nl buffer; Buffer.contents buffer
 
 let shadow : scope -> scope -> scope
   = fun scope mask ->
@@ -225,11 +231,11 @@ let renew : t -> t
   let outer = shadow scopes.outer scopes.inner in
   { outer; inner = empty_scope }
 
-let rec desugar_module : Baptiser.t -> t -> Sugartypes.binding -> binding list * t
-  = fun baptiser scope binding ->
+let rec desugar_module : Epithet.t -> t -> Sugartypes.binding -> binding list * t
+  = fun renamer scope binding ->
   match binding.node with
   | Module (name, bs) ->
-     let visitor = desugar ~toplevel:true (Baptiser.remember name baptiser) (renew scope) in
+     let visitor = desugar ~toplevel:true (Epithet.remember name renamer) (renew scope) in
      let bs'    = visitor#bindings bs in
      let scope' = visitor#get_scope in
      let scope'' = enter_module name scope'.inner scope in
@@ -237,25 +243,33 @@ let rec desugar_module : Baptiser.t -> t -> Sugartypes.binding -> binding list *
       * Printf.printf "enter_module after:\n%s\n%!" (string_of_scopes scope''); *)
      (bs', scope'')
   | _ -> assert false
-and desugar ?(toplevel=false) (baptiser : Baptiser.t) (scope : t) =
+and desugar ?(toplevel=false) (renamer : Epithet.t) (scope : t) =
   let open Sugartypes in
   object(self : 'self_type)
     inherit SugarTraversals.map as super
 
     val scope : t ref = ref scope
-    val baptiser : Baptiser.t ref = ref baptiser
+    val renamer : Epithet.t ref = ref renamer
+    method get_renamer = !renamer
     method get_scope = !scope
+
+    method clone =
+      desugar ~toplevel:false !renamer !scope
 
     method type_binder : name -> name
       = fun name ->
       (* Construct a prefixed name for [name]. *)
-      let name' = Baptiser.baptise !baptiser name in
+      let name' =
+        if toplevel then Epithet.expand !renamer name
+        else Epithet.expand_escapee !renamer name
+      in
       self#bind_type name name'; name'
 
     method! binder : Binder.with_pos -> Binder.with_pos
       = fun bndr ->
+      let _ = Printf.printf "Top-level binder: %s\n%!" (Binder.to_name bndr) in
       let name = Binder.to_name bndr in
-      let name' = Baptiser.baptise !baptiser name in
+      let name' = if toplevel then Epithet.expand !renamer name else name in
       self#bind_term name name';
       Binder.set_name bndr name'
 
@@ -283,35 +297,35 @@ and desugar ?(toplevel=false) (baptiser : Baptiser.t) (scope : t) =
       with Notfound.NotFound _ ->
         raise (Errors.module_error ~pos (Printf.sprintf "Unbound module %s" (best_guess path)))
 
-    method! patternnode = let open Pattern in function
-      | Variable bndr ->
-      (* Affects [scope]. Global binders in patterns are always
-         qualified. *)
-        let name = Binder.to_name bndr in
-        let name' = Baptiser.baptise !baptiser name in
-        self#bind_term name name';
-        Variable (Binder.set_name bndr name')
-      (* | (Variable bndr) as node ->
-       *  (\* Affects [scope]. Local binders in patterns are always
-       *     unqualified. *\)
-       *   let name = Binder.to_name bndr in
-       *   self#bind_term name name; node *)
-      | As (bndr, pat) ->
-       (* Affects [scope]. *)
-        let name = Binder.to_name bndr in
-        let bndr' =
-          if toplevel
-          then Binder.set_name bndr (Baptiser.baptise !baptiser name)
-          else bndr
-        in
-        let name' = Binder.to_name bndr' in
-        self#bind_term name name';
-        As (bndr', self#pattern pat)
-      | p -> super#patternnode p
+    (* method! patternnode = let open Pattern in function
+     *   | Variable bndr ->
+     *   (\* Affects [scope]. Global binders in patterns are always
+     *      qualified. *\)
+     *     let name = Binder.to_name bndr in
+     *     let name' = Epithet.expand !renamer name in
+     *     self#bind_term name name';
+     *     Variable (Binder.set_name bndr name')
+     *   (\* | (Variable bndr) as node ->
+     *    *  (\\* Affects [scope]. Local binders in patterns are always
+     *    *     unqualified. *\\)
+     *    *   let name = Binder.to_name bndr in
+     *    *   self#bind_term name name; node *\)
+     *   | As (bndr, pat) ->
+     *    (\* Affects [scope]. *\)
+     *     let name = Binder.to_name bndr in
+     *     let bndr' =
+     *       if toplevel
+     *       then Binder.set_name bndr (Epithet.expand !renamer name)
+     *       else bndr
+     *     in
+     *     let name' = Binder.to_name bndr' in
+     *     self#bind_term name name';
+     *     As (bndr', self#pattern pat)
+     *   | p -> super#patternnode p *)
 
     method! funlit : funlit -> funlit
       = fun (paramss, body) ->
-      let visitor = desugar ~toplevel:false !baptiser !scope in
+      let visitor = self#clone in
       let paramss' =
         List.map
           (fun params ->
@@ -321,21 +335,78 @@ and desugar ?(toplevel=false) (baptiser : Baptiser.t) (scope : t) =
       let body' = visitor#phrase body in
       (paramss', body')
 
+    method cases : (Pattern.with_pos * phrase) list -> (Pattern.with_pos * phrase) list
+      = fun cases ->
+      List.map
+        (fun (pat, body) ->
+          let visitor = self#clone in
+          let pat'  = visitor#pattern pat in
+          let body' = visitor#phrase body in
+          (pat', body'))
+        cases
+
+    method! binop op =
+      let open Operators.BinaryOp in
+      match op with
+      | Name name -> Name (resolve_var name !scope)
+      | _ -> super#binop op
+
+    method! unary_op op =
+      let open Operators.UnaryOp in
+      match op with
+      | Name name -> Name (resolve_var name !scope)
+      | _ -> super#unary_op op
+
+    method! section sect =
+      let open Operators.Section in
+      match sect with
+      | Name name -> Name (resolve_var name !scope)
+      | _ -> super#section sect
+
     method! phrasenode = function
       | Block (bs, body) ->
        (* Enters a new scope, which is thrown away on exit. *)
-        let visitor = desugar ~toplevel:false !baptiser !scope in
+        let visitor = self#clone in
         let bs'= visitor#bindings bs in
         let body' = visitor#phrase body in
         Block (bs', body')
       | Var name ->
-      (* Must be resolved. *)
-         Printf.printf "Resolving %s\n%!" name;
-         Var (resolve_var name !scope)
+        (* Must be resolved. *)
+        Printf.printf "Resolving %s\n%!" name;
+        Var (resolve_var name !scope)
       | QualifiedVar names ->
       (* Must be resolved. *)
          (* Printf.printf "Resolving [%s]\n%s\n%!" (String.concat ";" names) (string_of_scopes !scope); *)
         Var (resolve_qualified_var names !scope)
+      | Escape (bndr, body) ->
+         let visitor = self#clone in
+         let bndr' = visitor#binder bndr in
+         let body' = visitor#phrase body in
+         Escape (bndr', body')
+      | Handle _handler -> assert false
+      | Switch (expr, cases, dt) ->
+         let expr' = self#phrase expr in
+         let cases' = self#cases cases in
+         Switch (expr', cases', dt)
+      | Receive (cases, dt) ->
+         let cases' = self#cases cases in
+         Receive (cases', dt)
+      | FormBinding (body, pat) ->
+         let visitor = self#clone in
+         let body' = visitor#phrase body in
+         let pat' = visitor#pattern pat in
+         FormBinding (body', pat')
+      | Offer (expr, cases, dt) ->
+         let expr' = self#phrase expr in
+         let cases' = self#cases cases in
+         Offer (expr', cases', dt)
+      | TryInOtherwise (expr, x, body, catch, dt) ->
+         let expr' = self#phrase expr in
+         let visitor = self#clone in
+         let x' = visitor#pattern x in
+         let body' = visitor#phrase body in
+         let catch' = self#phrase catch in
+         TryInOtherwise (expr', x', body', catch', dt)
       | p -> super#phrasenode p
 
     method! datatypenode = let open Datatype in function
@@ -433,7 +504,7 @@ and desugar ?(toplevel=false) (baptiser : Baptiser.t) (scope : t) =
       | ({ node = Module (_name, _); _ } as module') :: bs ->
       (* Affects [scope] and hoists [bs'] *)
          Printf.printf "Desugar module %s\n%!" _name;
-         let bs', scope' = desugar_module !baptiser !scope module' in
+         let bs', scope' = desugar_module !renamer !scope module' in
          (* Printf.printf "Before desugar %s:\n%s\n%!" name (string_of_scopes !scope);
           * Printf.printf "After desugar %s:\n%s\n%!" name (string_of_scopes scope'); *)
          scope := scope'; bs' @ self#bindings bs
@@ -446,9 +517,19 @@ and desugar ?(toplevel=false) (baptiser : Baptiser.t) (scope : t) =
       (bs', self#option (fun o -> o#phrase) exp)
   end
 
-let desugar : Sugartypes.program -> Sugartypes.program
+let desugar_program : Sugartypes.program -> Sugartypes.program
   = fun program ->
-  Printf.fprintf stderr "Before elaboration:\n%s\n%!" (Sugartypes.show_program program);
-  let result = (desugar ~toplevel:true Baptiser.empty empty)#program program in
-  Printf.fprintf stderr "After elaboration:\n%s\n%!" (Sugartypes.show_program result);
+  (* Printf.fprintf stderr "Before elaboration:\n%s\n%!" (Sugartypes.show_program program); *)
+  let result = (desugar ~toplevel:true Epithet.empty empty)#program program in
+  (* Printf.fprintf stderr "After elaboration:\n%s\n%!" (Sugartypes.show_program result); *)
   result
+
+
+let scope : t ref = ref empty
+let renamer : Epithet.t ref = ref Epithet.empty
+
+let desugar_sentence : Sugartypes.sentence -> Sugartypes.sentence
+  = fun sentence ->
+  let visitor = desugar ~toplevel:true !renamer !scope in
+  let result = visitor#sentence sentence in
+  scope := visitor#get_scope; renamer := visitor#get_renamer; result
