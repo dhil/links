@@ -11,7 +11,6 @@ open Sugartypes
 open SourceCode.WithPos
 
 (* TODO FIXME: use ropes rather than strings to build names. *)
-(* TODO: Generate unique names for local typenames. *)
 module Epithet = struct
   type t =
     { mutable next: int;
@@ -45,210 +44,168 @@ module Epithet = struct
 end
 
 (* The following data structures model scopes. *)
-type scope =
-  { modules: module_member StringMap.t;
-    typenames: type_member StringMap.t;
-    terms: term_member StringMap.t }
-and module_member = scope
-and type_member = string
-and term_member = string
-and t = { inner: scope; outer: scope }
+module BasicScope = struct
+  type t =
+    { modules: module_member StringMap.t;
+      typenames: type_member StringMap.t;
+      terms: term_member StringMap.t }
+  and module_member = t
+  and type_member = string
+  and term_member = string
 
-let empty_scope =
-  { modules = StringMap.empty;
-    typenames = StringMap.empty;
-    terms = StringMap.empty }
+  let empty =
+    { modules = StringMap.empty;
+      typenames = StringMap.empty;
+      terms = StringMap.empty }
 
-let empty = { inner = empty_scope; outer = empty_scope }
+  module Resolve = struct
+    let rec module' : name list -> t -> t
+      = fun names scope ->
+      match names with
+      | [] -> assert false
+      | [name] -> StringMap.find name scope.modules
+      | prefix :: names -> module' names (StringMap.find prefix scope.modules)
 
-let rec spaces n buffer =
-  if n > 0
-  then (Buffer.add_char buffer ' '; spaces (n - 1) buffer)
-  else ()
+    let rec qualified_var : name list -> t -> name
+      = fun names scope ->
+      match names with
+      | [] -> assert false
+      | [name] -> StringMap.find name scope.terms
+      | prefix :: names ->
+         qualified_var names (StringMap.find prefix scope.modules)
 
-let put buffer s = Buffer.add_string buffer s
-let nl buffer = Buffer.add_char buffer '\n'
+    let rec qualified_typename : name list -> t -> name
+      = fun names scope ->
+      match names with
+      | [] -> assert false
+      | [name] -> StringMap.find name scope.typenames
+      | prefix :: names ->
+         qualified_typename names (StringMap.find prefix scope.modules)
 
-let rec string_of_scope buffer indent { modules; typenames; terms } =
-  spaces indent buffer;
-  put buffer "modules = {";
-  nl buffer;
-  StringMap.iter
-    (fun key item ->
-      spaces (indent + 1) buffer;
-      put buffer (Printf.sprintf "[%s]:" key);
-      nl buffer;
-      let _ = string_of_scope buffer (indent + 2) item in
-      nl buffer)
-    modules;
-  nl buffer;
-  spaces indent buffer;
-  put buffer "}\n";
-  spaces indent buffer;
-  put buffer "typenames = {";
-  nl buffer;
-  StringMap.iter
-    (fun key item ->
-      spaces (indent + 2) buffer;
-      put buffer (Printf.sprintf "[%s] -> %s" key item);
-      nl buffer)
-    typenames;
-  spaces indent buffer;
-  put buffer "}\n";
-  spaces indent buffer;
-  put buffer "terms = {";
-  nl buffer;
-  StringMap.iter
-    (fun key item ->
-      spaces (indent + 2) buffer;
-      put buffer (Printf.sprintf "[%s] -> %s" key item);
-      nl buffer)
-    terms;
-  spaces indent buffer;
-  put buffer "}"; buffer
-and string_of_scopes { outer; inner } =
-  let buffer = Buffer.create 32 in
-  put buffer "outer = {";
-  nl buffer;
-  let buffer = string_of_scope buffer 1 outer in
-  nl buffer;
-  put buffer "}\n";
-  put buffer "inner = {";
-  nl buffer;
-  let buffer = string_of_scope buffer 1 inner in
-  nl buffer; Buffer.contents buffer
+    let var : name -> t -> name
+      = fun name scope -> qualified_var [name] scope
 
-let shadow : scope -> scope -> scope
-  = fun scope mask ->
-  let select_mask _ _ mask = Some mask in
-  let modules =
-    StringMap.union select_mask scope.modules mask.modules
-  in
-  let typenames =
-    StringMap.union select_mask scope.typenames mask.typenames
-  in
-  let terms =
-    StringMap.union select_mask scope.terms mask.terms
-  in
-  { modules; typenames; terms }
+    let typename : name -> t -> name
+      = fun name scope -> qualified_typename [name] scope
+  end
 
-let open_module : scope -> t -> t
-  = fun module_scope scopes ->
-  let inner = shadow scopes.inner module_scope in
-  { scopes with inner }
+  let shadow : t -> t -> t
+    = fun scope mask ->
+    let select_mask _ _ mask = Some mask in
+    let modules =
+      StringMap.union select_mask scope.modules mask.modules
+    in
+    let typenames =
+      StringMap.union select_mask scope.typenames mask.typenames
+    in
+    let terms =
+      StringMap.union select_mask scope.terms mask.terms
+    in
+    { modules; typenames; terms }
 
-(* let import_module : name -> scope -> t -> t
- *   = fun module_name module_scope scopes ->
- *   assert false *)
+  module Extend = struct
+    let module' module_name module_scope scope =
+      { scope with modules = StringMap.add module_name module_scope scope.modules }
 
-(* We do not produce an error if a name fails to resolve, which
-   happens if a variable is unbound. We defer error handling to the
-   type checker. We produce a "best guess" of its name, which is
-   simply its qualified form. *)
-let best_guess : name list -> name
-  = String.concat "."
+    let typename typename typename' scope =
+      { scope with typenames = StringMap.add typename typename' scope.typenames }
 
-let rec resolve_module : name list -> scope -> scope
-  = fun names scope ->
-  match names with
-  | [] -> assert false
-  | [name] -> StringMap.find name scope.modules
-  | prefix :: names -> resolve_module names (StringMap.find prefix scope.modules)
+    let var name name' scope =
+      { scope with terms = StringMap.add name name' scope.terms }
+  end
+end
 
-let resolve_module : name list -> t -> scope
-  = fun names scopes ->
-  try resolve_module names scopes.inner
-  with Notfound.NotFound _ ->
-    resolve_module names scopes.outer (* Allow any errors propagate. *)
+(* Refined notion of scope. *)
+module Scope = struct
+  module S = BasicScope
+  type scope = S.t
+  type t = { inner: scope; outer: scope }
 
-let rec resolve_qualified_var : name list -> scope -> name
-  = fun names scope ->
-  match names with
-  | [] -> assert false
-  | [name] -> StringMap.find name scope.terms
-  | prefix :: names ->
-     resolve_qualified_var names (StringMap.find prefix scope.modules)
-  (* try StringTrie.find names scope.inner.terms
-   * with Notfound.NotFound _ ->
-   *   try StringTrie.find names scope.outer.terms
-   *   with Notfound.NotFound _ ->
-   *     (\* Printf.printf "Resolution for [%s] failed! Dumping contents...\n%!" (String.concat ";" names);
-   *      * Printf.printf "%s\n%!" (string_of_scopes scope); *\)
-   *     best_guess names *)
+  let empty = { inner = S.empty; outer = S.empty }
 
-let resolve_qualified_var : name list -> t -> name
-  = fun names scopes ->
-  try resolve_qualified_var names scopes.inner
-  with Notfound.NotFound _ ->
-    try resolve_qualified_var names scopes.outer
-    with Notfound.NotFound _ -> best_guess names
+  module Resolve = struct
+    (* We do not produce an error if a name fails to resolve, which
+       happens if a variable is unbound. We defer error handling to the
+       type checker. We produce a "best guess" of its name, which is
+       simply its qualified form. *)
+    let best_guess : name list -> name
+      = String.concat "."
 
-let rec resolve_qualified_typename : name list -> scope -> name
-  = fun names scope ->
-  match names with
-  | [] -> assert false
-  | [name] -> StringMap.find name scope.typenames
-  | prefix :: names ->
-     resolve_qualified_typename names (StringMap.find prefix scope.modules)
+    let module' : name list -> t -> scope
+      = fun names scopes ->
+      try S.Resolve.module' names scopes.inner
+      with Notfound.NotFound _ ->
+        S.Resolve.module' names scopes.outer (* Allow any errors propagate. *)
 
-let resolve_qualified_typename : name list -> t -> name
-  = fun names scopes ->
-  try resolve_qualified_typename names scopes.inner
-  with Notfound.NotFound _ ->
-    try resolve_qualified_typename names scopes.outer
-    with Notfound.NotFound _ -> best_guess names
+    let qualified_var : name list -> t -> name
+      = fun names scopes ->
+      try S.Resolve.qualified_var names scopes.inner
+      with Notfound.NotFound _ ->
+        try S.Resolve.qualified_var names scopes.outer
+        with Notfound.NotFound _ -> best_guess names
 
-let resolve_var : name -> t -> name
-  = fun name scopes -> resolve_qualified_var [name] scopes
+    let qualified_typename : name list -> t -> name
+      = fun names scopes ->
+      try S.Resolve.qualified_typename names scopes.inner
+      with Notfound.NotFound _ ->
+        try S.Resolve.qualified_typename names scopes.outer
+        with Notfound.NotFound _ -> best_guess names
 
-let resolve_typename : name -> t -> name
-  = fun name scopes -> resolve_qualified_typename [name] scopes
+    let var : name -> t -> name
+      = fun name scopes -> qualified_var [name] scopes
 
-let enter_module : name -> scope -> t -> t
-  = fun module_name module_scope scope ->
-  (* Printf.printf "Enter module %s\n%!" module_name; *)
-  (* dump module_scope; dump scope; *)
-  (* let modules =
-   *   try let scope' = resolve_module [module_name] scope in
-   *       shadow scope' module_scope
-   *   with Notfound.NotFound _ -> module_scope
-   * in *)
-  let modules' = StringMap.add module_name module_scope scope.inner.modules in
-  { scope with inner = { scope.inner with modules = modules' } }
+    let typename : name -> t -> name
+      = fun name scopes -> qualified_typename [name] scopes
+  end
 
-let enter_term : name -> string -> t -> t
-  = fun term_name prefixed_name scope ->
-  let terms = StringMap.add term_name prefixed_name scope.inner.terms in
-  { scope with inner = { scope.inner with terms = terms } }
+  module Extend = struct
+    let module' : name -> t -> t -> t
+      = fun module_name module_scope scopes ->
+      { scopes with inner = S.Extend.module' module_name module_scope.inner scopes.inner }
 
-let enter_typename : name -> string -> t -> t
-  = fun typename prefixed_name scope ->
-  let typenames = StringMap.add typename prefixed_name scope.inner.typenames in
-  { scope with inner = { scope.inner with typenames = typenames } }
+    let var : name -> string -> t -> t
+      = fun term_name prefixed_name scopes ->
+      { scopes with inner = S.Extend.var term_name prefixed_name scopes.inner }
 
-let renew : t -> t
-  = fun scopes ->
-  let outer = shadow scopes.outer scopes.inner in
-  { outer; inner = empty_scope }
+    let typename : name -> string -> t -> t
+      = fun typename prefixed_name scopes ->
+      { scopes with inner = S.Extend.typename typename prefixed_name scopes.inner }
+  end
 
-let rec desugar_module : Epithet.t -> t -> Sugartypes.binding -> binding list * t
+  let open_module : scope -> t -> t
+    = fun module_scope scopes ->
+    let inner = S.shadow scopes.inner module_scope in
+    { scopes with inner }
+
+  (* TODO. *)
+  let import_module : name -> S.t -> t -> t
+    = fun _module_name _module_scope _scopes ->
+    assert false
+
+  let renew : t -> t
+    = fun scopes ->
+    let outer = S.shadow scopes.outer scopes.inner in
+    { outer; inner = S.empty }
+end
+
+let rec desugar_module : Epithet.t -> Scope.t -> Sugartypes.binding -> binding list * Scope.t
   = fun renamer scope binding ->
   match binding.node with
   | Module (name, bs) ->
-     let visitor = desugar ~toplevel:true (Epithet.remember name renamer) (renew scope) in
+     let visitor = desugar ~toplevel:true (Epithet.remember name renamer) (Scope.renew scope) in
      let bs'    = visitor#bindings bs in
      let scope' = visitor#get_scope in
-     let scope'' = enter_module name scope'.inner scope in
+     let scope'' = Scope.Extend.module' name scope' scope in
      (* Printf.printf "enter_module before:\n%s\n%!" (string_of_scopes scope);
       * Printf.printf "enter_module after:\n%s\n%!" (string_of_scopes scope''); *)
      (bs', scope'')
   | _ -> assert false
-and desugar ?(toplevel=false) (renamer : Epithet.t) (scope : t) =
+and desugar ?(toplevel=false) (renamer : Epithet.t) (scope : Scope.t) =
   let open Sugartypes in
   object(self : 'self_type)
     inherit SugarTraversals.map as super
 
-    val scope : t ref = ref scope
+    val scope : Scope.t ref = ref scope
     val renamer : Epithet.t ref = ref renamer
     method get_renamer = !renamer
     method get_scope = !scope
@@ -267,61 +224,25 @@ and desugar ?(toplevel=false) (renamer : Epithet.t) (scope : t) =
 
     method! binder : Binder.with_pos -> Binder.with_pos
       = fun bndr ->
-      let _ = Printf.printf "Top-level binder: %s\n%!" (Binder.to_name bndr) in
+      (* let _ = Printf.printf "Top-level binder: %s\n%!" (Binder.to_name bndr) in *)
       let name = Binder.to_name bndr in
       let name' = if toplevel then Epithet.expand !renamer name else name in
       self#bind_term name name';
       Binder.set_name bndr name'
 
     method bind_term name name' =
-      Printf.printf "Binding [%s] -> %s\n%!" (String.concat ";" [name]) name';
-      scope := enter_term name name' !scope
+      (* Printf.printf "Binding [%s] -> %s\n%!" (String.concat ";" [name]) name'; *)
+      scope := Scope.Extend.var name name' !scope
 
     method bind_type name name' =
-      scope := enter_typename name name' !scope
+      scope := Scope.Extend.typename name name' !scope
 
     method open_module pos path =
       try
-        (* Printf.printf "Before opening %s:\n%s\n%!" (String.concat "." path) (string_of_scopes !scope); *)
-        let module_scope = resolve_module path !scope in
-        (* Printf.printf "BEFORE SHADOW\n%!";
-         * Printf.printf "=== Scope 1\n%!";
-         * dump !scope;
-         * Printf.printf "=== Scope 2\n%!";
-         * dump scope';
-         * scope := shadow !scope scope';
-         * Printf.printf "AFTER SHADOW\n%!";
-         * dump !scope *)
-        scope := open_module module_scope !scope;
-        (* Printf.printf "After opening %s:\n%s\n%!" (String.concat "." path) (string_of_scopes !scope); *)
+        let module_scope = Scope.Resolve.module' path !scope in
+        scope := Scope.open_module module_scope !scope;
       with Notfound.NotFound _ ->
-        raise (Errors.module_error ~pos (Printf.sprintf "Unbound module %s" (best_guess path)))
-
-    (* method! patternnode = let open Pattern in function
-     *   | Variable bndr ->
-     *   (\* Affects [scope]. Global binders in patterns are always
-     *      qualified. *\)
-     *     let name = Binder.to_name bndr in
-     *     let name' = Epithet.expand !renamer name in
-     *     self#bind_term name name';
-     *     Variable (Binder.set_name bndr name')
-     *   (\* | (Variable bndr) as node ->
-     *    *  (\\* Affects [scope]. Local binders in patterns are always
-     *    *     unqualified. *\\)
-     *    *   let name = Binder.to_name bndr in
-     *    *   self#bind_term name name; node *\)
-     *   | As (bndr, pat) ->
-     *    (\* Affects [scope]. *\)
-     *     let name = Binder.to_name bndr in
-     *     let bndr' =
-     *       if toplevel
-     *       then Binder.set_name bndr (Epithet.expand !renamer name)
-     *       else bndr
-     *     in
-     *     let name' = Binder.to_name bndr' in
-     *     self#bind_term name name';
-     *     As (bndr', self#pattern pat)
-     *   | p -> super#patternnode p *)
+        raise (Errors.module_error ~pos (Printf.sprintf "Unbound module %s" (Scope.Resolve.best_guess path)))
 
     method! funlit : funlit -> funlit
       = fun (paramss, body) ->
@@ -348,19 +269,19 @@ and desugar ?(toplevel=false) (renamer : Epithet.t) (scope : t) =
     method! binop op =
       let open Operators.BinaryOp in
       match op with
-      | Name name -> Name (resolve_var name !scope)
+      | Name name -> Name (Scope.Resolve.var name !scope)
       | _ -> super#binop op
 
     method! unary_op op =
       let open Operators.UnaryOp in
       match op with
-      | Name name -> Name (resolve_var name !scope)
+      | Name name -> Name (Scope.Resolve.var name !scope)
       | _ -> super#unary_op op
 
     method! section sect =
       let open Operators.Section in
       match sect with
-      | Name name -> Name (resolve_var name !scope)
+      | Name name -> Name (Scope.Resolve.var name !scope)
       | _ -> super#section sect
 
     method! phrasenode = function
@@ -372,52 +293,50 @@ and desugar ?(toplevel=false) (renamer : Epithet.t) (scope : t) =
         Block (bs', body')
       | Var name ->
         (* Must be resolved. *)
-        Printf.printf "Resolving %s\n%!" name;
-        Var (resolve_var name !scope)
+        Var (Scope.Resolve.var name !scope)
       | QualifiedVar names ->
       (* Must be resolved. *)
-         (* Printf.printf "Resolving [%s]\n%s\n%!" (String.concat ";" names) (string_of_scopes !scope); *)
-        Var (resolve_qualified_var names !scope)
+        Var (Scope.Resolve.qualified_var names !scope)
       | Escape (bndr, body) ->
-         let visitor = self#clone in
-         let bndr' = visitor#binder bndr in
-         let body' = visitor#phrase body in
-         Escape (bndr', body')
+        let visitor = self#clone in
+        let bndr' = visitor#binder bndr in
+        let body' = visitor#phrase body in
+        Escape (bndr', body')
       | Handle _handler -> assert false
       | Switch (expr, cases, dt) ->
-         let expr' = self#phrase expr in
-         let cases' = self#cases cases in
-         Switch (expr', cases', dt)
+        let expr' = self#phrase expr in
+        let cases' = self#cases cases in
+        Switch (expr', cases', dt)
       | Receive (cases, dt) ->
-         let cases' = self#cases cases in
-         Receive (cases', dt)
+        let cases' = self#cases cases in
+        Receive (cases', dt)
       | FormBinding (body, pat) ->
-         let visitor = self#clone in
-         let body' = visitor#phrase body in
-         let pat' = visitor#pattern pat in
-         FormBinding (body', pat')
+        let visitor = self#clone in
+        let body' = visitor#phrase body in
+        let pat' = visitor#pattern pat in
+        FormBinding (body', pat')
       | Offer (expr, cases, dt) ->
-         let expr' = self#phrase expr in
-         let cases' = self#cases cases in
-         Offer (expr', cases', dt)
+        let expr' = self#phrase expr in
+        let cases' = self#cases cases in
+        Offer (expr', cases', dt)
       | TryInOtherwise (expr, x, body, catch, dt) ->
-         let expr' = self#phrase expr in
-         let visitor = self#clone in
-         let x' = visitor#pattern x in
-         let body' = visitor#phrase body in
-         let catch' = self#phrase catch in
-         TryInOtherwise (expr', x', body', catch', dt)
+        let expr' = self#phrase expr in
+        let visitor = self#clone in
+        let x' = visitor#pattern x in
+        let body' = visitor#phrase body in
+        let catch' = self#phrase catch in
+        TryInOtherwise (expr', x', body', catch', dt)
       | p -> super#phrasenode p
 
     method! datatypenode = let open Datatype in function
       | TypeApplication (name, args) ->
       (* Must be resolved. *)
         let args' = self#list (fun o -> o#type_arg) args in
-        TypeApplication (resolve_typename name !scope, args')
+        TypeApplication (Scope.Resolve.typename name !scope, args')
       | QualifiedTypeApplication (names, args) ->
       (* Must be resolved. *)
         let args' = self#list (fun o -> o#type_arg) args in
-        TypeApplication (resolve_qualified_typename names !scope, args')
+        TypeApplication (Scope.Resolve.qualified_typename names !scope, args')
       | dt -> super#datatypenode dt
 
     method! bindingnode = function
@@ -503,10 +422,7 @@ and desugar ?(toplevel=false) (renamer : Epithet.t) (scope : t) =
          self#open_module pos names; self#bindings bs
       | ({ node = Module (_name, _); _ } as module') :: bs ->
       (* Affects [scope] and hoists [bs'] *)
-         Printf.printf "Desugar module %s\n%!" _name;
          let bs', scope' = desugar_module !renamer !scope module' in
-         (* Printf.printf "Before desugar %s:\n%s\n%!" name (string_of_scopes !scope);
-          * Printf.printf "After desugar %s:\n%s\n%!" name (string_of_scopes scope'); *)
          scope := scope'; bs' @ self#bindings bs
       | b :: bs ->
          let b = self#binding b in
@@ -520,12 +436,12 @@ and desugar ?(toplevel=false) (renamer : Epithet.t) (scope : t) =
 let desugar_program : Sugartypes.program -> Sugartypes.program
   = fun program ->
   (* Printf.fprintf stderr "Before elaboration:\n%s\n%!" (Sugartypes.show_program program); *)
-  let result = (desugar ~toplevel:true Epithet.empty empty)#program program in
+  let result = (desugar ~toplevel:true Epithet.empty Scope.empty)#program program in
   (* Printf.fprintf stderr "After elaboration:\n%s\n%!" (Sugartypes.show_program result); *)
   result
 
 
-let scope : t ref = ref empty
+let scope : Scope.t ref = ref Scope.empty
 let renamer : Epithet.t ref = ref Epithet.empty
 
 let desugar_sentence : Sugartypes.sentence -> Sugartypes.sentence
