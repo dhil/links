@@ -165,6 +165,7 @@ let rec desugar_pattern : Sugartypes.Pattern.with_pos -> Pattern.t * raw_env =
             let p, env = desugar_pattern p in
               Pattern.HasType (p, t), env
         | HasType (_, (_, None)) -> assert false
+        | Or _ -> assert false
 
 type raw_bound_computation = raw_env -> computation
 type bound_computation = env -> computation

@@ -128,8 +128,18 @@ module Pattern = struct
     | Variable of Binder.with_pos
     | As       of Binder.with_pos * with_pos
     | HasType  of with_pos * datatype'
+    | Or       of with_pos list
   and with_pos = t WithPos.t
    [@@deriving show]
+
+  module Syntax = struct
+    let disjunctive : ?pos:Position.t -> with_pos list -> with_pos
+      = fun ?(pos=Position.dummy) ps ->
+      match ps with
+      | [] -> assert false
+      | [p] -> p
+      | _ -> WithPos.make ~pos (Or ps)
+  end
 end
 
 type spawn_kind = Angel | Demon | Wait
@@ -351,6 +361,7 @@ struct
     | Variable bndr         -> singleton (Binder.to_name bndr)
     | As (bndr, pat)        -> add (Binder.to_name bndr) (pattern pat)
     | HasType (pat, _)      -> pattern pat
+    | Or ps                 -> union_map pattern ps
 
 
   let rec formlet_bound (phrase : phrase) : StringSet.t = match WithPos.node phrase with

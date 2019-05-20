@@ -142,6 +142,8 @@ struct
     | As (_, p) -> is_safe_pattern p
     | Effect (_, ps, k) ->
        List.for_all is_safe_pattern ps && is_safe_pattern k
+    | Or ps ->
+       List.for_all is_safe_pattern ps
   and is_pure_regex = function
       (* don't check whether it can fail; just check whether it
          contains non-generilisable sub-expressions *)
@@ -1471,7 +1473,7 @@ let close_pattern_type : Pattern.with_pos list -> Types.datatype -> Types.dataty
               | As (_, p) | HasType (p, _) -> unwrap_at i p
               | Tuple ps ->
                   List.nth ps i
-              | Nil | Cons _ | List _ | Record _ | Variant _ | Negative _ | Effect _ -> assert false in
+              | Nil | Cons _ | List _ | Record _ | Variant _ | Negative _ | Effect _ | Or _ -> assert false in
           let fields =
             StringMap.fold(* true if the row variable is dualised *)
 
@@ -1501,7 +1503,7 @@ let close_pattern_type : Pattern.with_pos list -> Types.datatype -> Types.dataty
                         | None -> assert false
                         | Some p -> unwrap_at name p
                     end
-              | Nil | Cons _ | List _ | Tuple _ | Variant _ | Negative _ | Effect _ -> assert false in
+              | Nil | Cons _ | List _ | Tuple _ | Variant _ | Negative _ | Effect _ | Or _ -> assert false in
           let fields =
             StringMap.fold
               (fun name ->
@@ -1528,6 +1530,7 @@ let close_pattern_type : Pattern.with_pos list -> Types.datatype -> Types.dataty
               | Variant _ -> []
               | Negative names when List.mem name names -> []
               | Negative _ -> [ with_pos p.pos Pattern.Any ]
+              | Or ps -> List.fold_right (unwrap_at name ->- (@)) [] ps
               | Nil | Cons _ | List _ | Tuple _ | Record _ | Constant _ | Effect _ -> assert false in
           let rec are_open : Pattern.with_pos list -> bool =
             let open Pattern in
@@ -1536,7 +1539,8 @@ let close_pattern_type : Pattern.with_pos list -> Types.datatype -> Types.dataty
               | {node = (Variable _ | Any | Negative _); _} :: _ -> true
               | {node = (As (_, p) | HasType (p, _)); _} :: ps -> are_open (p :: ps)
               | {node = (Variant _); _} :: ps -> are_open ps
-              | {node = (Nil | Cons _ | List _ | Tuple _ | Record _ | Constant _ | Effect _); _} :: _ -> assert false in
+              | {node = (Or ps); _} :: ps' -> are_open ps || are_open ps'
+              | {node = (Nil | Cons _ | List _ | Tuple _ | Record _ | Constant _ | Effect _ ); _} :: _ -> assert false in
           let fields =
             StringMap.fold
               (fun name field_spec env ->
@@ -1575,7 +1579,7 @@ let close_pattern_type : Pattern.with_pos list -> Types.datatype -> Types.dataty
               | Effect (name', ps, _) when name=name' -> ps
               | Effect _ -> []
               | Variable _ | Any | As _ | HasType _ | Negative _
-              | Nil | Cons _ | List _ | Tuple _ | Record _ | Variant _ | Constant _ -> assert false in
+              | Nil | Cons _ | List _ | Tuple _ | Record _ | Variant _ | Constant _ | Or _-> assert false in
           let fields =
             StringMap.fold
               (fun name field_spec env ->
@@ -1644,7 +1648,7 @@ let close_pattern_type : Pattern.with_pos list -> Types.datatype -> Types.dataty
               | Cons (p1, p2) -> p1 :: unwrap p2
               | List ps -> ps
               | As (_, p) | HasType (p, _) -> unwrap p
-              | Variant _ | Negative _ | Record _ | Tuple _ | Effect _ -> assert false in
+              | Variant _ | Negative _ | Record _ | Tuple _ | Effect _ | Or _ -> assert false in
           let pats = concat_map unwrap pats in
             `Application (Types.list, [`Type (cpt pats t)])
       | `ForAll (qs, t) -> `ForAll (qs, cpt pats t)
@@ -1746,7 +1750,18 @@ let check_for_duplicate_names : Position.t -> Pattern.with_pos list -> string li
       | As (bndr, p) ->
           let binderss = gather binderss p in
             add (Binder.to_name bndr) bndr binderss
-      | HasType (p, _) -> gather binderss p in
+      | HasType (p, _) -> gather binderss p
+      | Or ps ->
+         let combine _ (i, bs) (j, bs') =
+           if i = 1 && j = 1 then Some (i, bs)
+           else Some (i + j, bs @ bs')
+         in
+         let binderss' = List.map (gather StringMap.empty) ps in
+         let binderss' =
+           List.fold_left (StringMap.union combine) StringMap.empty binderss'
+         in
+         StringMap.union (fun _ (i, bs) (j, bs') -> Some (i + j, bs @ bs')) binderss binderss'
+  in
 
   let binderss =
     List.fold_left gather StringMap.empty ps in
@@ -1945,7 +1960,21 @@ let type_pattern closed : Pattern.with_pos -> Pattern.with_pos * Types.environme
         let p = tp p in
         let () = unify ~handle:Gripers.pattern_annotation ((pos p, it p), (_UNKNOWN_POS_, t)) in
         HasType (erase p, t'), env p, (ot p, t)
-      | HasType _ -> assert false in
+      | HasType _ -> assert false
+      | Or (p :: ps) ->
+         let p = tp p in
+         let ps', env, types =
+           List.fold_right
+             (fun p (ps, env', (outer, inner)) ->
+               let p' = tp p in
+               unify ~handle:Gripers.pattern_annotation ((pos p', it p'), (_UNKNOWN_POS_, inner));
+               unify ~handle:Gripers.pattern_annotation ((pos p', ot p'), (_UNKNOWN_POS_, outer));
+               (erase p' :: ps, env' ++ env p', (outer, inner)))
+             ps ([erase p], env p, (ot p, it p))
+         in
+         Or ps', env, types
+      | Or _ -> assert false
+    in
     with_pos pos' p, env, (outer_type, inner_type)
   in
   fun pattern ->
@@ -1978,6 +2007,8 @@ let rec pattern_env : Pattern.with_pos -> Types.datatype Env.t =
     | Variable {node=_, None; _} -> assert false
     | As       ({node=v, Some t; _}, p) -> Env.bind (pattern_env p) (v, t)
     | As       ({node=_, None; _}, _) -> assert false
+    | Or ps ->
+       List.fold_right (pattern_env ->- Env.extend) ps Env.empty
 
 
 let update_pattern_vars env =

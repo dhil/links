@@ -489,6 +489,9 @@ class map =
       | HasType ((_x, _x_i1)) ->
           let _x = o#pattern _x in
           let _x_i1 = o#datatype' _x_i1 in HasType ((_x, _x_i1))
+      | Or ps ->
+         let ps' = o#list (fun o -> o#pattern) ps in
+         Or ps'
 
     method pattern : Pattern.with_pos -> Pattern.with_pos =
       fun p ->
@@ -1132,6 +1135,8 @@ class fold =
           let o = o#binder _x in let o = o#pattern _x_i1 in o
       | HasType ((_x, _x_i1)) ->
           let o = o#pattern _x in let o = o#datatype' _x_i1 in o
+      | Or ps ->
+          o#list (fun o -> o#pattern) ps
 
 
     method pattern : Pattern.with_pos -> 'self_type =
@@ -1864,6 +1869,9 @@ class fold_map =
       | HasType ((_x, _x_i1)) ->
           let (o, _x) = o#pattern _x in
           let (o, _x_i1) = o#datatype' _x_i1 in (o, (HasType ((_x, _x_i1))))
+      | Or ps ->
+          let (o, ps') = o#list (fun o -> o#pattern) ps in
+          (o, Or ps')
 
     method pattern : Pattern.with_pos -> ('self_type * Pattern.with_pos) =
       WithPos.traverse_map

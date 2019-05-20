@@ -668,6 +668,9 @@ class transform (env : Types.typing_environment) =
           let (o, p) = o#pattern p in (o, (As (x, p)))
       | HasType (p, t) ->
           let (o, p) = o#pattern p in (o, (HasType (p, t)))
+      | Or ps ->
+          let (o, ps') = listu o (fun o -> o#pattern) ps in
+          (o, Or ps')
 
     method pattern : Pattern.with_pos -> ('self_type * Pattern.with_pos) =
       WithPos.traverse_map

@@ -760,7 +760,8 @@ conditional_expression:
 | IF LPAREN exp RPAREN exp ELSE exp                            { with_pos $loc (Conditional ($3, $5, $7)) }
 
 case:
-| CASE pattern RARROW block_contents                           { $2, block ~ppos:$loc($4) $4 }
+| CASE separated_nonempty_list(VBAR, pattern)
+   RARROW block_contents                                       { Pattern.Syntax.disjunctive $2, block ~ppos:$loc($4) $4 }
 
 case_expression:
 | SWITCH LPAREN exp RPAREN LBRACE case* RBRACE                 { with_pos $loc (Switch ($3, $6, None)) }
