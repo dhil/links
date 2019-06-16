@@ -18,10 +18,10 @@ open Utility
   *)
 
 
-let only_if predicate transformer =
+let guard predicate transformer =
               if predicate then transformer else (fun _ x -> x)
-let only_if_set setting =
-             only_if (Settings.get_value setting)
+let guarded setting =
+  guard (Settings.get_value setting)
 
 
 let print_program _ p =
@@ -32,63 +32,58 @@ let print_bindings _ bs =
 
 
 let run pipeline tyenv p =
-  List.fold_left (fun p transformer -> transformer tyenv p) p pipeline
+  Array.fold_left (fun p transformer -> transformer tyenv p) p pipeline
 
 let measure name func tyenv p = Performance.measure name (uncurry func) (tyenv, p)
 
-let perform_for_side_effects side_effecting_transformer tyenv p =
-  side_effecting_transformer tyenv p;p
+let mutate transformer tyenv p =
+  ignore (transformer tyenv p); p
 
-module Pipelines =
-struct
+module Pipeline = struct
 
-    let optimisation_pipeline = [
-        IrTraversals.ElimDeadDefs.program;
-        IrTraversals.Inline.program;
-      ]
+  module Program = struct
+    let optimisation =
+      [| IrTraversals.ElimDeadDefs.program;
+         IrTraversals.Inline.program |]
 
-    let typechecking_pipeline = [
-        (*IrTraversals.NormaliseTypes.program;
-        IrTraversals.ElimRecursiveTypeCycles.program;*)
-        IrTraversals.ElimTypeAliases.program;
-        IrTraversals.ElimBodiesFromMetaTypeVars.program;
-        (only_if_set Basicsettings.Ir.show_compiled_ir_after_backend_transformations print_program);
-        IrCheck.Typecheck.program;
-      ]
+    let type_check =
+      [|(*IrTraversals.NormaliseTypes.program;
+         IrTraversals.ElimRecursiveTypeCycles.program;*)
+         IrTraversals.ElimTypeAliases.program;
+         IrTraversals.ElimBodiesFromMetaTypeVars.program;
+         (guarded Basicsettings.Ir.show_compiled_ir_after_backend_transformations print_program);
+         IrCheck.Typecheck.program |]
 
-    let prelude_typechecking_pipeline = [
-        (*IrTraversals.NormaliseTypes.program;
-        IrTraversals.ElimRecursiveTypeCycles.program;*)
-        IrTraversals.ElimTypeAliases.bindings;
-        IrTraversals.ElimBodiesFromMetaTypeVars.bindings;
-        (only_if_set
-          Basicsettings.Ir.show_compiled_ir_after_backend_transformations
-          print_bindings
-        );
-        IrCheck.Typecheck.bindings;
-      ]
+    let main ~optimise () =
+      [| guard optimise (measure "optimise" (run optimisation));
+         Closures.program Lib.primitive_vars;
+         mutate (BuildTables.program Lib.primitive_vars);
+         guarded Basicsettings.Ir.typecheck_ir (run type_check) |]
+  end
 
+  module Bindings = struct
+    let type_check =
+      [| (*IrTraversals.NormaliseTypes.program;
+          IrTraversals.ElimRecursiveTypeCycles.program;*)
+         IrTraversals.ElimTypeAliases.bindings;
+         IrTraversals.ElimBodiesFromMetaTypeVars.bindings;
+         (guarded
+            Basicsettings.Ir.show_compiled_ir_after_backend_transformations
+            print_bindings);
+         IrCheck.Typecheck.bindings |]
 
-    let main_pipeline perform_optimisations = [
-        only_if perform_optimisations (measure "optimise" (run optimisation_pipeline));
-        Closures.program Lib.primitive_vars;
-        perform_for_side_effects (BuildTables.program Lib.primitive_vars);
-
-        only_if_set Basicsettings.Ir.typecheck_ir (run typechecking_pipeline);
-      ]
-
-    let prelude_pipeline = [
-        (* May perform some optimisations here that are safe to do on the prelude *)
-        (fun tenv globals -> Closures.bindings tenv Lib.primitive_vars globals);
-        (fun tenv globals -> BuildTables.bindings tenv Lib.primitive_vars globals; globals);
-        only_if_set Basicsettings.Ir.typecheck_ir (run prelude_typechecking_pipeline);
-      ]
+    let main =
+      [| (* May perform some optimisations here that are safe to do on the prelude *)
+         (fun tenv globals -> Closures.bindings tenv Lib.primitive_vars globals);
+         (fun tenv globals -> BuildTables.bindings tenv Lib.primitive_vars globals; globals);
+         guarded Basicsettings.Ir.typecheck_ir (run type_check) |]
+  end
 
 end
 
 
-let transform_program perform_optimisations tyenv p =
-  run (Pipelines.main_pipeline perform_optimisations) tyenv p
+let program ?(optimise=false) tyenv program =
+  run (Pipeline.Program.main ~optimise ()) tyenv program
 
-let transform_prelude tyenv bindings =
-  run Pipelines.prelude_pipeline tyenv bindings
+let bindings tyenv bindings =
+  run Pipeline.Bindings.main tyenv bindings

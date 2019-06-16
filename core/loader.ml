@@ -1,23 +1,5 @@
 open Utility
 
-type envs = Var.var Env.String.t * Types.typing_environment
-type program = Ir.binding list * Ir.computation * Types.datatype
-
-(* Filename of an external dependency *)
-type ext_dep = string
-
-(* Result of loading a file *)
-type source = {
-  envs: envs;
-  program: program;
-  external_dependencies: ext_dep list
-}
-
-
-module type WHOLE_PROGRAM_ASSEMBLER = sig
-  val assemble : unit -> unit
-end
-
 (* Interface description for loaders. *)
 module type LOADER = sig
   type t
@@ -25,7 +7,8 @@ module type LOADER = sig
   val make : unit -> t
   val load_file : t -> string -> t
   val bootstrap : ?prelude:string ->
-                  ?virtual_units:(Var.var Env.String.t * Types.typing_environment) list -> (* TODO introduce a structured abstraction for "virtual" compilation units. *)
+                 (* TODO introduce a structured abstraction for "virtual" compilation units. *)
+                  ?virtual_units:(Var.var Env.String.t * Types.typing_environment) list ->
                   ?units:string list -> t -> t
 end
 
@@ -88,17 +71,6 @@ module Legacy : LEGACY_LOADER = struct
     in
     let aliens =
       ListUtils.unduplicate String.equal (st.aliens @ aliens)
-    in
-    let whole_program =
-      if (fst st.preamble) == empty_program (* pointer equality *)
-      then whole_program
-      else let (bs, tc), ty = st.preamble in
-           let b =
-             let info = Var.make_global_info (ty, "synthetic_") in
-             let bndr = Var.fresh_binder info in
-             Ir.Let (bndr, ([], tc))
-           in
-           Ir.with_bindings (bs @ [b]) whole_program
     in
     let varenv = Env.String.extend st.varenv varenv in
     let tyenv = Types.extend_typing_environment st.tyenv tyenv in

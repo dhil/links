@@ -4,16 +4,6 @@ open Utility
 
 module BS = Basicsettings
 
-module Execute = struct
-  type state =
-    { valenv: Value.env;
-      varenv: Var.var Env.String.t;
-      tyenv: Types.typing_environment }
-
-  let run_program : state -> Ir.program -> unit
-    = fun st prog -> assert false
-end
-
 (** Ensure the settings were parsed correctly *)
 let _ = ParseSettings.validate_settings ()
 
