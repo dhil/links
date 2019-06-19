@@ -27,7 +27,7 @@ exit : 1
 
 Trailing semicolon means "ignore the final value" [3]
 fun () { 2 }
-stdout : fun : () -> Int
+stdout : fun : () -%-> Int
 
 Trailing semicolon means "ignore the final value" [4]
 fun () { 2; }
@@ -36,11 +36,11 @@ exit : 1
 
 Type annotations
 fun (x:Int) {x:Int}
-stdout : fun : (Int) -> Int
+stdout : fun : (Int) -%-> Int
 
 Identity annotation
 fun (x:a) {x:a}
-stdout : @fun : \(([a-z]+)\) -> \1
+stdout : @fun : \(([a-z]+)\) -%-> \1
 
 Type annotation scope
 fun (x:a, y:a) {(x, y)}
@@ -53,7 +53,7 @@ exit : 1
 
 Infers effect variables
 fun (f, x: Int) { f(x) + 0 }
-stdout : @fun : \(\(Int\) -a-> Int, Int\) -a-> Int
+stdout : @fun : \(\(Int\) -a-> Int, Int\) -%a-> Int
 
 Parser supports sugar for shared effect variables
 fun (f, x: Int) { f(x) + 0 }
@@ -67,7 +67,7 @@ args : --config=tests/functions.tests.effect_sugar.config
 
 Printer shows non-shared, single-use variables
 pickleCont
-stdout : @fun : \(\(\) -_-> Page\) ~_~> String
+stdout : @fun : \(\(\) -%-> Page\) ~%~> String
 args : --config=tests/functions.tests.effect_sugar.config
 
 Printer shows shared effect variables used elsewhere

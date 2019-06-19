@@ -10,7 +10,7 @@ exit : 1
 
 Alien functions may be evaluated in the interpreter
 alien javascript "fun.js" f : () ~> (); id(f)
-stdout : alien : () ~> ()
+stdout : alien : () ~%~> ()
 
 Alien values may be evaluated in the interpreter
 alien javascript "val.js" x : (); id(x)
