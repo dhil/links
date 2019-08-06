@@ -254,13 +254,18 @@ struct
           | _ :: t, path_is_file -> up (t, path_is_file) in
         up (Trie.longest_match (Str.split (Str.regexp "/") path) !rt, String.length path == 1 ||path.[String.length path - 1] <> '/') in
 
-        let prefixed_lib_url =
-          let base_url = Settings.get_value Basicsettings.Appserver.internal_base_url in
-          let js_url = Settings.get_value Basicsettings.Js.lib_url in
-          if base_url = "" then js_url else
-          "/" ^
-          (base_url |> Utility.strip_slashes) ^ "/" ^
-          (js_url |> Utility.strip_slashes) ^ "/" in
+      let prefixed_lib_url =
+        let module Path = Utility.Path in
+          let base_url =
+            Path.of_string (Settings.get_value Basicsettings.Appserver.internal_base_url)
+          in
+          let js_url =
+            Path.of_string (Settings.get_value Basicsettings.Js.lib_url)
+          in
+          if Path.is_empty base_url
+          then Path.to_string js_url
+          else Path.(to_string (sep <> base_url <> js_url <> sep))
+        in
         Debug.print ("Prefixed_lib_url: " ^ prefixed_lib_url) ;
         Debug.print ("Path: " ^ path) ;
 

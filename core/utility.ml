@@ -87,25 +87,33 @@ module String = struct
   let pp = Format.pp_print_string
   let show = fun x -> x
 
-  let rev_concat sep l =
-    match l with
+  let rec blits dest pos sep seplen = function
+    | [] -> dest
+    | [xs] ->
+       blit xs 0 dest 0 (length xs); dest
+    | xs :: xss ->
+       let pos = pos - length xs in
+       blit xs 0 dest pos (length xs);
+       let pos = pos - seplen in
+       blit sep 0 dest pos seplen;
+       blits dest pos sep seplen xss
+
+  let rev_concat sep = function
     | [] -> ""
-    | hd :: tl ->
-       let num_sep = ref 0 in
-       let len = ref (-1) in
-       List.iter (fun s -> incr num_sep; len := !len + length s) l;
-       let size = !len + length sep * !num_sep in
-       let bs = Bytes.create size in
-       let pos = ref (size - length hd) in
-       blit hd 0 bs !pos (length hd);
-       List.iter
-         (fun s ->
-           pos := !pos - length sep;
-           blit sep 0 bs !pos (length sep);
-           pos := !pos - length s;
-           blit s 0 bs !pos (length s))
-         tl;
-       Bytes.to_string bs
+    | xs ->
+       let seplen = length sep in
+       let buffer_size =
+         let rec compute_size acc seplen = function
+           | [] -> acc
+           | xs :: [] -> length xs + acc
+           | xs :: xss -> compute_size (length xs + seplen + acc) seplen xss
+         in
+         compute_size 0 seplen xs
+       in
+       let buffer =
+         blits (Bytes.create buffer_size) buffer_size sep seplen xs
+       in
+       Bytes.to_string buffer
 end
 
 module Int = struct
@@ -1375,4 +1383,100 @@ end = struct
       let pattern = Printf.sprintf "\\.\\(%s\\)$" (String.concat "\\|" extensions) in
       files root (Str.regexp pattern)
   end
+end
+
+
+(* Implements a subset of RFC 3986 URI path specification
+   (c.f. https://tools.ietf.org/html/rfc3986#section-3.3). *)
+module Path: sig
+  type t
+  val empty : t
+  val is_empty : t -> bool
+  val sep : t
+  val segment : ?auto_convert:bool -> string -> t
+  val concat : t -> t -> t
+  val (<>) : t -> t -> t
+  val to_string : t -> string
+  val of_string : string -> t
+end = struct
+  type t = string list
+
+  let empty : t = []
+
+  let is_empty : t -> bool = function
+    | [] -> true
+    | _ -> false
+
+  (* pchar = unreserved / pct-encoded / sub-delims *)
+  exception Invalid_pchar of char
+  let unreserved_symbols =
+    [ '-' ; '.' ; '_'; '~' ]
+
+  let is_unreserved : char -> bool
+    = fun ch ->
+    let c = Char.code ch in
+    let _A = 65 and _Z = 90 in
+    let _a = 97 and _z = 122 in
+    let _0 = 48 and _9 = 57 in
+    (_A <= c && c <= _Z) ||
+      (_a <= c && c <= _z) ||
+        (_0 <= c && c <= _9) || List.mem ch unreserved_symbols
+
+  let sub_delims =
+    [ '!' ; '$' ; '&' ; '\'' ; '(' ; ')'
+    ; '*' ; '+' ; ',' ; ';'  ; '=' ]
+
+  let is_sub_delim : char -> bool
+    = fun ch -> List.mem ch sub_delims
+
+  let is_percent : char -> bool
+    = fun ch -> Char.equal ch '%'
+
+  let is_pchar : char -> bool
+    = fun ch -> is_unreserved ch || is_percent ch || is_sub_delim ch
+
+  let segment : ?auto_convert:bool -> string -> t
+    = fun ?(auto_convert=true) segment ->
+    (* Validation. *)
+    let validate segment =
+      let ubound = String.length segment - 1 in
+      for i = 0 to ubound do
+        ignore (is_pchar segment.[i] || raise (Invalid_pchar segment.[i]))
+      done; true
+    in
+    let encode ch =
+      Printf.sprintf "%%%X" Char.(code ch)
+    in
+    let convert segment =
+      let buffer = ref [] in
+      let ubound = String.length segment - 1 in
+      let j = ref 0 in
+      for i = 0 to ubound do
+        if not (is_pchar segment.[i])
+        then let subsegment = String.sub segment !j (i - !j) in
+             j := i + 1;
+             buffer := (encode segment.[i]) :: subsegment :: !buffer
+      done;
+      if !j <= ubound then buffer := String.sub segment !j (ubound + 1- !j) :: !buffer;
+      String.rev_concat "" !buffer
+    in
+    try
+      ignore (validate segment);
+      segment :: empty
+    with Invalid_pchar _ when auto_convert ->
+      (convert segment) :: empty
+
+  let sep : t = segment ""
+
+  let concat : t -> t -> t
+    = fun prefix suffix ->
+    List.append suffix prefix
+
+  let (<>) : t -> t -> t = concat
+
+  let to_string : t -> string
+    = fun path -> String.rev_concat "/" path
+
+  let of_string : string -> t (* FIXME TODO: Should parse an RFC 3986 compliant path. *)
+    = fun s -> List.fold_right (fun x acc -> segment x <> acc) (String.split_on_char '/' s) empty
 end
