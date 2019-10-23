@@ -4767,16 +4767,19 @@ and type_cp (context : context) = fun {node = p; pos} ->
   WithPos.make ~pos p, t, u
 
 let type_check_general context body =
-  let body, typ, _ = type_check context body in
+  let tyenv = Context.typing_environment context in
+  let body, typ, _ = type_check tyenv body in (* TODO(dhil): Pass the compilation context. *)
   if Utils.is_generalisable body
      && Settings.get generalise_toplevel then
-    match Utils.generalise ~unwrap:false context.var_env typ with
+    let var_env = tyenv.var_env in
+    match Utils.generalise ~unwrap:false var_env typ with
     | ([], _), typ -> body, typ
     | (qs, _), qtyp ->
+       let comp_unit = Context.compilation_unit context in
        let ppos = WithPos.pos body in
        let open SugarConstructors.SugartypesPositions in
        block ~ppos
-         ([with_pos ppos (Val (variable_pat ~ppos ~ty:qtyp "it", (qs, body), loc_unknown, None))],
+         ([with_pos ppos (Val (variable_pat ~ppos ~ty:qtyp comp_unit "it", (qs, body), loc_unknown, None))],
           freeze_var ~ppos "it"),
        qtyp
   else
@@ -4790,7 +4793,8 @@ let binding_purity_check bindings =
 
 module Check =
 struct
-  let program tyenv (bindings, body) =
+  let program context (bindings, body) =
+    let tyenv = Context.typing_environment context in
     try
       Debug.if_set show_pre_sugar_typing
         (fun () ->
@@ -4809,11 +4813,12 @@ struct
       Debug.if_set show_post_sugar_typing
         (fun () ->
            ("after type checking: \n"^ show_program program));
-      program, typ, tyenv'
+      program, typ, { context with typing_environment = tyenv' }
     with
         Unify.Failure (`Msg msg) -> failwith msg
 
-  let sentence tyenv sentence =
+  let sentence context sentence =
+    let tyenv = Context.typing_environment tyenv in
     Debug.if_set show_pre_sugar_typing
       (fun () ->
          "before type checking: \n"^ show_sentence sentence);
@@ -4822,12 +4827,12 @@ struct
       | Definitions bindings ->
         let tyenv', bindings, _ = type_bindings tyenv bindings in
         let tyenv' = Types.normalise_typing_environment tyenv' in
-        Definitions bindings, Types.unit_type, tyenv'
+        Definitions bindings, Types.unit_type, { context with typing_environment = tyenv' }
       | Expression body ->
         let body, t = type_check_general tyenv body in
         let t = Types.normalise_datatype t in
-        Expression body, t, tyenv
-      | Directive d -> Directive d, Types.unit_type, tyenv in
+        Expression body, t, context
+      | Directive d -> Directive d, Types.unit_type, context in
     Debug.if_set show_post_sugar_typing
       (fun () ->
          "after type checking: \n" ^ show_sentence sentence);

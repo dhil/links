@@ -44,8 +44,8 @@ module type SugarConstructorsSig = sig
 
   (* Helper data types and functions for passing arguments to smart
      constructors.  *)
-  type name_or_pat = PatName of Name.t
-                   | Pat     of Pattern.with_pos
+  type binder_or_pat = PatBinder of Binder.with_pos
+                     | Pat       of Pattern.with_pos
 
   type signature = (Name.t WithPos.t * datatype') WithPos.t option
 
@@ -70,13 +70,13 @@ module type SugarConstructorsSig = sig
   val constant_char : ?ppos:t -> char       -> phrase
 
   (* Binders *)
-  val binder   : ?ppos:t -> ?ty:Types.datatype -> Name.t -> Binder.with_pos
+  val binder   : ?ppos:t -> ?ty:Types.datatype -> Comp_unit.t -> string -> Binder.with_pos
 
   (* Imports *)
   val import : ?ppos:t -> ?pollute:bool -> string list -> binding
 
   (* Patterns *)
-  val variable_pat : ?ppos:t -> ?ty:Types.datatype -> Name.t -> Pattern.with_pos
+  val variable_pat : ?ppos:t -> Binder.with_pos -> Pattern.with_pos
   val tuple_pat    : ?ppos:t -> Pattern.with_pos list -> Pattern.with_pos
   val any_pat      : t -> Pattern.with_pos
 
@@ -107,7 +107,7 @@ module type SugarConstructorsSig = sig
   (* Bindings *)
   val fun_binding
       : ?ppos:t -> signature -> ?unsafe_sig:bool
-     -> ((DeclaredLinearity.t * bool) * Name.t * Pattern.with_pos list list * Location.t * phrase)
+     -> ((DeclaredLinearity.t * bool) * Binder.with_pos * Pattern.with_pos list list * Location.t * phrase)
      -> binding
   val fun_binding'
       : ?ppos:t -> ?linearity:DeclaredLinearity.t -> ?tyvars:tyvar list
@@ -115,7 +115,7 @@ module type SugarConstructorsSig = sig
      -> Binder.with_pos -> funlit
      -> binding
   val val_binding'
-      : ?ppos:t -> signature -> (name_or_pat * phrase * Location.t)
+      : ?ppos:t -> signature -> (binder_or_pat * phrase * Location.t)
      -> binding
   val val_binding
       : ?ppos:t -> Pattern.with_pos -> phrase

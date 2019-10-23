@@ -7,9 +7,6 @@ open Utility
 
 module TyEnv = Env.String
 
-type program_transformer = Types.typing_environment -> Sugartypes.program -> Sugartypes.program
-type sentence_transformer = Types.typing_environment -> Sugartypes.sentence -> Sugartypes.sentence
-
 let internal_error message =
   Errors.internal_error ~filename:"transformSugar.ml" ~message
 
@@ -139,21 +136,29 @@ let check_type_application (e, t) k =
       raise (Instantiate.ArityMismatch (exp, prov))
   end
 
-class transform (env : Types.typing_environment) =
+class transform (context : Context.t) =
+  let env =
+    Context.typing_environment context
+  in
   object (o : 'self_type)
+    val context = context
     val var_env = env.Types.var_env
     val tycon_env = env.Types.tycon_env
     val formlet_env = TyEnv.empty
     val effect_row = fst (Types.unwrap_row env.Types.effect_row)
 
+    method get_context : unit -> Context.t = fun () -> context
     method get_var_env : unit -> Types.environment = fun () -> var_env
     method get_tycon_env : unit -> Types.tycon_environment = fun () -> tycon_env
     method get_formlet_env : unit -> Types.environment = fun () -> formlet_env
 
-    method backup_envs = var_env, tycon_env, formlet_env, effect_row
-    method restore_envs (var_env, tycon_env, formlet_env, effect_row) =
+    method backup_envs = var_env, tycon_env, formlet_env, effect_row, context
+    method restore_envs (var_env, tycon_env, formlet_env, effect_row, context) =
       {< var_env = var_env; tycon_env = tycon_env; formlet_env = formlet_env;
-         effect_row = effect_row >}
+         effect_row = effect_row; context = context >}
+
+    method with_context context =
+      {< context = context >}
 
     method with_var_env var_env =
       {< var_env = var_env >}

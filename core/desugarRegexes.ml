@@ -66,35 +66,36 @@ let desugar_regex phrase regex_type regex : phrase =
                 val_binding (variable_pat ~ty:t v) e1) !exprs,
             aux regex)
 
-let desugar_regexes env =
-object(self)
-  inherit (TransformSugar.transform env) as super
+let desugar_regexes context =
+  let env = Context.typing_environment context in
+  object(self)
+    inherit (TransformSugar.transform context) as super
 
-  val regex_type = Instantiate.alias "Regex" [] env.Types.tycon_env
+    val regex_type = Instantiate.alias "Regex" [] env.Types.tycon_env (* TODO(dhil): Select "Regex" from an interface. *)
 
-  method! phrase ({node=p; pos} as ph) = match p with
-    | InfixAppl ((tyargs, BinaryOp.RegexMatch flags), e1, {node=Regex((Replace(_,_) as r)); _}) ->
-        let libfn =
-          if List.exists ((=)RegexNative) flags
-          then "sntilde"
-          else "stilde" in
-          self#phrase (fn_appl libfn tyargs
-                            [e1; desugar_regex self#phrase regex_type r])
-    | InfixAppl ((tyargs, BinaryOp.RegexMatch flags), e1, {node=Regex r; _}) ->
-        let nativep = List.exists ((=) RegexNative) flags
-        and listp   = List.exists ((=) RegexList)   flags in
-        let libfn = match listp, nativep with
-          | true, true   -> "lntilde"
-          | true, false  -> "ltilde"
-          | false, false -> "tilde"
-          | false, true  -> "ntilde" in
-          self#phrase (fn_appl libfn tyargs
-                            [e1; desugar_regex self#phrase regex_type r])
-    | InfixAppl ((_tyargs, BinaryOp.RegexMatch _), _, _) ->
-        let (_, expr) = SourceCode.Position.resolve_start_expr pos in
-        let message = "Unexpected RHS of regex operator: " ^ expr in
-        raise (Errors.internal_error ~filename:"desugarRegexes.ml" ~message)
-    | _ -> super#phrase ph
+    method! phrase ({node=p; pos} as ph) = match p with
+      | InfixAppl ((tyargs, BinaryOp.RegexMatch flags), e1, {node=Regex((Replace(_,_) as r)); _}) ->
+         let libfn =
+           if List.exists ((=)RegexNative) flags
+           then "sntilde"
+           else "stilde" in
+         self#phrase (fn_appl libfn tyargs
+                        [e1; desugar_regex self#phrase regex_type r])
+      | InfixAppl ((tyargs, BinaryOp.RegexMatch flags), e1, {node=Regex r; _}) ->
+         let nativep = List.exists ((=) RegexNative) flags
+         and listp   = List.exists ((=) RegexList)   flags in
+         let libfn = match listp, nativep with
+           | true, true   -> "lntilde"
+           | true, false  -> "ltilde"
+           | false, false -> "tilde"
+           | false, true  -> "ntilde" in
+         self#phrase (fn_appl libfn tyargs
+                        [e1; desugar_regex self#phrase regex_type r])
+      | InfixAppl ((_tyargs, BinaryOp.RegexMatch _), _, _) ->
+         let (_, expr) = SourceCode.Position.resolve_start_expr pos in
+         let message = "Unexpected RHS of regex operator: " ^ expr in
+         raise (Errors.internal_error ~filename:"desugarRegexes.ml" ~message)
+      | _ -> super#phrase ph
 end
 
 let has_no_regexes =

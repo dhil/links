@@ -34,7 +34,7 @@ module SugarConstructors (Position : Pos)
 
   (* Stores either a name of variable to be used in a binding pattern or the
      pattern itself.  Used for passing an argument to val_binding. *)
-  type name_or_pat = PatName of Name.t | Pat of Pattern.with_pos
+  type binder_or_pat = PatBinder of Binder.with_pos | Pat of Pattern.with_pos
 
   (* Optionally stores a datatype signature.  Isomporphic to Option. *)
   type signature = (Name.t WithPos.t * datatype') WithPos.t option
@@ -96,7 +96,8 @@ module SugarConstructors (Position : Pos)
 
   (** Binders **)
 
-  let binder ?(ppos=dp) ?ty name = with_pos ppos (Binder.make ~name ?ty ())
+  let binder ?(ppos=dp) ?ty comp_unit name =
+    with_pos ppos (Binder.make ~host:comp_unit ~name ?ty ())
 
   (** Imports **)
 
@@ -105,8 +106,8 @@ module SugarConstructors (Position : Pos)
   (** Patterns *)
 
   (* Create a variable pattern with a given name. *)
-  let variable_pat ?(ppos=dp) ?ty name =
-    with_pos ppos (Pattern.Variable (binder ~ppos ?ty name))
+  let variable_pat ?(ppos=dp) bndr =
+    with_pos ppos (Pattern.Variable bndr)
 
   (* Create a tuple pattern. *)
   let tuple_pat ?(ppos=dp) pats =
@@ -152,8 +153,8 @@ module SugarConstructors (Position : Pos)
   (** Bindings *)
   (* Create a function binding. *)
   let fun_binding ?(ppos=dp) sig_opt ?(unsafe_sig=false) ((linearity, frozen), bndr, args, location, blk) =
-    let fun_signature = datatype_opt_of_sig_opt sig_opt bndr in
-    with_pos ppos (Fun { fun_binder = binder bndr;
+    let fun_signature = datatype_opt_of_sig_opt sig_opt (Binder.to_name bndr) in
+    with_pos ppos (Fun { fun_binder = bndr;
                          fun_linearity = linearity;
                          fun_definition = ([], (args, blk));
                          fun_location = location;
@@ -175,11 +176,11 @@ module SugarConstructors (Position : Pos)
   (* Create a Val binding.  This function takes either a name for a variable
      pattern or an already constructed pattern.  In the latter case no signature
      should be passed. *)
-  let val_binding' ?(ppos=dp) sig_opt (name_or_pat, phrase, location) =
-    let pat, datatype = match name_or_pat with
-      | PatName name ->
-         let pat      = variable_pat ~ppos name in
-         let datatype = datatype_opt_of_sig_opt sig_opt name in
+  let val_binding' ?(ppos=dp) sig_opt (bndr_or_pat, phrase, location) =
+    let pat, datatype = match bndr_or_pat with
+      | PatBinder bndr ->
+         let pat      = variable_pat ~ppos bndr in
+         let datatype = datatype_opt_of_sig_opt sig_opt (Binder.to_name bndr) in
          (pat, datatype)
       | Pat pat ->
          assert (sig_opt = None);

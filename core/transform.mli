@@ -65,13 +65,14 @@ module type TYPEABLE = sig
    *)
   class virtual sugar_transformer:
                   object ('self)
+                    method virtual get_context : unit -> Context.t
                     method virtual program : Sugartypes.program -> ('self * Sugartypes.program * Types.datatype option)
                     method virtual sentence : Sugartypes.sentence -> ('self * Sugartypes.sentence * Types.datatype option)
                   end
 
   module Make(T : sig
                val name : string
-               val obj : Types.typing_environment -> sugar_transformer end): sig
+               val obj : Context.t -> sugar_transformer end): sig
     include INTERFACE with type state := state and type 'a result := 'a result
   end
 end

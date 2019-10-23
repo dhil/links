@@ -49,6 +49,18 @@ end
 module ParserConstructors = SugarConstructors(ParserPosition)
 open ParserConstructors
 
+(* A reference to the current compilation unit. *)
+let comp_unit : Comp_unit.t option ref = ref None
+
+(* Wrapper for constructing binders. *)
+let binder ?(ppos=ParserConstructors.dp) ?(ty=`Not_typed) name =
+  let comp_unit =
+    match !comp_unit with
+    | None -> raise (Errors.internal_error ~filename:"parser.ml" ~message:"no compilation unit")
+    | Some c -> c
+  in
+  binder ~ppos ~ty comp_unit name
+
 let default_fixity = 9
 
 let primary_kind_of_string p =
@@ -307,7 +319,7 @@ end
 %type <Sugartypes.regex> regex_pattern
 %type <Sugartypes.regex list> regex_pattern_sequence
 %type <Sugartypes.Pattern.with_pos> pattern
-%type <(DeclaredLinearity.t * bool) * Name.t *
+%type <(DeclaredLinearity.t * bool) * Binder.with_pos *
        Sugartypes.Pattern.with_pos list list * Location.t *
        Sugartypes.phrase> tlfunbinding
 %type <Sugartypes.phrase> postfix_expression
@@ -418,13 +430,13 @@ fun_kind:
 | FROZEN_LINFUN                                                { (dl_lin, true) }
 
 tlfunbinding:
-| fun_kind VARIABLE arg_lists perhaps_location block           { ($1, $2, $3, $4, $5)                }
-| OP pattern sigop pattern perhaps_location block              { ((dl_unl, false), WithPos.node $3, [[$2; $4]], $5, $6) }
-| OP PREFIXOP pattern perhaps_location block                   { ((dl_unl, false), $2, [[$3]], $4, $5)          }
-| OP pattern POSTFIXOP perhaps_location block                  { ((dl_unl, false), $3, [[$2]], $4, $5)          }
+| fun_kind VARIABLE arg_lists perhaps_location block           { ($1, binder $2, $3, $4, $5)                }
+| OP pattern sigop pattern perhaps_location block              { ((dl_unl, false), binder (WithPos.node $3), [[$2; $4]], $5, $6) }
+| OP PREFIXOP pattern perhaps_location block                   { ((dl_unl, false), binder $2, [[$3]], $4, $5)          }
+| OP pattern POSTFIXOP perhaps_location block                  { ((dl_unl, false), binder $3, [[$2]], $4, $5)          }
 
 tlvarbinding:
-| VAR VARIABLE perhaps_location EQ exp                         { (PatName $2, $5, $3) }
+| VAR VARIABLE perhaps_location EQ exp                         { (PatBinder (binder $2), $5, $3) }
 
 signatures:
 | signature                                                    { (Some $1, false) }
@@ -555,7 +567,7 @@ binop:
 | sigop                                                        { Section.Name (WithPos.node $1) }
 
 sigop:
-| DOLLAR                                                       { with_pos $loc "$" }
+| DOLLAR                                                       { with_pos $loc "$" } (* TODO(dhil): Should reference a predefined dollar. *)
 | op                                                           { $1 }
 
 op:
@@ -912,8 +924,8 @@ links_open:
 binding:
 | VAR pattern EQ exp SEMICOLON                                 { val_binding ~ppos:$loc $2 $4 }
 | exp SEMICOLON                                                { with_pos $loc (Exp $1) }
-| signatures fun_kind VARIABLE arg_lists block                 { fun_binding ~ppos:$loc (fst $1) ~unsafe_sig:(snd $1) ($2, $3, $4, loc_unknown, $5) }
-| fun_kind VARIABLE arg_lists block                            { fun_binding ~ppos:$loc None ($1, $2, $3, loc_unknown, $4) }
+| signatures fun_kind VARIABLE arg_lists block                 { fun_binding ~ppos:$loc (fst $1) ~unsafe_sig:(snd $1) ($2, binder $3, $4, loc_unknown, $5) }
+| fun_kind VARIABLE arg_lists block                            { fun_binding ~ppos:$loc None ($1, binder $2, $3, loc_unknown, $4) }
 | typedecl SEMICOLON | links_module
 | links_open SEMICOLON                                         { $1 }
 
@@ -1252,7 +1264,7 @@ parenthesized_pattern:
 | LPAREN labeled_patterns preceded(VBAR, pattern)? RPAREN      { with_pos $loc (Pattern.Record ($2, $3))  }
 
 primary_pattern:
-| VARIABLE                                                     { variable_pat ~ppos:$loc $1   }
+| VARIABLE                                                     { variable_pat ~ppos:$loc (binder $1) }
 | UNDERSCORE                                                   { any_pat $loc                 }
 | constant                                                     { with_pos $loc (Pattern.Constant $1) }
 | LBRACKET RBRACKET                                            { with_pos $loc Pattern.Nil           }
@@ -1263,7 +1275,7 @@ patterns:
 | separated_nonempty_list(COMMA, pattern)                      { $1 }
 
 labeled_pattern:
-| preceded(EQ, VARIABLE)                                       { ($1, variable_pat ~ppos:$loc $1) }
+| preceded(EQ, VARIABLE)                                       { ($1, variable_pat ~ppos:$loc (binder $1)) }
 | separated_pair(record_label, EQ,  pattern)                   { $1 }
 
 labeled_patterns:

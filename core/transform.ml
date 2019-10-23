@@ -100,14 +100,15 @@ module type TYPEABLE = sig
 
    *)
   class virtual sugar_transformer:
-  object ('self)
-    method virtual program : Sugartypes.program -> ('self * Sugartypes.program * Types.datatype option)
-    method virtual sentence : Sugartypes.sentence -> ('self * Sugartypes.sentence * Types.datatype option)
+   object ('self)
+     method virtual get_context : unit -> Context.t
+     method virtual program : Sugartypes.program -> ('self * Sugartypes.program * Types.datatype option)
+     method virtual sentence : Sugartypes.sentence -> ('self * Sugartypes.sentence * Types.datatype option)
   end
 
   module Make(T : sig
                val name : string
-               val obj : Types.typing_environment -> sugar_transformer
+               val obj : Context.t -> sugar_transformer
              end): sig
     include INTERFACE with type state := state and type 'a result := 'a result
   end
@@ -117,6 +118,7 @@ end
 module Typeable : TYPEABLE = struct
   class virtual sugar_transformer =
           object (_ : 'self)
+            method virtual get_context : unit -> Context.t
             method virtual program : Sugartypes.program -> ('self * Sugartypes.program * Types.datatype option)
             method virtual sentence : Sugartypes.sentence -> ('self * Sugartypes.sentence * Types.datatype option)
           end
@@ -142,10 +144,11 @@ module Typeable : TYPEABLE = struct
 
   let apply : state -> 'a transformer -> 'a -> 'a result
     = fun st transform program ->
-    let (_, program', t) =
+    let (o, program', t) =
       transform program
     in
-    return (with_type t st) program'
+    let st' = with_type t st in
+    return ({ st' with context = o#get_context () }) program'
 
   (* Interface for typeability preserving transformations. *)
   module type S = sig
@@ -156,18 +159,16 @@ module Typeable : TYPEABLE = struct
 
   module Make(T : sig
                val name : string
-               val obj : Types.typing_environment -> sugar_transformer
+               val obj : Context.t -> sugar_transformer
              end) = struct
 
     let name = T.name
 
     let program state program =
-      let open Context in
-      apply state (T.obj (typing_environment state.context))#program program
+      apply state (T.obj state.context)#program program
 
     let sentence state sentence =
-      let open Context in
-      apply state (T.obj (typing_environment state.context))#sentence sentence
+      apply state (T.obj state.context)#sentence sentence
   end
 end
 

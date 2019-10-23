@@ -28,7 +28,7 @@ val listu :
   'a list -> 'self_type * 'a list
 
 (* Transform a term and construct its type *)
-class transform : Types.typing_environment ->
+class transform : Context.t ->
 object ('self)
   val var_env : Types.environment
   val tycon_env : Types.tycon_environment
@@ -37,12 +37,14 @@ object ('self)
   method get_var_env     : unit -> Types.environment
   method get_tycon_env   : unit -> Types.tycon_environment
   method get_formlet_env : unit -> Types.environment
+  method get_context     : unit -> Context.t
 
-  method backup_envs     :  Types.environment * Types.tycon_environment * Types.environment * Types.row
-  method restore_envs    : (Types.environment * Types.tycon_environment * Types.environment * Types.row) -> 'self
+  method backup_envs     :  Types.environment * Types.tycon_environment * Types.environment * Types.row * Context.t
+  method restore_envs    : (Types.environment * Types.tycon_environment * Types.environment * Types.row * Context.t) -> 'self
 
   method with_var_env     : Types.environment -> 'self
   method with_formlet_env : Types.environment -> 'self
+  method with_context     : Context.t -> 'self
 
   method bind_tycon      : string -> Types.tycon_spec -> 'self
 
@@ -93,6 +95,3 @@ object ('self)
 end
 
 val fun_effects : Types.datatype -> Sugartypes.Pattern.with_pos list list -> Types.row
-
-type program_transformer = Types.typing_environment -> Sugartypes.program -> Sugartypes.program
-type sentence_transformer = Types.typing_environment -> Sugartypes.sentence -> Sugartypes.sentence
