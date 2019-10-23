@@ -3698,7 +3698,7 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
              let ret = match ret with
                | [] -> (* insert a synthetic value case: x -> x. *)
                   let x = "x" in
-                  let id = (variable_pat x, var x) in
+                  let id = (variable_pat (with_pos dp (Binder.make ~name:x ())), var x) in (* TODO(dhil): Allocate x in the current compilation unit. *)
                   [id]
                | _ -> ret
              in
@@ -4778,8 +4778,12 @@ let type_check_general context body =
        let comp_unit = Context.compilation_unit context in
        let ppos = WithPos.pos body in
        let open SugarConstructors.SugartypesPositions in
+       let bndr =
+         (* TODO(dhil): Use the current compilation unit. *)
+         with_pos dp (Binder.make ~host:comp_unit ~name:"it" ~ty:qtyp ())
+       in
        block ~ppos
-         ([with_pos ppos (Val (variable_pat ~ppos ~ty:qtyp comp_unit "it", (qs, body), loc_unknown, None))],
+         ([with_pos ppos (Val (variable_pat ~ppos bndr, (qs, body), loc_unknown, None))],
           freeze_var ~ppos "it"),
        qtyp
   else
@@ -4807,18 +4811,19 @@ struct
         match body with
         | None -> (bindings, None), Types.unit_type, tyenv'
         | Some body ->
-          let body, typ = type_check_general (Types.extend_typing_environment tyenv tyenv') body in
+          let context' = Context.({ context with typing_environment = Types.extend_typing_environment tyenv tyenv' }) in
+          let body, typ = type_check_general context' body in
           let typ = Types.normalise_datatype typ in
           (bindings, Some body), typ, tyenv' in
       Debug.if_set show_post_sugar_typing
         (fun () ->
            ("after type checking: \n"^ show_program program));
-      program, typ, { context with typing_environment = tyenv' }
+      program, typ, Context.({ context with typing_environment = tyenv' })
     with
         Unify.Failure (`Msg msg) -> failwith msg
 
   let sentence context sentence =
-    let tyenv = Context.typing_environment tyenv in
+    let tyenv = Context.typing_environment context in
     Debug.if_set show_pre_sugar_typing
       (fun () ->
          "before type checking: \n"^ show_sentence sentence);
@@ -4827,9 +4832,9 @@ struct
       | Definitions bindings ->
         let tyenv', bindings, _ = type_bindings tyenv bindings in
         let tyenv' = Types.normalise_typing_environment tyenv' in
-        Definitions bindings, Types.unit_type, { context with typing_environment = tyenv' }
+        Definitions bindings, Types.unit_type, Context.({ context with typing_environment = tyenv' })
       | Expression body ->
-        let body, t = type_check_general tyenv body in
+        let body, t = type_check_general context body in
         let t = Types.normalise_datatype t in
         Expression body, t, context
       | Directive d -> Directive d, Types.unit_type, context in

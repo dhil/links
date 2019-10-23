@@ -227,8 +227,11 @@ module Typeability_preserving = struct
             check *against* the datatype in transformation state
             [payload]. *)
          try
+           let context =
+             Context.({ context with typing_environment = { tyenv with Types.desugared = true } })
+           in
            ignore (TypeSugar.Check.program
-                     { tyenv with Types.desugared = true }
+                     context
                      payload.program)
                   (* TODO(dhil): Verify post-transformation invariants. *)
          with exn ->
@@ -265,8 +268,11 @@ module Typeability_preserving = struct
             check *against* the datatype in transformation state
             [payload]. *)
          try
+           let context =
+             Context.({ context with typing_environment = { tyenv with Types.desugared = true } })
+           in
            ignore (TypeSugar.Check.sentence
-                     { tyenv with Types.desugared = true }
+                     context
                      payload.program)
                   (* TODO(dhil): Verify post-transformation invariants. *)
          with exn ->
@@ -293,14 +299,14 @@ let transform show untyped_run typeable_run typechecker_run context program =
     untyped_run context program
   in
   (* Typechecking. *)
-  let (program, datatype, tenv) =
-    typechecker_run Context.(typing_environment context) program
+  let (program, datatype, context') =
+    typechecker_run context program
   in
   (* Typeability preserving transformations. *)
   let result =
     let result = typeable_run context datatype program in
     let tenv' = Context.(typing_environment result.context) in
-    { result with context = Context.{ context with typing_environment = Types.extend_typing_environment tenv' tenv } }
+    { result with context = context' }
   in
   (* Dump the decorated AST. *)
   Debug.if_set show_post_frontend_ast
