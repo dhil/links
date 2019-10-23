@@ -126,8 +126,29 @@ and meta_row_var = (row meta_row_var_basis) point
 and meta_presence_var = (field_spec meta_presence_var_basis) point
 and meta_var = [ `Type of meta_type_var | `Row of meta_row_var | `Presence of meta_presence_var ]
 and type_arg =
-    [ `Type of typ | `Row of row | `Presence of field_spec ]
-    [@@deriving show]
+  [ `Type of typ | `Row of row | `Presence of field_spec ]
+and interface_member =
+  | TypeConMember of tycon_spec
+  | ValueMember of typ
+and alias_type = Quantifier.t list * typ
+and tycon_spec = [
+  | `Alias of alias_type
+  | `Abstract of Abstype.t
+  | `Mutual of (Quantifier.t list * tygroup ref) (* Type in same recursive group *)
+  ]
+  [@@deriving show]
+
+module Interface: sig
+  type t
+  type member = interface_member
+
+  val empty : t
+
+  val find : Pident.t -> t -> member
+  val has_value : Pident.t -> t -> bool
+  val has_typecon : Pident.t -> t -> bool
+  val size : t -> int
+end
 
 type session_type = (typ, row) session_type_basis
 
@@ -163,14 +184,6 @@ val get_restriction_constraint : Restriction.t -> (module Constraint) option
 
 val dual_row : row -> row
 val dual_type : datatype -> datatype
-
-type alias_type = Quantifier.t list * typ [@@deriving show]
-
-type tycon_spec = [
-  | `Alias of alias_type
-  | `Abstract of Abstype.t
-  | `Mutual of (Quantifier.t list * tygroup ref) (* Type in same recursive group *)
-]
 
 type environment        = datatype Env.String.t
 type tycon_environment  = tycon_spec Env.String.t
@@ -365,7 +378,6 @@ val make_function_type      : ?linear:bool -> datatype list -> row -> datatype -
 val make_thunk_type : row -> datatype -> datatype
 
 val pp_datatype : Format.formatter -> datatype -> unit
-val pp_tycon_spec: Format.formatter -> tycon_spec -> unit
 
 module type TYPE_VISITOR =
 sig

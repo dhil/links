@@ -11,45 +11,22 @@ module Comp_unit: sig
     val next : t -> int
   end
 
-  module Ident: sig
+  module Binder: sig
     type comp_unit = t
-    module Binder: sig
-      module Scope: sig
-        type t = Local | Global
-                 [@@deriving show]
-        val is_global : t -> bool
-        val is_local : t -> bool
-      end
+    include Ident.Binder.S with type t = Ident.Binder.t
+    val fresh : ?datatype:Types.datatype -> ?scope:Scope.t -> comp_unit -> string -> t
+  end
 
-      type t [@@deriving show]
+  (* Mapping interface names to implementation-specific names. *)
+  module Implementation: sig
+    type member =
+      { var: Ident.Local.t;
+        kind: Types.Interface.member }
+    type t
 
-      val fresh : ?datatype:Types.datatype -> ?scope:Scope.t -> comp_unit -> string -> t
-      val equal : t -> t -> bool
-      val compare : t -> t -> int
-    end
-
-    (* Compilation unit names, interface names. *)
-    module Persistent: sig
-      include module type of Pident
-    end
-
-    (* Compilation unit local names. *)
-    module Local: sig
-      type t [@@deriving show]
-
-      val make : Binder.t list -> t
-      val equal : t -> t -> bool
-      val compare : t -> t -> int
-    end
-
-    (* Compilation unit remote names. *)
-    module Remote: sig
-      type t [@@deriving show]
-
-      val make : comp_unit -> Persistent.t list -> t
-      val equal : t -> t -> bool
-      val compare : t -> t -> int
-    end
+    val empty : t
+    val find : Pident.t -> t -> member
+    val size : t -> int
   end
 
   val of_filename : string -> t
@@ -60,6 +37,10 @@ module Comp_unit: sig
 
   val depend : t -> t -> t
   val depends : t -> t -> bool
+  val depend_many : t list -> t -> t
+
+  val interface : t -> Types.Interface.t
+  val implementation : t -> Implementation.t
 
   val name_of_filename : string -> string
 end

@@ -171,8 +171,41 @@ and meta_row_var   = (row meta_row_var_basis) point
 and meta_presence_var = (field_spec meta_presence_var_basis) point
 and meta_var = [ `Type of meta_type_var | `Row of meta_row_var | `Presence of meta_presence_var ]
 and type_arg =
-    [ `Type of typ | `Row of row | `Presence of field_spec ]
-      [@@deriving show]
+  [ `Type of typ | `Row of row | `Presence of field_spec ]
+and interface_member =
+  | TypeConMember of tycon_spec
+  | ValueMember of typ
+and alias_type = Quantifier.t list * typ
+and tycon_spec = [
+  | `Alias of alias_type
+  | `Abstract of Abstype.t
+  | `Mutual of (Quantifier.t list * tygroup ref) (* Type in same recursive group *)
+  ]
+  [@@deriving show]
+
+module Interface = struct
+  type member = interface_member
+  type t = member Pident.Map.t
+
+  let empty = Pident.Map.empty
+
+  let find ident iface =
+    Pident.Map.find ident iface
+
+  let has_value ident iface =
+    match find ident iface with
+    | ValueMember _ -> true
+    | _             -> false
+    | exception Notfound.NotFound _ -> false
+
+  let has_typecon ident iface =
+    match find ident iface with
+    | TypeConMember _ -> true
+    | _               -> false
+    | exception Notfound.NotFound _ -> false
+
+  let size iface = Pident.Map.size iface
+end
 
 type session_type = (typ, row) session_type_basis
   [@@deriving show]
@@ -183,15 +216,6 @@ let is_present =
   function
   | `Present _           -> true
   | (`Absent | `Var _) -> false
-
-type alias_type = Quantifier.t list * typ [@@deriving show]
-
-type tycon_spec = [
-  | `Alias of alias_type
-  | `Abstract of Abstype.t
-  | `Mutual of (Quantifier.t list * tygroup ref) (* Type in same recursive group *)
-] [@@deriving show]
-
 
 (* Generation of fresh type variables *)
 let type_variable_counter = ref 0

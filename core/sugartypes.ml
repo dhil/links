@@ -27,19 +27,22 @@ module Binder: sig
                      -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
                      -> 'c * with_pos
 end = struct
-  type t = Name.t * Types.datatype
+  let dummy = Comp_unit.interactive "dummy"
+  module Binder = Comp_unit.Binder
+  type t = Binder.t
   and with_pos = t WithPos.t
   [@@deriving show]
 
-  let make ?(name="") ?(ty=`Not_typed) () = (name, ty)
+  let make ?(name="") ?(ty=`Not_typed) ()
+    = Binder.fresh ~datatype:ty dummy name
 
-  let to_name b = let (n, _ ) = WithPos.node b in n
-  let to_type b = let (_, ty) = WithPos.node b in ty
+  let to_name b = Binder.name (WithPos.node b)
+  let to_type b = Binder.datatype (WithPos.node b)
 
-  let set_name b name = WithPos.map ~f:(fun (_   , ty) -> name, ty ) b
-  let set_type b typ  = WithPos.map ~f:(fun (name, _ ) -> name, typ) b
+  let set_name b name = WithPos.map ~f:(fun b -> Binder.modify ~name b) b
+  let set_type b typ  = WithPos.map ~f:(fun b -> Binder.modify ~datatype:typ b) b
 
-  let erase_type b = WithPos.map ~f:(fun (name, _) -> name, `Not_typed) b
+  let erase_type b = WithPos.map ~f:(fun b -> Binder.modify ~datatype:`Not_typed b) b
   let has_type   b = match to_type b with `Not_typed -> false | _ -> true
 
   let traverse_map : with_pos -> o:'o
@@ -47,10 +50,10 @@ end = struct
             -> f_name:('a -> Name.t -> 'b * Name.t)
             -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
             -> 'c * with_pos = fun b ~o ~f_pos ~f_name ~f_ty ->
-    WithPos.traverse_map b ~o ~f_pos ~f_node:(fun o (n, ty) ->
-        let o, name = f_name o n  in
-        let o, typ  = f_ty   o ty in
-        o, (name, typ)
+    WithPos.traverse_map b ~o ~f_pos ~f_node:(fun o b ->
+        let o, name = f_name o (Binder.name b) in
+        let o, datatype = f_ty o (Binder.datatype b) in
+        o, Binder.modify ~name ~datatype b
       )
 end
 
