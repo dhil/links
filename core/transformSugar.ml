@@ -152,6 +152,17 @@ class transform (context : Context.t) =
     method get_tycon_env : unit -> Types.tycon_environment = fun () -> tycon_env
     method get_formlet_env : unit -> Types.environment = fun () -> formlet_env
 
+    method fresh_binder' : Position.t -> Types.datatype -> string -> Binder.with_pos
+      = fun pos datatype name ->
+      let host = Context.compilation_unit context in
+      WithPos.make ~pos (Binder.make ~host ~ty:datatype ~name ())
+
+    method fresh_binder : Types.datatype -> string -> Binder.with_pos
+      = fun datatype name ->
+      o#fresh_binder' Position.dummy datatype name
+    method refer_to : Binder.with_pos -> string
+      = fun b -> Binder.to_name b
+
     method backup_envs = var_env, tycon_env, formlet_env, effect_row, context
     method restore_envs (var_env, tycon_env, formlet_env, effect_row, context) =
       {< var_env = var_env; tycon_env = tycon_env; formlet_env = formlet_env;

@@ -54,7 +54,7 @@ open SugarConstructors.DummyPositions
 (* unwrap a curried function definition as
    a collection of nested functions
 *)
-let unwrap_def (bndr, linearity, (tyvars, lam), location) =
+let unwrap_def o (bndr, linearity, (tyvars, lam), location) =
   let f = Binder.to_name bndr in
   let ft = Binder.to_type bndr in
   let rt = TypeUtils.return_type ft in
@@ -65,30 +65,33 @@ let unwrap_def (bndr, linearity, (tyvars, lam), location) =
         | (ps::pss, body) ->
             let g = gensym ~prefix:"_fun_" () in
             let rt = TypeUtils.return_type t in
+            let gb = o#fresh_binder t g in
               ([ps], block
-                  ([fun_binding' ~linearity ~location (binder ~ty:t g)
-                                 (make_lam rt (pss, body))],
+                       ([fun_binding' ~linearity ~location gb
+                           (make_lam rt (pss, body))],
                    freeze_var g))
         | _, _ -> assert false
     in make_lam rt lam
-  in (binder ~ty:ft f, linearity, (tyvars, lam), location)
+  in
+  let fb = o#fresh_binder ft f in (* TODO FIXME: just reuse `bndr`? *)
+  (fb, linearity, (tyvars, lam), location)
 
 (*
   unwrap a curried function definition
   with a position attached
   (for recursive functions)
 *)
-let unwrap_def_dp { rec_binder = fb; rec_linearity = lin; rec_definition = tlam;
-                    rec_location = location; rec_signature; rec_unsafe_signature;
-                    rec_frozen } =
-  let (fb, lin, tlam, location) = unwrap_def (fb, lin, tlam, location) in
+let unwrap_def_dp o { rec_binder = fb; rec_linearity = lin; rec_definition = tlam;
+                      rec_location = location; rec_signature; rec_unsafe_signature;
+                      rec_frozen } =
+  let (fb, lin, tlam, location) = unwrap_def o (fb, lin, tlam, location) in
   { rec_binder = fb; rec_linearity = lin; rec_definition = tlam;
     rec_location = location; rec_signature; rec_unsafe_signature;
     rec_frozen }
 
-class desugar_funs env =
+class desugar_funs context =
 object (o : 'self_type)
-  inherit (TransformSugar.transform env) as super
+  inherit (TransformSugar.transform context) as super
 
   method private desugarFunLit argss lin lam location =
     let inner_mb     = snd (last argss) in
@@ -100,7 +103,9 @@ object (o : 'self_type)
                argss rt in
     let f = gensym ~prefix:"_fun_" () in
     let (bndr, lin, def, loc) =
-      unwrap_def (binder ~ty:ft f, lin, ([], lam), location) in
+      let fb = o#fresh_binder ft f in
+      unwrap_def o (fb, lin, ([], lam), location)
+    in
     let e = block_node ([with_dummy_pos (Fun { fun_binder = bndr; fun_linearity = lin;
                                                fun_definition = def; fun_location = loc;
                                                fun_signature = None;
@@ -122,13 +127,15 @@ object (o : 'self_type)
         let f = gensym ~prefix:"_fun_" () in
         let x = gensym ~prefix:"_fun_" () in
         let ft : Types.datatype = `ForAll ([ab; rhob;  effb],
-                                           `Function (Types.make_tuple_type [r], eff, a)) in
-
-        let pss = [[variable_pat ~ty:r x]] in
-        let body = with_dummy_pos (Projection (var x, name)) in
+                                           `Function (Types.make_tuple_type [r], eff, a))
+        in
+        let xb = o#fresh_binder r x in
+        let fb = o#fresh_binder ft f in
+        let pss = [[variable_pat xb]] in
+        let body = with_dummy_pos (Projection (var x, name)) in (* TODO FIXME reference to x. *)
         let e : phrasenode =
           block_node
-            ([fun_binding' ~tyvars:[ab; rhob; effb] (binder ~ty:ft f) (pss, body)],
+            ([fun_binding' ~tyvars:[ab; rhob; effb] fb (pss, body)],
              freeze_var f)
         in (o, e, ft)
     | e -> super#phrasenode e
@@ -143,7 +150,7 @@ object (o : 'self_type)
                       fun_signature = ty; fun_frozen;
                       fun_unsafe_signature; } ->
                  let (bndr', lin', tvs', loc') =
-                   unwrap_def (bndr, lin, tvs, loc) in
+                   unwrap_def o (bndr, lin, tvs, loc) in
                  (o, Fun { fun_binder = bndr'; fun_linearity = lin';
                            fun_definition = tvs'; fun_location = loc';
                            fun_signature = ty; fun_frozen; fun_unsafe_signature })
@@ -153,13 +160,13 @@ object (o : 'self_type)
         let (o, b) = super#bindingnode b in
           begin
             match b with
-              | Funs defs -> (o, Funs (List.map (WithPos.map ~f:unwrap_def_dp) defs))
+              | Funs defs -> (o, Funs (List.map (WithPos.map ~f:(fun def -> unwrap_def_dp o def)) defs))
               | _ -> assert false
           end
     | b -> super#bindingnode b
 end
 
-let desugar_funs env = ((new desugar_funs env) : desugar_funs :> TransformSugar.transform)
+let desugar_funs context = ((new desugar_funs context) : desugar_funs :> TransformSugar.transform)
 
 let has_no_funs =
 object

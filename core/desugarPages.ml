@@ -58,10 +58,11 @@ let rec desugar_page (o, page_type) =
         | Xml ("#", [], _, children) ->
             desugar_nodes children
         | Xml (name, attrs, dynattrs, children) ->
-            let x = Utility.gensym ~prefix:"xml" () in
+           let xb = o#fresh_binder Types.xml_type "xml" in
+           let x = o#refer_to xb in
             fn_appl "plugP" [`Row (o#lookup_effects)]
                [fun_lit ~args:[Types.make_tuple_type [Types.xml_type], closed_wild]
-                        dl_unl [[variable_pat ~ty:Types.xml_type x]]
+                        dl_unl [[variable_pat xb]]
                         (xml name attrs dynattrs [block ([], var x)]);
                 desugar_nodes children]
         | _ -> raise_invalid_element pos

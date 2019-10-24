@@ -31,7 +31,7 @@ module type UNTYPED = sig
   module Make: sig
     module Transformer(T : sig
                  val name : string
-                 val obj : SugarTraversals.map end): sig
+                 val obj : Context.t -> SugarTraversals.map end): sig
       include INTERFACE with type state := state and type 'a result := 'a result
     end
   end

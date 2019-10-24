@@ -218,8 +218,9 @@ module Typeability_preserving = struct
         T.Typeable.program state program
       in
       (if verify_transformation T.Typeable.name then
+         let context = payload.state.Transform.Typeable.context in
          let tyenv =
-           Context.typing_environment payload.state.Transform.Typeable.context
+           Context.typing_environment context
          in
          (* TODO(dhil): Ultimately we may want to move from
             typeability preserving transformations to type-preserving
@@ -259,8 +260,11 @@ module Typeability_preserving = struct
         T.Typeable.sentence state program
       in
       (if verify_transformation T.Typeable.name then
+         let context =
+           payload.state.Transform.Typeable.context
+         in
          let tyenv =
-           Context.typing_environment payload.state.Transform.Typeable.context
+           Context.typing_environment context
          in
          (* TODO(dhil): Ultimately we may want to move from
             typeability preserving transformations to type-preserving
@@ -304,9 +308,7 @@ let transform show untyped_run typeable_run typechecker_run context program =
   in
   (* Typeability preserving transformations. *)
   let result =
-    let result = typeable_run context datatype program in
-    let tenv' = Context.(typing_environment result.context) in
-    { result with context = context' }
+    typeable_run context' datatype program
   in
   (* Dump the decorated AST. *)
   Debug.if_set show_post_frontend_ast

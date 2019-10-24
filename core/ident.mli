@@ -10,7 +10,7 @@ module Binder: sig
   module type S = sig
     module Scope: sig
       type t = Local | Global
-                         [@@deriving show]
+               [@@deriving show]
 
       val is_global : t -> bool
       val is_local  : t -> bool

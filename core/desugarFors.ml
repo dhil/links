@@ -53,7 +53,7 @@ let tt = function
   This function generates the code to extract the results.
   It roughly corresponds to [[qs]].
 *)
-let results :  Types.row ->
+let results o :  Types.row ->
   (Sugartypes.phrase list * Name.t list * Types.datatype list) -> Sugartypes.phrase =
   fun eff (es, xs, ts) ->
     (* let results_type = Types.make_tuple_type ts in *)
@@ -65,11 +65,14 @@ let results :  Types.row ->
             let r = results (es, xs, ts) in
             let qt = t in
             let qst = tt ts in
-
             let ((qsb, qs) : Sugartypes.Pattern.with_pos list * Sugartypes.phrase list) =
               List.split
-                (List.map2 (fun x t -> (variable_pat ~ty:t x, var x)) xs ts) in
-            let qb, q = (variable_pat ~ty:t x, var x) in
+                (List.map2 (fun x t ->
+                     let xb = o#fresh_binder t x in
+                     (variable_pat xb, var (o#refer_to x))) xs ts)
+            in
+            let xb = o#fresh_binder t x in
+            let qb, q = (variable_pat xb, var (o#refer_to xb)) in
 
             let inner : Sugartypes.phrase =
               let ps =
@@ -115,10 +118,10 @@ object (o : 'self_type)
 
                    let element_type = TypeUtils.element_type t in
 
-                   let var = Utility.gensym ~prefix:"_for_" () in
-                   let xb = binder ~ty:element_type var in
+                   let xb = o#fresh_binder element_type "_for_" in
+                   let x = o#refer_to xb in
                      o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
-                         var::xs, element_type::ts)
+                         x::xs, element_type::ts)
                | Table (p, e) ->
                    let (o, e, t) = o#phrase e in
                    let (o, p) = o#pattern p in
@@ -130,10 +133,10 @@ object (o : 'self_type)
                    let n = `Type (TypeUtils.table_needed_type t) in
 
                    let e = fn_appl "AsList" [r; w; n] [e] in
-                   let var = Utility.gensym ~prefix:"_for_" () in
-                   let xb = binder ~ty:t var in
+                   let xb = o#fresh_binder t "_for" in
+                   let x = o#refer_to xb in
                      o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
-                         var::xs, element_type::ts))
+                         x::xs, element_type::ts))
           (o, ([], [], [], []))
           qs
       in
@@ -166,7 +169,7 @@ object (o : 'self_type)
         let f : phrase = fun_lit ~args:[Types.make_tuple_type [arg_type], eff]
                                  dl_unl [arg] body in
 
-        let results = results eff (es, xs, ts) in
+        let results = results o eff (es, xs, ts) in
         let results =
           match sort, sort_type with
             | None, None -> results

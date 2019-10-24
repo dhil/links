@@ -31,7 +31,7 @@ module type UNTYPED = sig
   module Make: sig
     module Transformer(T : sig
                  val name : string
-                 val obj : SugarTraversals.map
+                 val obj : Context.t -> SugarTraversals.map
                end): sig
       include INTERFACE with type state := state and type 'a result := 'a result
     end
@@ -62,16 +62,16 @@ module Untyped : UNTYPED = struct
   module Make = struct
     module Transformer(T : sig
                  val name : string
-                 val obj : SugarTraversals.map
+                 val obj : Context.t -> SugarTraversals.map
                end) = struct
 
       let name = T.name
 
       let program state program =
-        apply_transformer state T.obj#program program
+        apply_transformer state (T.obj state)#program program
 
       let sentence state sentence =
-        apply_transformer state T.obj#sentence sentence
+        apply_transformer state (T.obj state)#sentence sentence
     end
   end
 end

@@ -39,6 +39,10 @@ object ('self)
   method get_formlet_env : unit -> Types.environment
   method get_context     : unit -> Context.t
 
+  method fresh_binder    : Types.datatype -> string -> Binder.with_pos
+  method fresh_binder'   : SourceCode.Position.t -> Types.datatype -> string -> Binder.with_pos
+  method refer_to        : Binder.with_pos -> Name.t
+
   method backup_envs     :  Types.environment * Types.tycon_environment * Types.environment * Types.row * Context.t
   method restore_envs    : (Types.environment * Types.tycon_environment * Types.environment * Types.row * Context.t) -> 'self
 

@@ -76,14 +76,18 @@ let desugar_laction : phrase -> phrase = function
       end
   | e -> e
 
-let desugar_lonevent : phrase -> phrase =
+let desugar_lonevent context : phrase -> phrase =
   let event_handler_pair = function
     | (name, [rhs]) ->
-        let event_name = StringLabels.sub ~pos:4 ~len:(String.length name - 4)
-                                          name in
-          tuple [constant_str event_name;
-                 fun_lit ~location:loc_client dl_unl [[variable_pat "event"]]
-                         rhs]
+       let event_name =
+         StringLabels.sub ~pos:4 ~len:(String.length name - 4) name
+       in
+       let comp_unit = Context.compilation_unit context in
+       let eventb = Binder.make ~host:comp_unit ~name:"event" () in (* TODO FIXME: type of `event`? *)
+       let pat = variable_pat (WithPos.make eventb) in
+       tuple [constant_str event_name;
+              fun_lit ~location:loc_client dl_unl [[pat]]
+                rhs]
     | _ -> assert false
   in function
     | { node=Xml (tag, attrs, attrexp, children); pos }
@@ -121,51 +125,57 @@ let desugar_lnames (p : phrase) : phrase * (string * string) StringMap.t =
   let p' = aux p in
     p', !lnames
 
-let let_in name rhs body : phrase =
-  block ([val_binding' None (PatName name, rhs, loc_unknown)], body)
+let let_in context name rhs body : phrase =
+  let comp_unit = Context.compilation_unit context in
+  let bndr = WithPos.make (Binder.make ~host:comp_unit ~name ()) in
+  block ([val_binding' None (PatBinder bndr, rhs, loc_unknown)], body)
 
-let bind_lname_vars lnames = function
+let bind_lname_vars context lnames = function
   | "l:action" as attr, es ->
       attr, (List.map (StringMap.fold
-                         (fun var (_,name) -> let_in var (server_use name))
+                         (fun var (_,name) -> let_in context var (server_use name))
                          lnames)
                es)
   | attr, es when start_of attr ~is:"l:on" ->
     attr, (List.map (StringMap.fold
-                       (fun var (id,_) -> let_in var (client_use id))
+                       (fun var (id,_) -> let_in context var (client_use id))
                        lnames)
              es)
   | attr -> attr
 
-let desugar_form : phrase -> phrase = function
+let desugar_form context : phrase -> phrase = function
   | { node=Xml (("form"|"FORM") as form, attrs, attrexp, children); pos } ->
       let children, lnames = List.split (List.map desugar_lnames    children) in
       let lnames =
         try List.fold_left StringMap.union_disjoint StringMap.empty lnames
         with StringMap.Not_disjoint (item, _) ->
           raise (desugaring_error pos ("Duplicate l:name binding: " ^ item)) in
-      let attrs = List.map (bind_lname_vars lnames) attrs in
+      let attrs = List.map (bind_lname_vars context lnames) attrs in
         WithPos.make ~pos
           (Xml (form, attrs, attrexp, children))
   | e -> e
 
-let replace_lattrs : phrase -> phrase =
-  desugar_form ->- desugar_laction ->- desugar_lhref ->- desugar_lonevent ->-
-  (fun (xml) ->
-     if (has_lattrs xml) then
-       match xml with
-         | { node=Xml (_tag, _attributes, _, _); pos } ->
-            raise (desugaring_error pos "Illegal l: attribute in XML node")
-         | _ -> assert false
-     else
-       xml)
+let replace_lattrs context phrase : phrase =
+  let phrase' =
+    desugar_form context phrase
+    |> desugar_laction
+    |> desugar_lhref
+  in
+  let phrase'' = desugar_lonevent context phrase' in
+  let xml = phrase'' in
+  if (has_lattrs xml) then
+    match xml with
+    | { node=Xml (_tag, _attributes, _, _); pos } ->
+       raise (desugaring_error pos "Illegal l: attribute in XML node")
+    | _ -> assert false
+  else xml
 
-let desugar_lattributes =
+let desugar_lattributes context =
 object
   inherit SugarTraversals.map as super
   method! phrase = function
     | {node=Xml _; _} as x when has_lattrs x ->
-       let x = replace_lattrs x in
+       let x = replace_lattrs context x in
        let () = validate_xml x in
        super#phrase x
     | e -> super#phrase e

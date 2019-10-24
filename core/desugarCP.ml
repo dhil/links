@@ -34,9 +34,10 @@ object (o : 'self_type)
             o, block_node
                 ([val_binding (any_pat dp) (fn_appl_var wait_str c)],
                  with_dummy_pos e), t
-         | CPGrab ((c, Some (`Input (_a, s), grab_tyargs)), Some bndr, p) -> (* FYI: a = u *)
-            let x = Binder.to_name bndr in
-            let u = Binder.to_type bndr in
+         | CPGrab ((c, Some (`Input (_a, s), grab_tyargs)), Some xb, p) -> (* FYI: a = u *)
+            let x = Binder.to_name xb in
+            let u = Binder.to_type xb in
+            let cb = o#fresh_binder s c in
             let envs = o#backup_envs in
             let venv =
               TyEnv.bind x u (o#get_var_env ())
@@ -45,11 +46,12 @@ object (o : 'self_type)
             let o = {< var_env = venv >} in
             let (o, e, t) = desugar_cp o p in
             let o = o#restore_envs envs in
+            let c = o#refer_to cb in
             o, block_node
                  ([val_binding (with_dummy_pos (
-                                    Pattern.Record ([("1", variable_pat ~ty:u x);
-                                                     ("2", variable_pat ~ty:s c)], None)))
-                               (fn_appl receive_str grab_tyargs [var c])],
+                                    Pattern.Record ([("1", variable_pat xb);
+                                                     ("2", variable_pat cb)], None)))
+                     (fn_appl receive_str grab_tyargs [var c])],
                  with_dummy_pos e), t
          | CPGive ((c, _), None, p) ->
             let (o, e, t) = desugar_cp o p in
@@ -62,25 +64,28 @@ object (o : 'self_type)
             let (o, e, _typ) = o#phrase e in
             let (o, p, t) = desugar_cp o p in
             let o = o#restore_envs envs in
+            let c = o#refer_to cb in
             o, block_node
-                ([val_binding (variable_pat ~ty:s c)
-                              (fn_appl send_str give_tyargs [e; var c])],
-                 with_dummy_pos p), t
+                 ([val_binding (variable_pat cb)
+                     (fn_appl send_str give_tyargs [e; var c])],
+                  with_dummy_pos p), t
          | CPGiveNothing bndr ->
             let c = Binder.to_name bndr in
             let t = Binder.to_type bndr in
             o, Var c, t
-         | CPSelect (bndr, label, p) ->
-            let c = Binder.to_name bndr in
-            let s = Binder.to_type bndr in
+         | CPSelect (cb, label, p) ->
+            let c = Binder.to_name cb in
+            let s = Binder.to_type cb in
+            let cb' = o#fresh_binder (TypeUtils.select_type label s) c in
             let envs = o#backup_envs in
             let o = {< var_env = TyEnv.bind c (TypeUtils.select_type label s) (o#get_var_env ()) >} in
             let (o, p, t) = desugar_cp o p in
             let o = o#restore_envs envs in
+            let c = o#refer_to cb in
             o, block_node
-                ([val_binding (variable_pat ~ty:(TypeUtils.select_type label s) c)
-                               (with_dummy_pos (Select (label, var c)))],
-                 with_dummy_pos p), t
+                 ([val_binding (variable_pat cb')
+                     (with_dummy_pos (Select (label, var c)))],
+                  with_dummy_pos p), t
          | CPOffer (bndr, cases) ->
             let c = Binder.to_name bndr in
             let s = Binder.to_type bndr in
@@ -88,20 +93,23 @@ object (o : 'self_type)
               let envs = o#backup_envs in
               let o = {< var_env = TyEnv.bind c (TypeUtils.choice_at label s) (o#get_var_env ()) >} in
               let (o, p, t) = desugar_cp o p in
-              let pat : Pattern.with_pos = with_dummy_pos (Pattern.Variant (label,
-                      Some (variable_pat ~ty:(TypeUtils.choice_at label s) c))) in
-              o#restore_envs envs, ((pat, with_dummy_pos p), t) :: cases in
+              let cb = o#fresh_binder (TypeUtils.choice_at label s) c in (* TODO FIXME this is dodgy as `cb` can only be referenced in `p`, which has already been desugared... *)
+              let pat : Pattern.with_pos =
+                with_dummy_pos
+                  (Pattern.Variant (label,
+                                    Some (variable_pat cb)))
+              in
+              o#restore_envs envs, ((pat, with_dummy_pos p), t) :: cases
+            in
             let (o, cases) = List.fold_right desugar_branch cases (o, []) in
             (match List.split cases with
                 | (_, []) -> assert false (* Case list cannot be empty *)
                 | (cases, t :: _ts) ->
-                    o, Offer (var c, cases, Some t), t)
+                   o, Offer (var (o#refer_to bndr), cases, Some t), t)
          | CPLink (bndr, bndr') ->
-            let c = Binder.to_name bndr in
             let ct = Binder.to_type bndr in
-            let d = Binder.to_name bndr' in
             o, fn_appl_node link_sync_str [`Type ct; `Row o#lookup_effects]
-                            [var c; var d],
+                 [var (o#refer_to bndr); var (o#refer_to bndr')],
             Types.make_endbang_type
          | CPComp (bndr, left, right) ->
             let c = Binder.to_name bndr in
@@ -115,25 +123,30 @@ object (o : 'self_type)
             let eff_fields = StringMap.remove wild_str eff_fields in
             let eff_fields =
               if Settings.get Basicsettings.Sessions.exceptions_enabled then
-                StringMap.remove Value.session_exception_operation eff_fields
+                StringMap.remove Value.session_exception_operation eff_fields (* dodgy to reference `Value` here... *)
               else
                 eff_fields
             in
 
             let left_block =
-                spawn Angel NoSpawnLocation (block (
-                    [ val_binding (variable_pat ~ty:s c) (fn_appl_var accept_str c);
-                      val_binding (variable_pat ~ty:Types.make_endbang_type c)
-                                  (with_dummy_pos left)],
-                    fn_appl_var close_str c))
-                      ~row:(eff_fields, eff_row, eff_closed) in
+              let cb  = o#fresh_binder s c in
+              let cb' = o#fresh_binder Types.make_endbang_type c in
+              spawn Angel NoSpawnLocation (block (
+                                               [ val_binding (variable_pat cb) (fn_appl_var accept_str (o#refer_to cb)); (* TODO FIXME reference to accept_str. *)
+                                                 val_binding (variable_pat cb')
+                                                   (with_dummy_pos left)],
+                                               fn_appl_var close_str (o#refer_to cb))) (* TODO FIXME reference to close_str. *)
+                ~row:(eff_fields, eff_row, eff_closed)
+            in
             let o = o#restore_envs envs in
+            let cb = o#fresh_binder (`Application (Types.access_point, [`Type s])) c in
+            let cb' = o#fresh_binder (Types.dual_type s) c in
+            let c = o#refer_to cb' in
             o, block_node
-                  ([val_binding (variable_pat ~ty:(`Application (Types.access_point, [`Type s])) c)
-                                (fn_appl new_str [] []);
-                    val_binding (any_pat dp) left_block;
-                    val_binding (variable_pat ~ty:(Types.dual_type s) c)
-                                (fn_appl_var request_str c)],
+                 ([ val_binding (variable_pat cb) (fn_appl new_str [] []) (* TODO FIXME: reference to new_str. *)
+                  ; val_binding (any_pat dp) left_block
+                  ; val_binding (variable_pat cb') (fn_appl_var request_str c) ] (* TODO FIXME: reference to request_str. *)
+                 ,
                    with_dummy_pos right), t
          | _ -> assert false in
        desugar_cp o p
@@ -148,3 +161,4 @@ module Typeable
         let obj env = (desugar_cp env : TransformSugar.transform :> Transform.Typeable.sugar_transformer)
       end)
 
+      
