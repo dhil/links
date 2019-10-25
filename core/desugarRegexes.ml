@@ -1,5 +1,6 @@
 open Utility
 open Operators
+open SourceCode
 open SourceCode.WithPos
 open Sugartypes
 open SugarConstructors.DummyPositions
@@ -21,7 +22,7 @@ let star_str         = "Star"
 let plus_str         = "Plus"
 let question_str     = "Question"
 
-let desugar_regex phrase regex_type regex : phrase =
+let desugar_regex context phrase regex_type regex : phrase =
   (* Desugar a regex, making sure that only variables are embedded
      within.  Any expressions that are spliced into the regex must be
      let-bound beforehand.  *)
@@ -62,12 +63,18 @@ let desugar_regex phrase regex_type regex : phrase =
         constructor' replace_str ~body:(tuple [aux re; constant_str tmpl])
       | Replace (re, (SpliceExpr e)) ->
          constructor' replace_str ~body:(tuple [aux re; expr e])
-  in block (List.map (fun (v, e1, t) ->
-                val_binding (variable_pat ~ty:t v) e1) !exprs,
-            aux regex)
+  in
+  block
+    (List.map
+       (fun (v, e1, t) ->
+         let comp_unit = Context.compilation_unit context in
+         let vb = WithPos.make (Binder.make ~host:comp_unit ~ty:t ~name:v ()) in
+         val_binding (variable_pat vb) e1)
+       !exprs,
+     aux regex)
 
 let desugar_regexes context =
-  let env = Context.typing_environment context in
+  let env = Context.typing_environment context in (* TODO FIXME. *)
   object(self)
     inherit (TransformSugar.transform context) as super
 
@@ -80,7 +87,7 @@ let desugar_regexes context =
            then "sntilde"
            else "stilde" in
          self#phrase (fn_appl libfn tyargs
-                        [e1; desugar_regex self#phrase regex_type r])
+                        [e1; desugar_regex context self#phrase regex_type r])
       | InfixAppl ((tyargs, BinaryOp.RegexMatch flags), e1, {node=Regex r; _}) ->
          let nativep = List.exists ((=) RegexNative) flags
          and listp   = List.exists ((=) RegexList)   flags in
@@ -90,7 +97,7 @@ let desugar_regexes context =
            | false, false -> "tilde"
            | false, true  -> "ntilde" in
          self#phrase (fn_appl libfn tyargs
-                        [e1; desugar_regex self#phrase regex_type r])
+                        [e1; desugar_regex context self#phrase regex_type r])
       | InfixAppl ((_tyargs, BinaryOp.RegexMatch _), _, _) ->
          let (_, expr) = SourceCode.Position.resolve_start_expr pos in
          let message = "Unexpected RHS of regex operator: " ^ expr in

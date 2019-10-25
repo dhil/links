@@ -55,7 +55,7 @@ let tt = function
 *)
 let results o :  Types.row ->
   (Sugartypes.phrase list * Name.t list * Types.datatype list) -> Sugartypes.phrase =
-  fun eff (es, xs, ts) ->
+  fun eff (es, (xs : Name.t list), ts) ->
     (* let results_type = Types.make_tuple_type ts in *)
     let rec results =
       function
@@ -69,7 +69,7 @@ let results o :  Types.row ->
               List.split
                 (List.map2 (fun x t ->
                      let xb = o#fresh_binder t x in
-                     (variable_pat xb, var (o#refer_to x))) xs ts)
+                     (variable_pat xb, var (o#refer_to xb))) xs ts)
             in
             let xb = o#fresh_binder t x in
             let qb, q = (variable_pat xb, var (o#refer_to xb)) in

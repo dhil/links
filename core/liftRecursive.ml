@@ -14,7 +14,7 @@ let is_recursive bnd fnlit =
 
 (* Fun bindings must be lifted into `Funs if they are recursive. This is
  * performed after the first pass. *)
-let lift_funs =
+let lift_funs _context =
 object ((self : 'self_type))
     inherit SugarTraversals.map as super
     method! binding = fun b ->

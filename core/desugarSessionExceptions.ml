@@ -31,9 +31,9 @@ let extension_guard pos =
   Settings.get Basicsettings.Sessions.exceptions_enabled
   || raise (Errors.disabled_extension ~pos ~setting:(get_setting_name (), true) "Session exceptions")
 
-class insert_toplevel_handlers env =
+class insert_toplevel_handlers context =
 object (o: 'self_type)
-  inherit (TransformSugar.transform env) as super
+  inherit (TransformSugar.transform context) as super
 
   method! phrasenode = function
     | (Spawn (Wait, _, _, _)) as sw ->
@@ -44,18 +44,16 @@ object (o: 'self_type)
         let (_, _, body_dt) = o#phrasenode body in
         let unit_phr = with_dummy_pos (RecordLit ([], None)) in
         let with_pos = fun node -> SourceCode.WithPos.make ~pos node in
-        let ignore_pat = with_pos (Pattern.Variable (
-          with_pos <|
-            Binder.make
-              ~name:(Utility.gensym ~prefix:"dsh" ())
-              ~ty:body_dt ())) in
+        let dshb = o#fresh_binder body_dt "dsh" in
+        let ignore_pat = with_pos (Pattern.Variable dshb) in
         let body =
           with_pos (Block
             ([ with_pos (Val (ignore_pat, ([], body_phr), Location.Unknown, None))], unit_phr)) in
 
         (* Next, we need to construct a try-as-in-otherwise with the above body *)
         let as_var = Utility.gensym ~prefix:"spawn_aspat" () in
-        let as_pat = variable_pat ~ty:(Types.unit_type) as_var in
+        let asb = o#fresh_binder Types.unit_type as_var in
+        let as_pat = variable_pat asb in
         let (o, spawn_loc) = o#given_spawn_location spawn_loc in
         let envs = o#backup_envs in
         (* Now, process body using inner effects *)
@@ -67,7 +65,7 @@ object (o: 'self_type)
         let o = o#with_effects outer_effects in
         let body =
           TryInOtherwise (body, as_pat,
-                          var as_var, unit_phr, Some (Types.unit_type)) in
+                          var (o#refer_to asb), unit_phr, Some (Types.unit_type)) in
         let o = o#restore_envs envs in
         (o, Spawn (k, spawn_loc, with_dummy_pos body, Some inner_effects), process_type)
     | e -> super#phrasenode e
@@ -115,8 +113,8 @@ object (o : 'self_type)
             |> Types.row_with (failure_op_name, `Present fail_cont_ty)
             |> Types.flatten_row in
 
-        let cont_pat = variable_pat ~ty:(Types.make_function_type [] inner_effects (Types.empty_type))
-          (Utility.gensym ~prefix:"dsh" ()) in
+        let contb = o#fresh_binder (Types.make_function_type [] inner_effects Types.empty_type) "dsh" in
+        let cont_pat = variable_pat contb in
 
         let otherwise_pat : Sugartypes.Pattern.with_pos =
           with_dummy_pos (Pattern.Effect (failure_op_name, [], cont_pat)) in
@@ -182,7 +180,7 @@ let wrap_linear_handlers =
     inherit SugarTraversals.map as super
     method! phrase = function
       | {node=TryInOtherwise (l, x, m, n, dtopt); _} ->
-          let fresh_var = Utility.gensym ?prefix:(Some "try_x") () in
+         let fresh_var = Utility.gensym ?prefix:(Some "try_x") () in
           let fresh_pat = variable_pat fresh_var in
           with_dummy_pos
           (Switch (

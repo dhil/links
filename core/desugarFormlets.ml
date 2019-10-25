@@ -31,9 +31,9 @@ let atatat_str        = "@@@"
 
 let closed_wild = Types.row_with ("wild", `Present Types.unit_type) (Types.make_empty_closed_row ())
 
-class desugar_formlets env =
+class desugar_formlets context =
 object (o : 'self_type)
-  inherit (TransformSugar.transform env) as super
+  inherit (TransformSugar.transform context) as super
 
   (*
     extract a list of (pattern, constructor, type) triples
@@ -50,10 +50,11 @@ object (o : 'self_type)
             let t = Types.fresh_type_variable (lin_any, res_any) in
             let () =
               Unify.datatypes
-                (ft, Instantiate.alias "Formlet" [`Type t] tycon_env) in
+                (ft, Instantiate.alias "Formlet" [`Type t] tycon_env) in (* TODO FIXME reference to Formlet. *)
             let name = Utility.gensym ~prefix:"_formlet_" () in
-            let (xb, x) = (binder name ~ty:t, var name) in
-              [with_dummy_pos (Pattern.As (xb, p))], [x], [t]
+            let xb = o#fresh_binder t name in
+            let x = o#refer_to xb in
+              [with_dummy_pos (Pattern.As (xb, p))], [var x], [t]
         | Xml (_, _, _, [node]) ->
             o#formlet_patterns node
         | Xml (_, _, _, contents) ->
@@ -145,11 +146,13 @@ object (o : 'self_type)
               let eff = o#lookup_effects in
               let context : phrase =
                 let name = Utility.gensym ~prefix:"_formlet_" () in
+                let xb = o#fresh_binder Types.xml_type name in
+                let x = o#refer_to xb in
                 fun_lit ~ppos
                         ~args:[Types.make_tuple_type [Types.xml_type], closed_wild]
                         dl_unl
-                        [[variable_pat ~ty:(Types.xml_type) name]]
-                        (xml tag attrs attrexp [block ([], var name)]) in
+                        [[variable_pat xb]]
+                        (xml tag attrs attrexp [block ([], var x)]) in
               let (o, e, t) = o#formlet_body (xml "#" [] None contents) in
               (o, fn_appl ~ppos plug_str [`Type t; `Row eff] [context; e], t)
           | _ -> assert false
