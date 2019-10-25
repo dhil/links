@@ -6,7 +6,7 @@ module type S = sig
     val is_global : t -> bool
     val is_local  : t -> bool
   end
-  type t [@@deriving show]
+  type t
 
   include Ident.IDENTIFIABLE with type t := t
   val origin : t -> Ident.Persistent.t
@@ -14,9 +14,13 @@ module type S = sig
   val name : t -> string
   val datatype : t -> Types.datatype
   val to_ident : t -> Ident.t
+
+  (* Using [@@deriving show] on `t` generates a couple of warnings
+     about `pp` and `show`. Listing them explicitly silences the
+     warnings. *)
+  val pp : Format.formatter -> t -> unit
+  val show : t -> string
 end
 
-type t [@@deriving show]
-
-include S with type t := t
+include S
 val make : ?datatype:Types.datatype -> ?scope:Scope.t -> Ident.Persistent.t -> Ident.t -> string -> t

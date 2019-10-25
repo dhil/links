@@ -6,7 +6,7 @@ module type S = sig
     val is_global : t -> bool
     val is_local  : t -> bool
   end
-  type t [@@deriving show]
+  type t
 
   include Ident.IDENTIFIABLE with type t := t
   val origin : t -> Ident.Persistent.t
@@ -14,6 +14,9 @@ module type S = sig
   val name : t -> string
   val datatype : t -> Types.datatype
   val to_ident : t -> Ident.t
+
+  val pp : Format.formatter -> t -> unit
+  val show : t -> string
 end
 
 module Scope = struct
