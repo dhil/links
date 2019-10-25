@@ -86,6 +86,13 @@ module SugarConstructors (Position : Pos)
   let constructor ?(ppos=dp) ?body ?ty name =
     with_pos ppos (ConstructorLit (name, body, ty))
 
+  module DataConstructors = struct
+    let just ?(ppos=dp) ?ty body =
+      constructor ~ppos ?ty ~body "Just"
+
+    let nothing ?(ppos=dp) ?ty () =
+      constructor ~ppos ?ty "Nothing"
+  end
 
   (** Constants **)
 
@@ -114,6 +121,17 @@ module SugarConstructors (Position : Pos)
     with_pos ppos (Pattern.Tuple pats)
 
   let any_pat ppos = with_pos ppos Pattern.Any
+
+  let variant_pat ?(ppos=dp) ?payload label =
+    with_pos ppos (Pattern.Variant (label, payload))
+
+  module DataConstructorPatterns = struct
+    let just ?(ppos=dp) payload =
+      variant_pat ~ppos ~payload "Just"
+
+    let nothing ?(ppos=dp)() =
+      variant_pat ~ppos "Nothing"
+  end
 
   (** Fieldspec *)
 

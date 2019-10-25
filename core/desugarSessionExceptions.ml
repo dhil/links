@@ -65,7 +65,7 @@ object (o: 'self_type)
         let o = o#with_effects outer_effects in
         let body =
           TryInOtherwise (body, as_pat,
-                          var (o#refer_to asb), unit_phr, Some (Types.unit_type)) in
+                          var (o#refer_to asb), unit_phr, Some Types.unit_type) in
         let o = o#restore_envs envs in
         (o, Spawn (k, spawn_loc, with_dummy_pos body, Some inner_effects), process_type)
     | e -> super#phrasenode e
@@ -189,10 +189,11 @@ let wrap_linear_handlers context =
                   (TryInOtherwise
                      (super#phrase l,
                       variable_pat try_xb,
-                      constructor ~body:(var "try_x") "Just", (* TODO FIXME reference to try_x. *)
-                      constructor "Nothing", dtopt)),
-                [ (with_dummy_pos (Pattern.Variant ("Just", (Some x))), super#phrase m)
-                ; (with_dummy_pos (Pattern.Variant ("Nothing", None)), super#phrase n) ]
+                      DataConstructors.just (var "try_x"), (* TODO FIXME reference to try_x. *)
+                      DataConstructors.nothing (),
+                      dtopt)),
+                [ (DataConstructorPatterns.just x, super#phrase m)
+                ; (DataConstructorPatterns.nothing (), super#phrase n) ]
                 , None))
       | p -> super#phrase p
   end

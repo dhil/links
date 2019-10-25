@@ -25,7 +25,7 @@ module Comp_unit: sig
     type t
 
     val empty : t
-    val find : Pident.t -> t -> member
+    val find : Ident.Persistent.t -> t -> member
     val size : t -> int
   end
 
@@ -45,7 +45,7 @@ module Comp_unit: sig
   val name_of_filename : string -> string
 end
 
-                    (* Compilation environment. *)
+(* Compilation environment. *)
 module Comp_env: sig
   type t [@@deriving show]
 end

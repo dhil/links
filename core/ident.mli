@@ -3,6 +3,8 @@ module type IDENTIFIABLE = sig
   val equal : t -> t -> bool
   val compare : t -> t -> int
 end
+include IDENTIFIABLE
+val make : int -> t
 
 module Persistent = Pident
 
@@ -15,6 +17,7 @@ module Binder: sig
       val is_global : t -> bool
       val is_local  : t -> bool
     end
+    type ident = t
     type t [@@deriving show]
 
     include IDENTIFIABLE with type t := t
@@ -22,12 +25,13 @@ module Binder: sig
     val modify : ?datatype:Types.datatype -> ?scope:Scope.t -> ?name:string -> t -> t
     val name : t -> string
     val datatype : t -> Types.datatype
+    val to_ident : t -> ident
   end
 
   type t [@@deriving show]
 
   include S with type t := t
-  val make : ?datatype:Types.datatype -> ?scope:Scope.t -> Persistent.t -> int -> string -> t
+  val make : ?datatype:Types.datatype -> ?scope:Scope.t -> Persistent.t -> ident -> string -> t
 end
 
 module Local: sig

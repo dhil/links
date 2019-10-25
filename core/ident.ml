@@ -3,6 +3,10 @@ module type IDENTIFIABLE = sig
   val equal : t -> t -> bool
   val compare : t -> t -> int
 end
+type t = int [@@deriving show]
+let make x = x
+let equal : t -> t -> bool = (=)
+let compare : t -> t -> int = Stdlib.compare
 
 (* Binders live in compilation units. *)
 module Binder = struct
@@ -14,6 +18,7 @@ module Binder = struct
       val is_global : t -> bool
       val is_local  : t -> bool
     end
+    type ident = t
     type t
 
     include IDENTIFIABLE with type t := t
@@ -21,6 +26,7 @@ module Binder = struct
     val modify : ?datatype:Types.datatype -> ?scope:Scope.t -> ?name:string -> t -> t
     val name : t -> string
     val datatype : t -> Types.datatype
+    val to_ident : t -> ident
   end
 
   module Scope = struct
@@ -34,6 +40,7 @@ module Binder = struct
     let is_local x = not (is_global x)
   end
 
+  type ident = t
   type t =
     { datatype: Types.datatype;
       scope: Scope.t;
@@ -42,18 +49,18 @@ module Binder = struct
       host: Pident.t }
       [@@deriving show]
 
-  let make : ?datatype:Types.datatype -> ?scope:Scope.t -> Pident.t -> int -> string -> t
+  let make : ?datatype:Types.datatype -> ?scope:Scope.t -> Pident.t -> ident -> string -> t
     = fun ?(datatype=`Not_typed) ?(scope=Scope.Local) host ident name ->
     { datatype; scope; name; ident; host }
 
   let equal : t -> t -> bool
     = fun x y ->
-    x.ident = y.ident && Pident.equal x.host y.host
+    equal x.ident y.ident && Pident.equal x.host y.host
 
   let compare x y =
     let result = Pident.compare x.host y.host in
     if result = 0
-    then Stdlib.compare x.ident y.ident
+    then compare x.ident y.ident
     else result
 
   let origin : t -> Pident.t
@@ -83,6 +90,9 @@ module Binder = struct
 
   let datatype : t -> Types.datatype
     = fun { datatype; _ } -> datatype
+
+  let to_ident : t -> ident
+    = fun { ident; _ } -> ident
 end
 
 (* Compilation unit names, interface names. *)
@@ -137,11 +147,11 @@ end
 (* Compilation unit local names. *)
 module Local = Make(struct
                    type t = int [@@deriving show]
-                   (* The type annotation is necessary to tell the
-                      compiler to pick the fast equal function for
-                      integers. *)
+                   (* The type annotations are necessary to tell the
+                      compiler to pick the fast comparison functions
+                      for integers. *)
                    let equal : t -> t -> bool = (=)
-                   let compare = Stdlib.compare
+                   let compare : t -> t -> int = Stdlib.compare
                  end)
 
 (* Names originating from a foreign compilation unit. *)

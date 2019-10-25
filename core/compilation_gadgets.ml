@@ -7,15 +7,15 @@ module Implementation = struct
   type member =
     { var: Local.t;
       kind: Types.Interface.member }
-  type t = member Pident.Map.t
+  type t = member Persistent.Map.t
 
-  let empty = Pident.Map.empty
+  let empty = Persistent.Map.empty
 
   let find ident impl =
-    Pident.Map.find ident impl
+    Persistent.Map.find ident impl
 
   let size impl =
-    Pident.Map.size impl
+    Persistent.Map.size impl
 end
 
 module Comp_unit = struct
@@ -43,8 +43,8 @@ module Comp_unit = struct
 
   let make kind name =
     { kind; next = 1;
-      dependencies = Pident.Set.empty;
-      ident = Pident.of_name name;
+      dependencies = Persistent.Set.empty;
+      ident = Persistent.of_name name;
       interface = Types.Interface.empty;
       implementation = Implementation.empty }
 
@@ -82,7 +82,7 @@ module Comp_unit = struct
 
     let fresh : ?datatype:Types.datatype -> ?scope:Scope.t -> comp_unit -> string -> t
       = fun ?(datatype=`Not_typed) ?(scope=Scope.Local) c name ->
-      let ident = Gensym.next c in
+      let ident = Ident.make (Gensym.next c) in
       make ~datatype ~scope (identifier c) ident name
   end
 

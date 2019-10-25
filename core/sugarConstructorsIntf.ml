@@ -64,6 +64,12 @@ module type SugarConstructorsSig = sig
   val constructor :
     ?ppos:t -> ?body:phrase -> ?ty:Types.datatype -> Name.t -> phrase
 
+  (* Syntax constructors for common data constructors. *)
+  module DataConstructors: sig
+    val just : ?ppos:t -> ?ty:Types.datatype -> phrase -> phrase
+    val nothing : ?ppos:t -> ?ty:Types.datatype -> unit -> phrase
+  end
+
   (* Constants *)
   val constant      : ?ppos:t -> Constant.t -> phrase
   val constant_str  : ?ppos:t -> string     -> phrase
@@ -79,6 +85,13 @@ module type SugarConstructorsSig = sig
   val variable_pat : ?ppos:t -> Binder.with_pos -> Pattern.with_pos
   val tuple_pat    : ?ppos:t -> Pattern.with_pos list -> Pattern.with_pos
   val any_pat      : t -> Pattern.with_pos
+  val variant_pat  : ?ppos:t -> ?payload:Pattern.with_pos -> Label.t -> Pattern.with_pos
+
+  (* Syntax constructors for common data constructor patterns. *)
+  module DataConstructorPatterns: sig
+    val just : ?ppos:t -> Pattern.with_pos -> Pattern.with_pos
+    val nothing : ?ppos:t -> unit -> Pattern.with_pos
+  end
 
   (* Fieldspec *)
   val present : Datatype.fieldspec
