@@ -66,16 +66,16 @@ let find_external_refs prog module_table =
   StringSet.elements
     ((find_module_refs module_table [] StringMap.empty)#program prog)#get_import_candidates
 
-let rec add_module_bindings deps dep_map =
+let rec add_module_bindings comp_unit deps dep_map =
   match deps with
     | [] -> []
     (* Don't re-inline bindings of base module *)
-    | [""]::ys -> add_module_bindings ys dep_map
+    | [""]::ys -> add_module_bindings comp_unit ys dep_map
     | [name]::ys ->
       (try
          let (members, _) = StringMap.find name dep_map in
-         let binder = SourceCode.WithPos.make (Binder.make ~name ()) in
-        WithPos.make (Module { binder; members }) :: (add_module_bindings ys dep_map)
+         let binder = SourceCode.WithPos.make (Binder.make ~host:comp_unit ~name ()) in
+        WithPos.make (Module { binder; members }) :: (add_module_bindings comp_unit ys dep_map)
       with Notfound.NotFound _ ->
         (raise (Errors.internal_error ~filename:"chaser.ml"
           ~message:(Printf.sprintf "Could not find %s in dependency map containing keys: %s\n"
@@ -107,7 +107,8 @@ let rec add_dependencies_inner module_name module_prog visited deps dep_map =
 
 (* Top-level function: given a module name + program, return a program with
  * all necessary files added to the binding list as top-level modules. *)
-let add_dependencies module_prog =
+let add_dependencies context module_prog = (* TODO FIXME: return a new context for the inlined program. *)
+  let comp_unit = Context.compilation_unit context in
   let (bindings, phrase) = module_prog in
   (* Firstly, get the dependency graph *)
   let (_, deps, dep_binding_map) =
@@ -120,9 +121,9 @@ let add_dependencies module_prog =
    * its list of inner bindings. *)
   (* FIXME: This isn't reassigning positions! What we'll want is to retain the positions, but modify
    * the position data type to keep track of the module filename we're importing from. *)
-  let module_bindings = add_module_bindings sorted_deps dep_binding_map in
+  let module_bindings = add_module_bindings comp_unit sorted_deps dep_binding_map in
   (module_bindings @ bindings, phrase)
 
-let add_dependencies_sentence = function
-  | Definitions defs -> Definitions (fst (add_dependencies (defs, None)))
+let add_dependencies_sentence context = function
+  | Definitions defs -> Definitions (fst (add_dependencies context (defs, None)))
   | s -> s

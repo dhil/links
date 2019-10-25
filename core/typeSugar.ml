@@ -3697,8 +3697,10 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
              in
              let ret = match ret with
                | [] -> (* insert a synthetic value case: x -> x. *)
+                  let xb = Binder.make ~host:(assert false) ~name:"x" () in
                   let x = "x" in
-                  let id = (variable_pat (with_pos dp (Binder.make ~name:x ())), var x) in (* TODO(dhil): Allocate x in the current compilation unit. *)
+                  let id =
+                    (variable_pat (with_pos dp xb), var x) in (* TODO(dhil): Allocate x in the current compilation unit. *)
                   [id]
                | _ -> ret
              in

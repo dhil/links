@@ -10,7 +10,7 @@ module Binder: sig
   and with_pos = t WithPos.t
   [@@deriving show]
 
-  val make : ?host:Comp_unit.t -> ?name:Name.t -> ?ty:Types.datatype -> unit -> t
+  val make : host:Comp_unit.t -> ?name:Name.t -> ?ty:Types.datatype -> unit -> t
 
   val to_name : with_pos -> string
   val to_type : with_pos -> Types.datatype
@@ -32,8 +32,8 @@ end = struct
   and with_pos = t WithPos.t
   [@@deriving show]
 
-  let make ?(host=Comp_unit.dummy) ?(name="") ?(ty=`Not_typed) ()
-    = Binder.fresh ~datatype:ty host name (* TODO(dhil): remove `dummy` unit. *)
+  let make ~host ?(name="") ?(ty=`Not_typed) ()
+    = Binder.fresh ~datatype:ty host name
 
   let to_name b = Binder.name (WithPos.node b)
   let to_type b = Binder.datatype (WithPos.node b)

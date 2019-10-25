@@ -1,5 +1,5 @@
 open CommonTypes
-open Utility
+open SourceCode
 open SourceCode.WithPos
 open Sugartypes
 open SugarConstructors.DummyPositions
@@ -175,25 +175,25 @@ end
  *   case Nothing -> N
  * }
  *)
-let wrap_linear_handlers =
+let wrap_linear_handlers context =
   object
     inherit SugarTraversals.map as super
     method! phrase = function
       | {node=TryInOtherwise (l, x, m, n, dtopt); _} ->
-         let fresh_var = Utility.gensym ?prefix:(Some "try_x") () in
-          let fresh_pat = variable_pat fresh_var in
-          with_dummy_pos
-          (Switch (
-            with_dummy_pos
-             (TryInOtherwise
-              (super#phrase l,
-               fresh_pat,
-               constructor ~body:(var fresh_var) "Just",
-               constructor "Nothing", dtopt)),
-            [
-              (with_dummy_pos (Pattern.Variant ("Just", (Some x))), super#phrase m);
-              (with_dummy_pos (Pattern.Variant ("Nothing", None)), super#phrase n)
-            ], None))
+         let comp_unit = Context.compilation_unit context in
+         let try_xb =
+           WithPos.make (Binder.make ~host:comp_unit ~name:"try_x" ()) in
+         with_dummy_pos
+           (Switch (
+                with_dummy_pos
+                  (TryInOtherwise
+                     (super#phrase l,
+                      variable_pat try_xb,
+                      constructor ~body:(var "try_x") "Just", (* TODO FIXME reference to try_x. *)
+                      constructor "Nothing", dtopt)),
+                [ (with_dummy_pos (Pattern.Variant ("Just", (Some x))), super#phrase m)
+                ; (with_dummy_pos (Pattern.Variant ("Nothing", None)), super#phrase n) ]
+                , None))
       | p -> super#phrase p
   end
 
@@ -214,10 +214,10 @@ module Untyped = struct
   open Transform.Untyped
   let name = "session_exceptions (untyped)"
   let program state program =
-    let program' = wrap_linear_handlers#program program in
+    let program' = (wrap_linear_handlers state)#program program in
     return state program'
 
   let sentence state sentence =
-    let sentence' = wrap_linear_handlers#sentence sentence in
+    let sentence' = (wrap_linear_handlers state)#sentence sentence in
     return state sentence'
 end
