@@ -3,100 +3,32 @@ module type IDENTIFIABLE = sig
   val equal : t -> t -> bool
   val compare : t -> t -> int
 end
+
 type t = int [@@deriving show]
 let make x = x
 let equal : t -> t -> bool = (=)
 let compare : t -> t -> int = Stdlib.compare
 
-(* Binders live in compilation units. *)
-module Binder = struct
-  module type S = sig
-    module Scope: sig
-      type t = Local | Global
-               [@@deriving show]
+(* Compilation unit names, interface names. *)
+module Persistent = struct
+  type t = int [@@deriving show]
 
-      val is_global : t -> bool
-      val is_local  : t -> bool
-    end
-    type ident = t
-    type t
-
-    include IDENTIFIABLE with type t := t
-    val origin : t -> Pident.t
-    val modify : ?datatype:Types.datatype -> ?scope:Scope.t -> ?name:string -> t -> t
-    val name : t -> string
-    val datatype : t -> Types.datatype
-    val to_ident : t -> ident
-  end
-
-  module Scope = struct
-    type t = Local | Global
-             [@@deriving show]
-
-    let is_global = function
-      | Global -> true
-      | _ -> false
-
-    let is_local x = not (is_global x)
-  end
-
-  type ident = t
-  type t =
-    { datatype: Types.datatype;
-      scope: Scope.t;
-      name: string;
-      ident: int; (* Var *)
-      host: Pident.t }
-      [@@deriving show]
-
-  let make : ?datatype:Types.datatype -> ?scope:Scope.t -> Pident.t -> ident -> string -> t
-    = fun ?(datatype=`Not_typed) ?(scope=Scope.Local) host ident name ->
-    { datatype; scope; name; ident; host }
+  let of_name : string -> t
+    = fun name -> Hashtbl.hash name
 
   let equal : t -> t -> bool
-    = fun x y ->
-    equal x.ident y.ident && Pident.equal x.host y.host
+    = (=)
 
-  let compare x y =
-    let result = Pident.compare x.host y.host in
-    if result = 0
-    then compare x.ident y.ident
-    else result
+  let compare : t -> t -> int
+    = compare
 
-  let origin : t -> Pident.t
-    = fun { host; _ } -> host
-
-  let modify : ?datatype:Types.datatype -> ?scope:Scope.t -> ?name:string -> t -> t
-    = fun ?datatype ?scope ?name binder ->
-    match datatype, scope, name with
-    | None, None, None -> binder
-    | Some datatype, Some scope, Some name ->
-       { binder with datatype; scope; name }
-    | Some datatype, Some scope, None ->
-       { binder with datatype; scope }
-    | Some datatype, None, Some name ->
-       { binder with datatype; name }
-    | Some datatype, None, None ->
-       { binder with datatype }
-    | None, Some scope, Some name ->
-       { binder with scope; name }
-    | None, Some scope, None ->
-       { binder with scope }
-    | None, None, Some name ->
-       { binder with name }
-
-  let name : t -> string
-    = fun { name; _ } -> name
-
-  let datatype : t -> Types.datatype
-    = fun { datatype; _ } -> datatype
-
-  let to_ident : t -> ident
-    = fun { ident; _ } -> ident
+  open Utility
+  (* Necessary to break the cyclic definition `type t = t` since
+   ppx_deriving doesn't support `type nonrec t = t`. *)
+  type s = t [@@deriving show]
+  module Map = Map.Make(struct type t = s [@@deriving show] let compare = compare end)
+  module Set = Set.Make(struct type t = s [@@deriving show] let compare = compare end)
 end
-
-(* Compilation unit names, interface names. *)
-module Persistent = Pident
 
 module Make(I : sig
              type t

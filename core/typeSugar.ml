@@ -1591,7 +1591,28 @@ type context = Types.typing_environment = {
   (* Whether this is runs on desugared code, and so some non-user
      facing constructs are permitted. *)
   desugared : bool;
-}
+  }
+
+type context' =
+  { (* Compilation state. *)
+    comp_state: Context.t;
+    (* Variables which are recursive in the current scope. *)
+    rec_vars_: StringSet.t;
+    (* Mapping (compilation unit local) type alias names to their
+       definitions. *)
+    tycon_env_: Types.tycon_environment;
+    (* The current effects. *)
+    effect_row_: Types.row;
+    (* Whether to permit occurrences of non-user facing constructs
+       introduced after desugaring. *)
+    desugared_: bool }
+
+let empty_context' context eff desugared =
+  { comp_state = context;
+    rec_vars_  = StringSet.empty;
+    tycon_env_ = Env.empty;
+    effect_row_ = eff;
+    desugared_ = desugared }
 
 let empty_context eff desugared =
   { var_env    = Env.empty;

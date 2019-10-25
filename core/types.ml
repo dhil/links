@@ -184,13 +184,14 @@ and tycon_spec = [
   [@@deriving show]
 
 module Interface = struct
+  module P = Ident.Persistent
   type member = interface_member
-  type t = member Pident.Map.t
+  type t = member P.Map.t
 
-  let empty = Pident.Map.empty
+  let empty = P.Map.empty
 
   let find ident iface =
-    Pident.Map.find ident iface
+    P.Map.find ident iface
 
   let has_value ident iface =
     match find ident iface with
@@ -204,7 +205,7 @@ module Interface = struct
     | _               -> false
     | exception Notfound.NotFound _ -> false
 
-  let size iface = Pident.Map.size iface
+  let size iface = P.Map.size iface
 end
 
 type session_type = (typ, row) session_type_basis

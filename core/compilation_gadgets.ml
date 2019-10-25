@@ -57,7 +57,7 @@ module Comp_unit = struct
   let depend : t -> t -> t
     = fun dependee dependant ->
     let dependencies' =
-      Pident.Set.add (identifier dependee) dependant.dependencies
+      Ident.Persistent.Set.add (identifier dependee) dependant.dependencies
     in
     { dependant with dependencies = dependencies' }
 
@@ -65,7 +65,7 @@ module Comp_unit = struct
     = List.fold_right depend
 
   let depends dependee dependant =
-    Pident.Set.mem (identifier dependee) dependant.dependencies
+    Ident.Persistent.Set.mem (identifier dependee) dependant.dependencies
 
   let interface { interface; _ } = interface
   let implementation { implementation; _ } = implementation
@@ -78,7 +78,7 @@ module Comp_unit = struct
 
   module Binder = struct
     type comp_unit = t
-    include Ident.Binder
+    include Binder
 
     let fresh : ?datatype:Types.datatype -> ?scope:Scope.t -> comp_unit -> string -> t
       = fun ?(datatype=`Not_typed) ?(scope=Scope.Local) c name ->

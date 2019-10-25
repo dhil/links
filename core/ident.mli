@@ -6,32 +6,13 @@ end
 include IDENTIFIABLE
 val make : int -> t
 
-module Persistent = Pident
+module Persistent: sig
+  include IDENTIFIABLE
+  val of_name : string -> t
 
-module Binder: sig
-  module type S = sig
-    module Scope: sig
-      type t = Local | Global
-               [@@deriving show]
-
-      val is_global : t -> bool
-      val is_local  : t -> bool
-    end
-    type ident = t
-    type t [@@deriving show]
-
-    include IDENTIFIABLE with type t := t
-    val origin : t -> Pident.t
-    val modify : ?datatype:Types.datatype -> ?scope:Scope.t -> ?name:string -> t -> t
-    val name : t -> string
-    val datatype : t -> Types.datatype
-    val to_ident : t -> ident
-  end
-
-  type t [@@deriving show]
-
-  include S with type t := t
-  val make : ?datatype:Types.datatype -> ?scope:Scope.t -> Persistent.t -> ident -> string -> t
+  open Utility
+  module Set : Set with type elt = t
+  module Map : Map with type key = t
 end
 
 module Local: sig

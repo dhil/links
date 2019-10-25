@@ -13,7 +13,7 @@ module Comp_unit: sig
 
   module Binder: sig
     type comp_unit = t
-    include Ident.Binder.S with type t = Ident.Binder.t
+    include Binder.S with type t = Binder.t
     val fresh : ?datatype:Types.datatype -> ?scope:Scope.t -> comp_unit -> string -> t
   end
 

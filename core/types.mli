@@ -144,9 +144,9 @@ module Interface: sig
 
   val empty : t
 
-  val find : Pident.t -> t -> member
-  val has_value : Pident.t -> t -> bool
-  val has_typecon : Pident.t -> t -> bool
+  val find : Ident.Persistent.t -> t -> member
+  val has_value : Ident.Persistent.t -> t -> bool
+  val has_typecon : Ident.Persistent.t -> t -> bool
   val size : t -> int
 end
 
