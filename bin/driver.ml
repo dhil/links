@@ -122,71 +122,62 @@ module Phases = struct
       in
       { context; sentence }
   end
+end
 
-  let dump_lib : out_channel -> unit
-    = fun oc ->
-    Printf.fprintf oc "lib.ml mappings:\n%!";
-    Env.String.iter
-      (fun name var ->
-        let (datatype : string) =
-          Types.string_of_datatype
-            (Env.String.find name Lib.typing_env.Types.var_env)
-        in
-        Printf.fprintf oc " %d -> %s : %s\n%!" var name datatype)
-      Lib.nenv
+(* Loads the prelude, and returns the 'initial' compilation context. *)
+let initialise : unit -> Context.t
+  = fun () ->
+  let open Phases in
+  let context = Context.({ empty with name_environment = Lib.nenv;
+                                      typing_environment = Lib.typing_env })
+  in
+  let filename = val_of (Settings.get prelude_file) in
+  let result =
+    Parse.run context filename
+    |> Desugar.run
+    |> (fun result ->
+      let context = result.Frontend.context in
+      let venv =
+        Var.varify_env (Lib.nenv, Lib.typing_env.Types.var_env)
+      in
+      let context' = Context.({ context with variable_environment = venv }) in
+      Compile.IR.run Frontend.({ result with context = context' }))
+    |> Transform.run
+  in
+  let context', _, _ = Evaluate.run result in
+  let nenv = Context.name_environment context' in
+  let tenv = Context.typing_environment context' in
+  let venv = Var.varify_env (nenv, tenv.Types.var_env) in
+  (* Prepare the webserver. *)
+  Webserver.set_prelude (fst result.Backend.program);
+  (* Return the 'initial' compiler context. *)
+  Context.({ context' with variable_environment = venv })
 
-  (* Loads the prelude, and returns the 'initial' compilation context. *)
-  let initialise : unit -> Context.t
-    = fun () ->
-    let context = Context.({ empty with name_environment = Lib.nenv;
-                                        typing_environment = Lib.typing_env })
-    in
-    let filename = val_of (Settings.get prelude_file) in
-    let result =
-      Parse.run context filename
-      |> Desugar.run
-      |> (fun result ->
-        let context = result.Frontend.context in
-        let venv =
-          Var.varify_env (Lib.nenv, Lib.typing_env.Types.var_env)
-        in
-        let context' = Context.({ context with variable_environment = venv }) in
-        Compile.IR.run Frontend.({ result with context = context' }))
-      |> Transform.run
-    in
-    let context', _, _ = Evaluate.run result in
-    let nenv = Context.name_environment context' in
-    let tenv = Context.typing_environment context' in
-    let venv = Var.varify_env (nenv, tenv.Types.var_env) in
-    (* Prepare the webserver. *)
-    Webserver.set_prelude (fst result.Backend.program);
-    (* Return the 'initial' compiler context. *)
-    Context.({ context' with variable_environment = venv })
-
-  let whole_program : Context.t -> string -> (Context.t * Types.datatype * Value.t)
-    = fun initial_context filename ->
-    (* Process source file (and its dependencies. *)
-    let result =
-      Parse.run initial_context filename
-      |> Desugar.run
-      |> (fun result -> if Settings.get typecheck_only then exit 0 else result)
-      |> Compile.IR.run
-      |> Transform.run
-    in
-    let context, (globals, _) = result.Backend.context, result.Backend.program in
-    let valenv    = Context.value_environment context in
-    let nenv      = Context.name_environment context in
-    let tenv      = Context.typing_environment context in
-    let ffi_files = Context.ffi_files context in
-    Webserver.init (valenv, nenv, tenv) globals ffi_files;
-    Evaluate.run result
-
-  let evaluate_string : Context.t -> string -> (Context.t * Types.datatype * Value.t)
-    = fun initial_context source_code ->
-    Parse.string initial_context source_code
+let whole_program : Context.t -> string -> (Context.t * Types.datatype * Value.t)
+  = fun initial_context filename ->
+  let open Phases in
+  (* Process source file (and its dependencies. *)
+  let result =
+    Parse.run initial_context filename
     |> Desugar.run
     |> (fun result -> if Settings.get typecheck_only then exit 0 else result)
     |> Compile.IR.run
     |> Transform.run
-    |> Evaluate.run
-end
+  in
+  let context, (globals, _) = result.Backend.context, result.Backend.program in
+  let valenv    = Context.value_environment context in
+  let nenv      = Context.name_environment context in
+  let tenv      = Context.typing_environment context in
+  let ffi_files = Context.ffi_files context in
+  Webserver.init (valenv, nenv, tenv) globals ffi_files;
+  Evaluate.run result
+
+let evaluate_string : Context.t -> string -> (Context.t * Types.datatype * Value.t)
+  = fun initial_context source_code ->
+  let open Phases in
+  Parse.string initial_context source_code
+  |> Desugar.run
+  |> (fun result -> if Settings.get typecheck_only then exit 0 else result)
+  |> Compile.IR.run
+  |> Transform.run
+  |> Evaluate.run

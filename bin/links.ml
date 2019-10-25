@@ -59,13 +59,13 @@ let handle_errors comp =
 
 let process_file context file =
   let (context', datatype, value) =
-    handle_errors (lazy (Driver.Phases.whole_program context file))
+    handle_errors (lazy (Driver.whole_program context file))
   in
   print_simple datatype value; context'
 
 let process_expr context expr_string =
   let (context', datatype, value) =
-    handle_errors (lazy (Driver.Phases.evaluate_string context expr_string))
+    handle_errors (lazy (Driver.evaluate_string context expr_string))
   in
   print_simple datatype value; context'
 
@@ -95,7 +95,7 @@ let main () =
   let file_list = Settings.get_anonymous_arguments () in
   let to_evaluate = Settings.get to_evaluate in
 
-  let context = Driver.Phases.initialise () in
+  let context = Driver.initialise () in
   let context' =
     for_each context process_expr to_evaluate
   in

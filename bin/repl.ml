@@ -195,7 +195,7 @@ let rec directives : (string * ((Context.t -> string list -> Context.t) * string
           match args with
           | [filename] ->
              let (context', datatype, value) =
-               Driver.Phases.whole_program context filename
+               Driver.whole_program context filename
              in
              print_value datatype value; context'
           | _ -> prerr_endline "syntax: @load \"filename\""; context),
