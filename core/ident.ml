@@ -6,15 +6,26 @@ end
 
 type t = int [@@deriving show]
 let make x = x
+let fresh g = Gensym.next g
+let to_string = string_of_int
 let equal : t -> t -> bool = (=)
 let compare : t -> t -> int = Stdlib.compare
+
+(* Necessary to break the cyclic definition `type t = t` since
+   ppx_deriving doesn't support `type nonrec t = t`. *)
+type s = t [@@deriving show]
+module Map = Utility.Map.Make(struct type t = s [@@deriving show] let compare = compare end)
+module Set = Utility.Set.Make(struct type t = s [@@deriving show] let compare = compare end)
 
 (* Compilation unit names, interface names. *)
 module Persistent = struct
   type t = int [@@deriving show]
 
-  let of_name : string -> t
+  let of_string : string -> t
     = fun name -> Hashtbl.hash name
+
+  let to_string : t -> string
+    = fun _ -> assert false
 
   let equal : t -> t -> bool
     = (=)
@@ -22,12 +33,17 @@ module Persistent = struct
   let compare : t -> t -> int
     = compare
 
-  open Utility
-  (* Necessary to break the cyclic definition `type t = t` since
-   ppx_deriving doesn't support `type nonrec t = t`. *)
   type s = t [@@deriving show]
-  module Map = Map.Make(struct type t = s [@@deriving show] let compare = compare end)
-  module Set = Set.Make(struct type t = s [@@deriving show] let compare = compare end)
+  module Map = Utility.Map.Make(struct type t = s [@@deriving show] let compare = compare end)
+  module Set = Utility.Set.Make(struct type t = s [@@deriving show] let compare = compare end)
+end
+
+module type VAR = sig
+  type root
+  include IDENTIFIABLE
+  val make : root -> Persistent.t list -> t
+  val root : t -> root
+  val path : t -> Persistent.t list
 end
 
 module Make(I : sig
@@ -73,6 +89,12 @@ module Make(I : sig
     if result = 0
     then compare x.path y.path
     else result
+
+  let root : t -> I.t
+    = fun { root; _ } -> root
+
+  let path : t -> Persistent.t list
+    = fun { path; _ } -> path
 end
 
 

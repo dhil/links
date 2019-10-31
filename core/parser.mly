@@ -387,9 +387,10 @@ declaration:
 
 nofun_declaration:
 | alien_block                                                  { $1 }
-| ALIEN VARIABLE STRING VARIABLE COLON datatype SEMICOLON      { with_pos $loc
+| ALIEN VARIABLE STRING VARIABLE COLON datatype SEMICOLON      { let pident = Ident.Persistent.of_string $4 in
+                                                                   with_pos $loc
                                                                           (Foreign (binder ~ppos:$loc($4) $4,
-                                                                                     $4, $2, $3, datatype $6)) }
+                                                                                     pident, $2, $3, datatype $6)) }
 | fixity perhaps_uinteger op SEMICOLON                         { let assoc, set = $1 in
                                                                  set assoc (from_option default_fixity $2) (WithPos.node $3);
                                                                  with_pos $loc Infix }
@@ -501,14 +502,14 @@ qualified_type_name:
 | CONSTRUCTOR DOT separated_nonempty_list(DOT, CONSTRUCTOR)    { $1 :: $3 }
 
 atomic_expression:
-| qualified_name                                               { with_pos $loc (QualifiedVar $1) }
-| VARIABLE                                                     { with_pos $loc (Var          $1) }
-| TILDE VARIABLE                                               { with_pos $loc (FreezeVar    $2) }
-| constant                                                     { with_pos $loc (Constant     $1) }
+| qualified_name                                               { with_pos $loc (Var       (Unresolved  $1)) }
+| VARIABLE                                                     { with_pos $loc (Var       (Unresolved [$1])) }
+| TILDE VARIABLE                                               { with_pos $loc (FreezeVar (Unresolved [$2])) }
+| constant                                                     { with_pos $loc (Constant               $1) }
 | parenthesized_thing                                          { $1 }
 /* HACK: allows us to support both mailbox receive syntax
 and receive for session types. */
-| RECEIVE                                                      { with_pos $loc (Var "receive") }
+| RECEIVE                                                      { with_pos $loc (Var (Unresolved "receive")) } /* TODO FIXME: reference to receive. */
 
 cp_name:
 | VARIABLE                                                     { binder ~ppos:$loc($1) $1 }
@@ -958,7 +959,7 @@ block_contents:
 | SEMICOLON | /* empty */                                      { ([], with_pos $loc (TupleLit [])) }
 
 labeled_exp:
-| preceded(EQ, VARIABLE)                                       { ($1, with_pos $loc (Var $1)) }
+| preceded(EQ, VARIABLE)                                       { ($1, var ~ppos:$loc $1) }
 | separated_pair(record_label, EQ, exp)                        { $1 }
 
 labeled_exps:

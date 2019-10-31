@@ -80,3 +80,8 @@ module Int : S
   and module Dom = Utility.Set.Make(Utility.Int)
   and module Dom = Utility.IntSet
 (** Pre-built environment with integers for names *)
+
+module Ident : S
+  with type name = Ident.t
+  and module Dom = Utility.Set.Make(Ident)
+(** Pre-built environment with identifiers for names *)

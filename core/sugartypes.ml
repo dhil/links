@@ -10,12 +10,13 @@ module Binder: sig
   and with_pos = t WithPos.t
   [@@deriving show]
 
-  val make : host:Comp_unit.t -> ?name:Name.t -> ?ty:Types.datatype -> unit -> t
+  val make : host:Comp_unit.t -> ?name:string -> ?ty:Types.datatype -> unit -> t
 
   val to_name : with_pos -> string
   val to_type : with_pos -> Types.datatype
+  val to_ident : with_pos -> Ident.t
 
-  val set_name : with_pos -> Name.t -> with_pos
+  val set_name : with_pos -> string -> with_pos
   val set_type : with_pos -> Types.datatype -> with_pos
 
   val erase_type : with_pos -> with_pos
@@ -23,7 +24,7 @@ module Binder: sig
 
   val traverse_map : with_pos -> o:'o
                      -> f_pos:('o -> Position.t -> 'a * Position.t)
-                     -> f_name:('a -> Name.t -> 'b * Name.t)
+                     -> f_name:('a -> string -> 'b * string)
                      -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
                      -> 'c * with_pos
 end = struct
@@ -37,6 +38,7 @@ end = struct
 
   let to_name b = Binder.name (WithPos.node b)
   let to_type b = Binder.datatype (WithPos.node b)
+  let to_ident b = Binder.to_ident (WithPos.node b)
 
   let set_name b name = WithPos.map ~f:(fun b -> Binder.modify ~name b) b
   let set_type b typ  = WithPos.map ~f:(fun b -> Binder.modify ~datatype:typ b) b
@@ -46,7 +48,7 @@ end = struct
 
   let traverse_map : with_pos -> o:'o
             -> f_pos:('o -> Position.t -> 'a * Position.t)
-            -> f_name:('a -> Name.t -> 'b * Name.t)
+            -> f_name:('a -> string -> 'b * string)
             -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
             -> 'c * with_pos = fun b ~o ~f_pos ~f_name ~f_ty ->
     WithPos.traverse_map b ~o ~f_pos ~f_node:(fun o b ->
@@ -92,7 +94,7 @@ let string_of_type_variable ((var, (kind, subkind), _) : type_variable) =
   | None -> var
   | Some kind ->
      let subkind = OptionUtils.opt_app Subkind.to_string "" subkind in
-     var ^ "::" ^ PrimaryKind.to_string kind ^ subkind
+     Printf.sprintf "%s::%s%s" var (PrimaryKind.to_string kind) subkind
 
 type fieldconstraint = Readonly | Default
     [@@deriving show]
@@ -303,15 +305,15 @@ and bindingnode =
                  datatype' option
   | Fun     of function_definition
   | Funs    of recursive_function list
-  | Foreign of Binder.with_pos * Name.t * Name.t * Name.t * datatype'
+  | Foreign of Binder.with_pos * Ident.Persistent.t * ForeignLanguage.t * string * datatype'
                (* Binder, raw function name, language, external file, type *)
-  | Import of { pollute: bool; path : Name.t list }
-  | Open of Name.t list
+  | Import of { pollute: bool; path : string list }
+  | Open of string list
   | Typenames of typename list
   | Infix
   | Exp     of phrase
   | Module  of { binder: Binder.with_pos; members: binding list }
-  | AlienBlock of Name.t * Name.t * ((Binder.with_pos * datatype') list)
+  | AlienBlock of ForeignLanguage.t * string * ((Binder.with_pos * datatype') list)
 and binding = bindingnode WithPos.t
 and block_body = binding list * phrase
 and cp_phrasenode =
@@ -326,7 +328,7 @@ and cp_phrasenode =
   | CPLink        of Binder.with_pos * Binder.with_pos
   | CPComp        of Binder.with_pos * cp_phrase * cp_phrase
 and cp_phrase = cp_phrasenode WithPos.t
-and typenamenode = (Name.t * (quantifier * tyvar option) list * datatype')
+and typenamenode = Typename.t * (quantifier * tyvar option) list * datatype' (* TODO FIXME. *)
 and typename = typenamenode WithPos.t
 and function_definition = {
     fun_binder: Binder.with_pos;
@@ -422,8 +424,10 @@ struct
   let rec phrase (p : phrase) : StringSet.t =
     let p = WithPos.node p in
     match p with
-    | Var v -> singleton v
-    | FreezeVar v -> singleton v
+    | Var (Unresolved v) -> singleton v
+    | FreezeVar (Unresolved v) -> singleton v
+    | Var _ | FreezeVar _ ->
+       raise (Errors.internal_error ~filename:"sugartypes" ~message:"Freevars.phrase called on a decorated AST.")
     | Section (Section.Name n) -> singleton n
     | FreezeSection (Section.Name n) -> singleton n
 

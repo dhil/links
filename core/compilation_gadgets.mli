@@ -43,6 +43,9 @@ module Comp_unit: sig
   val implementation : t -> Implementation.t
 
   val name_of_filename : string -> string
+
+  val is_virtual : t -> bool
+  val is_physical : t -> bool
 end
 
 (* Compilation environment. *)

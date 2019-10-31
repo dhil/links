@@ -194,9 +194,22 @@ module Freedom = struct
     [@@deriving show]
 end
 
-module Name = struct
+module ForeignLanguage = struct
   type t = string
     [@@deriving show]
+end
+
+module Name = struct
+  type t =
+    | Unresolved of string list
+    | Local of Ident.Local.t
+    | Remote of Ident.Remote.t
+    [@@deriving show]
+
+  let to_string = function
+    | Unresolved name -> String.concat "." name
+    | Local v -> Ident.Local.show v
+    | Remote v -> Ident.Remote.show v
 end
 
 module Typename = struct

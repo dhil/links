@@ -20,10 +20,10 @@ end
 
 module Comp_unit = struct
   type kind = Physical of string (* filename. *)
-            | InMemory of string (* compilation unit name. *)
+            | Virtual of string (* compilation unit name. *)
   type t =
     { kind: kind;
-      mutable next: int;
+      gensym: Gensym.t;
       ident: Persistent.t;
       dependencies: Persistent.Set.t;
       interface: Types.Interface.t;
@@ -36,15 +36,16 @@ module Comp_unit = struct
   let name { kind; _ } =
     match kind with
     | Physical filename -> name_of_filename filename
-    | InMemory name  -> name
+    | Virtual name  -> name
 
   let identifier : t -> Persistent.t
     = fun c -> c.ident
 
   let make kind name =
-    { kind; next = 1;
+    { kind;
+      gensym = Gensym.make ();
       dependencies = Persistent.Set.empty;
-      ident = Persistent.of_name name;
+      ident = Persistent.of_string name;
       interface = Types.Interface.empty;
       implementation = Implementation.empty }
 
@@ -52,7 +53,7 @@ module Comp_unit = struct
     make (Physical filename) (name_of_filename filename)
 
   let interactive name =
-    make (InMemory name) name
+    make (Virtual name) name
 
   let depend : t -> t -> t
     = fun dependee dependant ->
@@ -70,10 +71,16 @@ module Comp_unit = struct
   let interface { interface; _ } = interface
   let implementation { implementation; _ } = implementation
 
+  let is_physical { kind; _ } =
+    match kind with
+    | Physical _ -> true
+    | _ -> false
+
+  let is_virtual c = not (is_physical c)
+
   module Gensym = struct
-    let next c =
-      let n = c.next in
-      c.next <- n + 1; n
+    let next { gensym; _ } =
+      Gensym.next gensym
   end
 
   module Binder = struct
@@ -81,9 +88,9 @@ module Comp_unit = struct
     include Binder
 
     let fresh : ?datatype:Types.datatype -> ?scope:Scope.t -> comp_unit -> string -> t
-      = fun ?(datatype=`Not_typed) ?(scope=Scope.Local) c name ->
-      let ident = Ident.make (Gensym.next c) in
-      make ~datatype ~scope (identifier c) ident name
+      = fun ?(datatype=`Not_typed) ?(scope=Scope.Local) comp_unit name ->
+      let ident = Ident.fresh comp_unit.gensym in
+      make ~datatype ~scope (identifier comp_unit) ident name
   end
 
   module Implementation = Implementation

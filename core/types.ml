@@ -926,7 +926,10 @@ module Env = Env.String
       | `Body (_, row_var', _) ->
           get_row_var' rec_vars (Unionfind.find row_var')
     in
-      get_row_var' TypeVarSet.empty (Unionfind.find row_var)
+    get_row_var' TypeVarSet.empty (Unionfind.find row_var)
+
+  let row_variable : row -> row_var
+    = fun (_, row_var, _) -> row_var
 
   let fresh_type_variable subkind = make_type_variable (fresh_raw_variable ()) subkind
   let fresh_rigid_type_variable subkind = make_rigid_type_variable (fresh_raw_variable ()) subkind
@@ -967,6 +970,7 @@ module Env = Env.String
 
 let make_empty_closed_row () = empty_field_env, closed_row_var, false
 let make_empty_open_row subkind = empty_field_env, fresh_row_variable subkind, false
+let make_empty_row_with rho = empty_field_env, rho, false
 
 let make_singleton_closed_row (label, field_spec) =
   FieldEnv.add label field_spec empty_field_env, closed_row_var, false

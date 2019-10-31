@@ -262,6 +262,7 @@ val fresh_quantifier : Kind.t -> Quantifier.t * type_arg
 (** empty row constructors *)
 val make_empty_closed_row : unit -> row
 val make_empty_open_row : Subkind.t -> row
+val make_empty_row_with : row_var -> row
 
 (** singleton row constructors *)
 val make_singleton_closed_row : (string * field_spec) -> row
@@ -275,6 +276,7 @@ val is_tuple : ?allow_onetuples:bool -> row -> bool
 
 (** row_var retrieval *)
 val get_row_var : row -> int option
+val row_variable : row -> row_var
 
 (** building rows *)
 val make_closed_row : datatype field_env -> row

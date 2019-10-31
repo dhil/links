@@ -66,3 +66,4 @@ module String
   = Make(Utility.String)
 module Int
   = Make(Utility.Int)
+module Ident = Make(Ident)

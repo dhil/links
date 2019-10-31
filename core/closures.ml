@@ -420,10 +420,14 @@ struct
           let rec var_val x : (Ir.value * Types.datatype ) =
             let x_type = o#lookup_type x in
             if IntSet.mem x cvars then
-              (* We cannot return t as the type of the result here. If x refers to a hoisted function that was generalized, then
-                 t has additional quantifiers that are not present in the corresponding type of projecting x from parent_env *)
-              let projected_t = TypeUtils.project_type (string_of_int x) (snd3 (o#var parent_env)) in
-              Project (string_of_int x, Variable parent_env), projected_t
+              (* We cannot return `t` as the type of the result
+                 here. If `x` refers to a hoisted function that was
+                 generalized, then t has additional quantifiers that
+                 are not present in the corresponding type of
+                 projecting `x` from `parent_env` *)
+              let x_str = string_of_int x in
+              let projected_t = TypeUtils.project_type x_str (snd3 (o#var parent_env)) in
+              Project (x_str, Variable parent_env), projected_t
             else if IntMap.mem x fenv then
               let zs = (IntMap.find x fenv).termvars in
               let tyvars = (IntMap.find x fenv).typevars in
