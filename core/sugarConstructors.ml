@@ -37,7 +37,7 @@ module SugarConstructors (Position : Pos)
   type binder_or_pat = PatBinder of Binder.with_pos | Pat of Pattern.with_pos
 
   (* Optionally stores a datatype signature.  Isomporphic to Option. *)
-  type signature = (Name.t WithPos.t * datatype') WithPos.t option
+  type signature = (string WithPos.t * datatype') WithPos.t option
 
   (* Produces a datatype if a name is accompanied by a signature.  Raises an
      exception if name does not match a name in a signature. *)
@@ -51,6 +51,7 @@ module SugarConstructors (Position : Pos)
                   signame signame name));
        Some datatype
     | None -> None
+    | _ -> assert false
 
 
   (** Common stuff *)
@@ -246,7 +247,7 @@ module SugarConstructors (Position : Pos)
 
   (* Apply a binary infix operator with a specified name. *)
   let infix_appl ?(ppos=dp) arg1 op arg2 =
-    infix_appl' ~ppos arg1 (BinaryOp.Name op) arg2
+    infix_appl' ~ppos arg1 (BinaryOp.Name (Name.Immediate.unresolved op)) arg2
 
   (* Apply an unary operator. *)
   let unary_appl ?(ppos=dp) op arg =

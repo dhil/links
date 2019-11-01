@@ -502,14 +502,14 @@ qualified_type_name:
 | CONSTRUCTOR DOT separated_nonempty_list(DOT, CONSTRUCTOR)    { $1 :: $3 }
 
 atomic_expression:
-| qualified_name                                               { with_pos $loc (Var       (Unresolved  $1)) }
-| VARIABLE                                                     { with_pos $loc (Var       (Unresolved [$1])) }
-| TILDE VARIABLE                                               { with_pos $loc (FreezeVar (Unresolved [$2])) }
+| qualified_name                                               { with_pos $loc (Var       (Name.Qualified.unresolved  $1)) }
+| VARIABLE                                                     { with_pos $loc (Var       (Name.Immediate.unresolved  $1)) }
+| TILDE VARIABLE                                               { with_pos $loc (FreezeVar (Name.Immediate.unresolved  $2)) }
 | constant                                                     { with_pos $loc (Constant               $1) }
 | parenthesized_thing                                          { $1 }
 /* HACK: allows us to support both mailbox receive syntax
 and receive for session types. */
-| RECEIVE                                                      { with_pos $loc (Var (Unresolved "receive")) } /* TODO FIXME: reference to receive. */
+| RECEIVE                                                      { with_pos $loc (Var (Name.Immediate.unresolved "receive")) } /* TODO FIXME: reference to receive. */
 
 cp_name:
 | VARIABLE                                                     { binder ~ppos:$loc($1) $1 }
@@ -565,7 +565,7 @@ parenthesized_thing:
 binop:
 | MINUS                                                        { Section.Minus          }
 | MINUSDOT                                                     { Section.FloatMinus     }
-| sigop                                                        { Section.Name (WithPos.node $1) }
+| sigop                                                        { Section.Name (Name.Immediate.unresolved (WithPos.node $1)) }
 
 sigop:
 | DOLLAR                                                       { with_pos $loc "$" } (* TODO(dhil): Should reference a predefined dollar. *)
@@ -597,7 +597,7 @@ query_policy:
 
 postfix_expression:
 | primary_expression | spawn_expression                        { $1 }
-| primary_expression POSTFIXOP                                 { unary_appl ~ppos:$loc (UnaryOp.Name $2) $1 }
+| primary_expression POSTFIXOP                                 { unary_appl ~ppos:$loc (UnaryOp.Name (Name.Immediate.unresolved $2)) $1 }
 | block                                                        { $1 }
 | QUERY query_policy block                                     { query ~ppos:$loc None $2 $3 }
 | QUERY LBRACKET exp RBRACKET query_policy block               { query ~ppos:$loc (Some ($3, with_pos $loc (Constant (Constant.Int 0)))) $5 $6 }
@@ -623,7 +623,7 @@ perhaps_exps:
 unary_expression:
 | MINUS unary_expression                                       { unary_appl ~ppos:$loc UnaryOp.Minus      $2 }
 | MINUSDOT unary_expression                                    { unary_appl ~ppos:$loc UnaryOp.FloatMinus $2 }
-| PREFIXOP unary_expression                                    { unary_appl ~ppos:$loc (UnaryOp.Name $1)  $2 }
+| PREFIXOP unary_expression                                    { unary_appl ~ppos:$loc (UnaryOp.Name (Name.Immediate.unresolved $1))  $2 }
 | postfix_expression | constructor_expression                  { $1 }
 | DOOP CONSTRUCTOR loption(arg_spec)                           { with_pos $loc (DoOperation ($2, $3, None)) }
 
@@ -959,7 +959,7 @@ block_contents:
 | SEMICOLON | /* empty */                                      { ([], with_pos $loc (TupleLit [])) }
 
 labeled_exp:
-| preceded(EQ, VARIABLE)                                       { ($1, var ~ppos:$loc $1) }
+| preceded(EQ, VARIABLE)                                       { ($1, var ~ppos:$loc (Name.Immediate.unresolved $1)) }
 | separated_pair(record_label, EQ, exp)                        { $1 }
 
 labeled_exps:

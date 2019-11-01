@@ -1516,8 +1516,8 @@ let quantifier_of_type_arg =
 
 let quantifiers_of_type_args = List.map quantifier_of_type_arg
 
-let for_all : Quantifier.t list * datatype -> datatype = fun (qs, t) ->
-  concrete_type (`ForAll (qs, t))
+let for_all : Quantifier.t list * datatype -> datatype
+  = fun p -> concrete_type (`ForAll p)
 
 (* useful types *)
 let unit_type     = `Record (make_empty_closed_row ())

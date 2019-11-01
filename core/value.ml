@@ -365,7 +365,7 @@ module type CONTINUATION_EVALUATOR = sig
                result
 
   val trap : v t ->                        (* the continuation *)
-             (Name.t * v) ->              (* operation name and its argument *)
+             (Label.t * v) ->              (* operation name and its argument *)
              trap_result
 end
 

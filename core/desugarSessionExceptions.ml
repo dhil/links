@@ -189,7 +189,7 @@ let wrap_linear_handlers context =
                   (TryInOtherwise
                      (super#phrase l,
                       variable_pat try_xb,
-                      DataConstructors.just (var "try_x"), (* TODO FIXME reference to try_x. *)
+                      DataConstructors.just (var (Name.Immediate.unresolved "try_x")),
                       DataConstructors.nothing (),
                       dtopt)),
                 [ (DataConstructorPatterns.just x, super#phrase m)

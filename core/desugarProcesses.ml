@@ -30,7 +30,8 @@ object (o : 'self_type)
         let o = o#with_effects outer_eff in
 
         let e : phrasenode =
-          fn_appl_node "spawnWait" [`Row inner_eff; `Type body_type; `Row outer_eff]
+          let spawnWait = assert false (* "spawnWait" *) in (* TODO FIXME reference to spawnWait *)
+          fn_appl_node spawnWait [`Row inner_eff; `Type body_type; `Row outer_eff]
             [fun_lit ~args:[(Types.make_tuple_type [], inner_eff)] dl_unl [[]] body]
         in
           (o, e, body_type)
@@ -55,14 +56,20 @@ object (o : 'self_type)
         let spawn_loc_phr =
           match spawn_loc with
             | ExplicitSpawnLocation phr -> phr
-            | SpawnClient -> fn_appl "there" [`Row outer_eff] []
-            | NoSpawnLocation -> fn_appl "here" [`Row outer_eff] [] in
+            | SpawnClient ->
+               let there = assert false (* TODO FIXME select resolved there. *) in
+               fn_appl there [`Row outer_eff] []
+            | NoSpawnLocation ->
+               let here = assert false (* TODO FIXME select resolved here. *) in
+               fn_appl here [`Row outer_eff] [] in
 
         let spawn_fun =
-          match k with
-          | Demon  -> "spawnAt"
-          | Angel  -> "spawnAngelAt"
-          | Wait   -> assert false in
+          (* match k with
+           * | Demon  -> "spawnAt"
+           * | Angel  -> "spawnAngelAt"
+           * | Wait   -> assert false *)
+          assert false (* TODO FIXME select resolved name. *)
+        in
 
         (* At this point, the location in the funlit doesn't matter -- we'll have an explicit
          * location in the form of spawn_loc_phr. It was useless before anyway, given that it
@@ -79,9 +86,10 @@ object (o : 'self_type)
         let other_effects = StringMap.remove "hear" (StringMap.remove "wild" fields), row_var, false in
           begin
             match StringMap.find "hear" fields with
-              | (`Present mbt) ->
+            | (`Present mbt) ->
+               let recv = assert false (* "recv" *) (* TODO FIXME use resolved recv *)
                   o#phrasenode
-                    (Switch (fn_appl "recv" [`Type mbt; `Row other_effects] [],
+                    (Switch (fn_appl recv [`Type mbt; `Row other_effects] [],
                              cases,
                              Some t))
               | _ -> assert false

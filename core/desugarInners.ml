@@ -64,12 +64,12 @@ class desugar_inners env =
 object (o : 'self_type)
   inherit (TransformSugar.transform env) as super
 
-  val extra_env = StringMap.empty
+  val extra_env = Ident.Map.empty
 
   (* Acts as a stack of which recursive function bodies we are currently
      visiting. This allows us to determine which type variables are currently
      in-scope or not. *)
-  val visiting_funs = StringSet.empty
+  val visiting_funs = Ident.Set.empty
 
   method with_extra_env env =
     {< extra_env = env >}
@@ -77,27 +77,29 @@ object (o : 'self_type)
   method with_visiting funs = {< visiting_funs = funs>}
 
   method add_extras name tyargs =
-    let tyvars, extras = StringMap.find name extra_env in
-    let in_fun = StringSet.mem name visiting_funs in
+    let tyvars, extras = Ident.Map.find name extra_env in
+    let in_fun = Ident.Set.mem name visiting_funs in
     let tyargs = add_extras in_fun tyvars extras tyargs in
     tyargs
 
   method bind f tyvars extras =
-    {< extra_env = StringMap.add f (tyvars, extras) extra_env >}
+    {< extra_env = Ident.Map.add f (tyvars, extras) extra_env >}
 
   method unbind f =
-    {< extra_env = StringMap.remove f extra_env >}
+    {< extra_env = Ident.Map.remove f extra_env >}
 
   method! phrasenode = function
     | (Var name as e)
     | (FreezeVar name as e)
     | (Section (Section.Name name) as e)
-    | (FreezeSection (Section.Name name) as e)
-         when StringMap.mem name extra_env ->
-       let tyargs = o#add_extras name [] in
-       let o = o#unbind name in
-       let (o, e, t) = o#phrasenode (tappl (freeze e, tyargs)) in
-       (o#with_extra_env extra_env, e, t)
+    | (FreezeSection (Section.Name name) as e) ->
+       (match name with
+        | Name.Local v when Ident.Map.mem Ident.Local.(root v) extra_env ->
+           let tyargs = o#add_extras Ident.Local.(root v) [] in (* TODO FIXME `v` may not be an immediate. *)
+           let o = o#unbind name in
+           let (o, e, t) = o#phrasenode (tappl (freeze e, tyargs)) in
+           (o#with_extra_env extra_env, e, t)
+        | _ -> super#phrasenode e (* TODO FIXME *))
     | TAppl ({node=Var name;_} as p, tyargs)
     | TAppl ({node=FreezeVar name;_} as p, tyargs)
     | TAppl ({node=Section (Section.Name name);_} as p, tyargs)
@@ -141,7 +143,7 @@ object (o : 'self_type)
           List.fold_left
             (fun o {node={ rec_binder = bndr; rec_definition = ((tyvars, dt_opt), _); _ }; _ } ->
                match dt_opt with
-                 | Some (_, extras) -> o#bind (Binder.to_name bndr) tyvars extras
+                 | Some (_, extras) -> o#bind (Binder.to_ident bndr) tyvars extras
                  | None -> assert false
             )
             o defs in
@@ -169,7 +171,7 @@ object (o : 'self_type)
             function
             | [] -> (o, [])
             | {node={ rec_binder; rec_definition = ((tyvars, Some (inner, extras)), lam); _ } as fn; pos} :: defs ->
-               let o = o#with_visiting (StringSet.add (Binder.to_name rec_binder) visiting_funs) in
+               let o = o#with_visiting (Ident.Set.add (Binder.to_ident rec_binder) visiting_funs) in
                let (o, tyvars) = o#quantifiers tyvars in
                let (o, inner) = o#datatype inner in
                let inner_effects = TransformSugar.fun_effects inner (fst lam) in
@@ -196,7 +198,7 @@ object (o : 'self_type)
         (* remove the extras from the environment *)
         let o =
           List.fold_left
-            (fun o fn -> o#unbind (Binder.to_name fn.node.rec_binder))
+            (fun o fn -> o#unbind (Binder.to_ident fn.node.rec_binder))
             o defs
         in
           (o, (Funs defs))
@@ -206,7 +208,7 @@ object (o : 'self_type)
     fun bndr ->
     let (o, bndr) = super#binder bndr in
     (* avoid accidentally capturing type applications through shadowing *)
-    let o = o#unbind (Binder.to_name bndr) in
+    let o = o#unbind (Binder.to_ident bndr) in
     (o, bndr)
 end
 

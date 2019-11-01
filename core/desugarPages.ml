@@ -33,7 +33,9 @@ let rec is_raw phrase =
 *)
 let rec desugar_page (o, page_type) =
   let desugar_nodes : phrase list -> phrase = function
-    | [] -> var "unitP"
+    | [] ->
+       let unit_p = assert false (* "unitP" *) (* TODO FIXME reference to unitP *)
+       var unit_p
     | page :: ps ->
        let page = desugar_page (o, page_type) page in
        List.fold_left (fun prev page ->
@@ -51,9 +53,11 @@ let rec desugar_page (o, page_type) =
             let formlet_type = Types.concrete_type formlet_type in
             let a = Types.fresh_type_variable (lin_any, res_any) in
             let b = Types.fresh_type_variable (lin_any, res_any) in
-              Unify.datatypes (`Alias (("Formlet", [(PrimaryKind.Type, default_subkind)], [`Type a]), b), formlet_type);
-              fn_appl "formP" [`Type a; `Row (o#lookup_effects)]
-                      [formlet; handler; attributes]
+            Unify.datatypes (`Alias (("Formlet", [(PrimaryKind.Type, default_subkind)], [`Type a]), b), formlet_type); (* TODO FIXME reference to Formlet *)
+            let form_p = assert false (* "formP" *) in (* TODO FIXME reference to formP *)
+            fn_appl form_p
+              [`Type a; `Row (o#lookup_effects)]
+              [formlet; handler; attributes]
         | PagePlacement (page) -> page
         | Xml ("#", [], _, children) ->
             desugar_nodes children
@@ -75,7 +79,7 @@ object
     | Page e ->
        let (o, e, _t) = super#phrase e in
        let env = Context.typing_environment (o#get_context ()) in
-       let page_type = Instantiate.alias "Page" [] env.Types.tycon_env in
+       let page_type = Instantiate.alias "Page" [] env.Types.tycon_env in (* TODO FIXME reference to Page *)
        let e = desugar_page (o, page_type) e in
        (o, e.node, page_type)
     | e -> super#phrasenode e

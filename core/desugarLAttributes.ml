@@ -25,10 +25,15 @@ let has_lattrs : phrase -> bool = function
 let apply name args : phrase = fn_appl name [] args
 
 let server_use name =
-  apply "assoc" [constant_str name; apply "environment" []]
+  let assoc = assert false (* "assoc" *) in (* TODO FIXME use resolved assoc *)
+  let environment = assert false in (* TODO FIXME use resolved environment *)
+  apply assoc [constant_str name; apply environment []]
 
 let client_use id =
-  apply "getInputValue" [constant_str id]
+  let get_input_value = assert false in (* TODO FIXME use resolved getInputValue *)
+  apply get_input_value [constant_str id]
+
+let pickle_cont = assert false (* TODO FIXME use resolved pickleCont *)
 
 let fresh_names () =
   let id = gensym ~prefix:"_lnameid_" () in
@@ -40,12 +45,12 @@ let desugar_lhref : phrase -> phrase = function
       when mem_assoc "l:href" attrs ->
       let attrs =
         match partition (fst ->- (=)"l:href") attrs with
-          | [_,[target]], rest ->
-              ("href",
-               [constant_str "?_k=";
-                apply "pickleCont" [fun_lit ~location:loc_server dl_unl [[]]
-                                            target]])
-              :: rest
+        | [_,[target]], rest ->
+           ("href",
+            [constant_str "?_k=";
+             apply pickle_cont
+               [fun_lit ~location:loc_server dl_unl [[]] target]])
+           :: rest
           | _ ->
               raise (desugaring_error pos
                 ("Invalid l:href: check that there are no " ^
@@ -62,7 +67,7 @@ let desugar_laction : phrase -> phrase = function
               xml "input"
                   ["type",  [constant_str "hidden"];
                    "name",  [constant_str "_k"];
-                   "value", [apply "pickleCont"
+                   "value", [apply pickle_cont
                                    [fun_lit ~location:loc_server dl_unl [[]]
                                             action_expr]]]
                   None []
@@ -94,8 +99,9 @@ let desugar_lonevent context : phrase -> phrase =
         when exists (fst ->- start_of ~is:"l:on") attrs ->
         let lons, others = partition (fst ->- start_of ~is:"l:on") attrs in
         let idattr =
+          let register_event_handlers = assert false in (* TODO FIXME use resolved registerEventHandlers *)
           ("key",
-           [apply "registerEventHandlers"
+           [apply register_event_handlers
                   [list (List.map (event_handler_pair) lons)]]) in
           WithPos.make ~pos (Xml (tag, idattr::others, attrexp, children))
     | e -> e
@@ -149,7 +155,7 @@ let desugar_form context : phrase -> phrase = function
       let lnames =
         try List.fold_left StringMap.union_disjoint StringMap.empty lnames
         with StringMap.Not_disjoint (item, _) ->
-          raise (desugaring_error pos ("Duplicate l:name binding: " ^ item)) in
+          raise (desugaring_error pos (Printf.sprintf "Duplicate l:name binding: %s" item)) in
       let attrs = List.map (bind_lname_vars context lnames) attrs in
         WithPos.make ~pos
           (Xml (form, attrs, attrexp, children))

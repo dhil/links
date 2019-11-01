@@ -1,4 +1,5 @@
 open Utility
+open CommonTypes
 open Operators
 open SourceCode
 open SourceCode.WithPos
@@ -34,11 +35,15 @@ let desugar_regex context phrase regex_type regex : phrase =
   let exprs = ref [] in
   let expr e =
     let (_, e, t) = phrase e in
-    let v = Utility.gensym ~prefix:"_regex_" () in
-      begin
-        exprs := (v, e, t) :: !exprs;
-        var v
-      end in
+    begin
+      let comp_unit = Context.compilation_unit context in
+      let b =
+        WithPos.dummy (Binder.make ~host:comp_unit ~ty:t ~name:"_regex_" ())
+      in
+        exprs := (b, e) :: !exprs;
+        var (Name.Immediate.local (Binder.to_ident b))
+    end
+  in
   let rec aux : regex -> phrase =
     function
       | Range (f, t) ->
@@ -66,41 +71,40 @@ let desugar_regex context phrase regex_type regex : phrase =
   in
   block
     (List.map
-       (fun (v, e1, t) ->
-         let comp_unit = Context.compilation_unit context in
-         let vb = WithPos.make (Binder.make ~host:comp_unit ~ty:t ~name:v ()) in
-         val_binding (variable_pat vb) e1)
+       (fun (b, e1) -> val_binding (variable_pat b) e1)
        !exprs,
      aux regex)
 
 let desugar_regexes context =
-  let env = Context.typing_environment context in (* TODO FIXME. *)
   object(self)
     inherit (TransformSugar.transform context) as super
 
-    val regex_type = Instantiate.alias "Regex" [] env.Types.tycon_env (* TODO(dhil): Select "Regex" from an interface. *)
+    val regex_type = assert false(* Instantiate.alias "Regex" [] env.Types.tycon_env *) (* TODO(dhil): Select "Regex" from an interface. *)
 
     method! phrase ({node=p; pos} as ph) = match p with
       | InfixAppl ((tyargs, BinaryOp.RegexMatch flags), e1, {node=Regex((Replace(_,_) as r)); _}) ->
          let libfn =
            if List.exists ((=)RegexNative) flags
-           then "sntilde"
-           else "stilde" in
-         self#phrase (fn_appl libfn tyargs
-                        [e1; desugar_regex context self#phrase regex_type r])
+           then (assert false) (* "sntilde" *) (* TODO FIXME select resolved sntilde and stilde *)
+           else (assert false) (* "stilde" *)
+         in
+         self#phrase
+           (fn_appl libfn tyargs
+              [e1; desugar_regex context self#phrase regex_type r])
       | InfixAppl ((tyargs, BinaryOp.RegexMatch flags), e1, {node=Regex r; _}) ->
          let nativep = List.exists ((=) RegexNative) flags
          and listp   = List.exists ((=) RegexList)   flags in
          let libfn = match listp, nativep with
-           | true, true   -> "lntilde"
-           | true, false  -> "ltilde"
-           | false, false -> "tilde"
-           | false, true  -> "ntilde" in
+           | true, true   (* -> "lntilde" *) (* TODO FIXME select resolved names. *)
+           | true, false  (* -> "ltilde" *)
+           | false, false (* -> "tilde" *)
+           | false, true  -> assert false (* "ntilde" *)
+         in
          self#phrase (fn_appl libfn tyargs
                         [e1; desugar_regex context self#phrase regex_type r])
       | InfixAppl ((_tyargs, BinaryOp.RegexMatch _), _, _) ->
          let (_, expr) = SourceCode.Position.resolve_start_expr pos in
-         let message = "Unexpected RHS of regex operator: " ^ expr in
+         let message = Printf.sprintf "Unexpected RHS of regex operator: %s" expr in
          raise (Errors.internal_error ~filename:"desugarRegexes.ml" ~message)
       | _ -> super#phrase ph
 end

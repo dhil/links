@@ -424,12 +424,10 @@ struct
   let rec phrase (p : phrase) : StringSet.t =
     let p = WithPos.node p in
     match p with
-    | Var (Unresolved v) -> singleton v
-    | FreezeVar (Unresolved v) -> singleton v
-    | Var _ | FreezeVar _ ->
-       raise (Errors.internal_error ~filename:"sugartypes" ~message:"Freevars.phrase called on a decorated AST.")
-    | Section (Section.Name n) -> singleton n
-    | FreezeSection (Section.Name n) -> singleton n
+    | Var v -> singleton (Name.to_string v)
+    | FreezeVar v -> singleton (Name.to_string v) (* TODO FIXME need to be careful here as the name be either unresolved or resolved. *)
+    | Section (Section.Name n) -> singleton (Name.to_string n)
+    | FreezeSection (Section.Name n) -> singleton (Name.to_string n)
 
     | Constant _
     | TextNode _
@@ -472,7 +470,9 @@ struct
     | Conditional (p1, p2, p3) -> union_map phrase [p1;p2;p3]
     | Block b -> block b
     | InfixAppl ((_, BinaryOp.Name n), p1, p2) ->
-       union (singleton n) (union_map phrase [p1;p2])
+       union
+         (singleton (Name.to_string n))
+         (union_map phrase [p1;p2])
     | InfixAppl (_, p1, p2) -> union_map phrase [p1;p2]
     | RangeLit (p1, p2) -> union_map phrase [p1;p2]
     | Regex r -> regex r

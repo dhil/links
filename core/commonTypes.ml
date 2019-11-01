@@ -210,6 +210,22 @@ module Name = struct
     | Unresolved name -> String.concat "." name
     | Local v -> Ident.Local.show v
     | Remote v -> Ident.Remote.show v
+
+  module Immediate = struct
+    let unresolved name = Unresolved [name]
+    let local ident = Local (Ident.Local.make ident [])
+  end
+
+  module Qualified = struct
+    let unresolved path = Unresolved path
+    let local root = function
+      | [] | [_] -> raise (Invalid_argument "Name.Qualified.local")
+      | path     -> Local (Ident.Local.make root path)
+
+    let remote root = function
+      | [] | [_] -> raise (Invalid_argument "Name.Qualified.remote")
+      | path     -> Remote (Ident.Remote.make root path)
+  end
 end
 
 module Typename = struct

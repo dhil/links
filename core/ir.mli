@@ -38,14 +38,14 @@ type value =
   | Constant   of Constant.t                      (* constant: c *)
   | Variable   of var                             (* variable use: x *)
   | Extend     of value name_map * value option   (* record extension: (l1=v1, ..., lk=vk|r) or (l1=v1, ..., lk=vk) *)
-  | Project    of Name.t * value                    (* record projection: r.l *)
+  | Project    of Label.t * value                    (* record projection: r.l *)
   | Erase      of name_set * value                (* erase fields from a record: r\{ls} *)
-  | Inject     of Name.t * value * Types.datatype   (* variant injection: L(v) *)
+  | Inject     of Label.t * value * Types.datatype   (* variant injection: L(v) *)
 
   | TAbs       of tyvar list * value       (* type abstraction: /\xs.v *)
   | TApp       of value * tyarg list       (* type application: v ts *)
 
-  | XmlNode    of Name.t * value name_map * value list
+  | XmlNode    of Label.t * value name_map * value list
                                        (* XML node construction: <tag attributes>body</tag> *)
   | ApplyPure  of value * value list   (* non-side-effecting application: v ws *)
 
@@ -64,7 +64,7 @@ and binding =
   | Let        of binder * (tyvar list * tail_computation)
   | Fun        of fun_def
   | Rec        of fun_def list
-  | Alien      of binder * Name.t * language
+  | Alien      of binder * Ident.Persistent.t * language
   | Module     of string * binding list option
 and special =
   | Wrong      of Types.datatype
@@ -83,10 +83,10 @@ and special =
   | Update     of (binder * value) * computation option * computation
   | Delete     of (binder * value) * computation option
   | CallCC     of value
-  | Select     of Name.t * value
+  | Select     of Label.t * value
   | Choice     of value * (binder * computation) name_map
   | Handle     of handler
-  | DoOperation of Name.t * value list * Types.datatype
+  | DoOperation of Label.t * value list * Types.datatype
 and computation = binding list * tail_computation
 and effect_case = binder * binder * computation
 and handler = {
@@ -95,7 +95,7 @@ and handler = {
     ih_return: binder * computation;
     ih_depth: handler_depth;
 }
-and handler_depth = | Deep of (binder * value) list | Shallow
+and handler_depth = Deep of (binder * value) list | Shallow
 and lens_predicate = Static of Lens.Phrase.t | Dynamic of value
   [@@deriving show]
 

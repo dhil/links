@@ -47,7 +47,7 @@ module type SugarConstructorsSig = sig
   type binder_or_pat = PatBinder of Binder.with_pos
                      | Pat       of Pattern.with_pos
 
-  type signature = (Name.t WithPos.t * datatype') WithPos.t option
+  type signature = (string WithPos.t * datatype') WithPos.t option
 
   (* Common stuff *)
   val var         : ?ppos:t -> Name.t -> phrase
@@ -62,7 +62,7 @@ module type SugarConstructorsSig = sig
   val list        :
     ?ppos:t -> ?ty:Types.datatype -> phrase list -> phrase
   val constructor :
-    ?ppos:t -> ?body:phrase -> ?ty:Types.datatype -> Name.t -> phrase
+    ?ppos:t -> ?body:phrase -> ?ty:Types.datatype -> Label.t -> phrase
 
   (* Syntax constructors for common data constructors. *)
   module DataConstructors: sig

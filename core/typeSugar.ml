@@ -47,14 +47,13 @@ let generalise_toplevel
               |> sync)
 
 (* module Env = Env.String *)
+module TC = TypingContext
 
 module Utils : sig
-  val dummy_source_name : unit -> Name.t
+  val dummy_source_name : unit -> string
   val unify : Types.datatype * Types.datatype -> unit
-  val instantiate : Types.environment -> string ->
-                    (Types.type_arg list * Types.datatype)
-  val generalise : ?unwrap:bool -> Types.environment -> Types.datatype ->
-                   ((Quantifier.t list*Types.type_arg list) * Types.datatype)
+  (* val instantiate : Types.environment -> string -> (Types.type_arg list * Types.datatype) *)
+  val generalise : ?unwrap:bool -> Types.environment -> Types.datatype -> ((Quantifier.t list*Types.type_arg list) * Types.datatype)
 
   (* val is_pure : phrase -> bool *)
   val is_pure_binding : binding -> bool
@@ -64,10 +63,10 @@ struct
   let counter = ref 0
   let dummy_source_name () =
     counter := !counter + 1;
-    "DUMMY(" ^ string_of_int !counter ^ ")"
+    Printf.sprintf "__DUMMY(%d)" !counter
 
   let unify = Unify.datatypes
-  let instantiate = Instantiate.var
+  (* let instantiate = Instantiate.var *)
   let generalise = Generalise.generalise
 
   let rec opt_generalisable o = opt_app is_pure true o
@@ -1593,98 +1592,6 @@ end
  *   desugared : bool;
  *   } *)
 
-
-module TypingContext = struct
-  module Env = struct
-    type t = Types.datatype Env.Ident.t
-
-    let empty = Env.Ident.empty
-
-    let bind v t env = Env.Ident.bind env (v, t)
-
-    let unbind v env = Env.Ident.unbind env v
-
-    let singleton v t = bind v t empty
-
-    let lookup v ctxt = Env.Ident.lookup ctxt v
-
-    let extend env env' = Env.Ident.extend env env'
-
-    let domain env = Env.Ident.domain env
-
-    let map f env = Env.Ident.map f env
-
-    module Dom = Env.Ident.Dom
-  end
-  type t =
-  { (* Compilation state. *)
-    comp_state: Context.t;
-    (* Mapping variables to types. *)
-    var_env: Env.t;
-    (* Variables which are recursive in the current scope. *)
-    rec_vars: Ident.Set.t;
-    (* Mapping (compilation unit local) type alias names to their
-       definitions. *)
-    tycon_env: Types.tycon_environment;
-    (* The current effects. *)
-    effect_row: Types.row;
-    (* Whether to permit occurrences of non-user facing constructs
-       introduced after desugaring. *)
-    desugared: bool }
-
-  let make ?(eff=Types.make_empty_open_row default_effect_subkind) ?(desugared=false) context =
-    { comp_state = context;
-      var_env = IdentEnv.empty;
-      rec_vars  = Ident.Set.empty;
-      tycon_env = Env.empty;
-      effect_row = eff;
-      desugared = desugared }
-
-  let ambient { comp_state; _ } = comp_state
-
-  let effects { effect_row; _ } = effect_row
-
-  let with_effects effect_row ctxt =
-    { ctxt with effect_row }
-
-  let add_rec_var ident ctxt =
-    { ctxt with rec_vars = Ident.Set.add ident ctxt.rec_vars }
-
-  let desugared { desugared; _ } = desugared
-
-  let bind v t env =
-      { ctxt with var_env = Env.bind v t ctxt.var_env }
-
-  let unbind v ctxt =
-      { ctxt with var_env = Env.unbind v ctxt.var_env }
-
-  let lookup : Name.t -> t -> Types.datatype = function
-    | Name.Unresolved _ -> assert false
-    | Name.Local v -> assert false
-    | Name.Remote v -> assert false
-
-  let modify ?var_env ?effect_row ?rec_vars ?tycon_env context =
-    let context' =
-      match var_env with
-      | None -> context
-      | Some var_env -> { context with var_env }
-    in
-    let context'' =
-      match effect_row with
-      | None -> context'
-      | Some effect_row -> { context with effect_row }
-    in
-    let context''' =
-      match rec_vars with
-      | None -> context''
-      | Some rec_vars -> { context with rec_vars }
-    in
-    match tycon_env with
-    | None -> context'''
-    | Some tycon_env -> { context with tycon_env }
-end
-module TC = TypingContext
-
 (* Track usages of identifiers. *)
 module Usage: sig
   type t
@@ -1809,7 +1716,7 @@ end
  * let bind_tycon context (v, t) = {context with tycon_env = Env.bind context.tycon_env (v,t)}
  * let bind_effects context r = {context with effect_row = r} *)
 
-let type_section : TypingContext.t -> Section.t -> Sugartypes.phrase * Types.datatype * Usage.t
+let type_section : TypingContext.t -> Section.t -> Sugartypes.phrasenode * Types.datatype * Usage.t
   = fun context s ->
   (* let env = context.var_env in *)
   let ((tyargs, t), usages) =
@@ -1828,7 +1735,7 @@ let type_section : TypingContext.t -> Section.t -> Sugartypes.phrase * Types.dat
   in
   tappl (FreezeSection s, tyargs), t, usages
 
-let type_frozen_section : TypingContext.t -> Section.t -> Sugartypes.phrase * Types.datatype * Usage.t
+let type_frozen_section : TypingContext.t -> Section.t -> Sugartypes.phrasenode * Types.datatype * Usage.t
   = fun context s ->
   (* let env = context.var_env in *)
   let t, usages =
@@ -1845,7 +1752,7 @@ let type_frozen_section : TypingContext.t -> Section.t -> Sugartypes.phrase * Ty
        let ft = Types.make_function_type [`Record row] effects a in
        Types.for_all
          (Types.quantifiers_of_type_args [`Type a; `Row row'; `Row effects], ft), Usage.empty
-    | Name var      -> TC.lookup var, assert false (* TODO FIXME usage of [var]. StringMap.singleton var 1 *)
+    | Name var      -> TC.lookup var context, assert false (* TODO FIXME usage of [var]. StringMap.singleton var 1 *)
   in
   FreezeSection s, t, usages
 
@@ -1854,9 +1761,10 @@ let type_frozen_section : TypingContext.t -> Section.t -> Sugartypes.phrase * Ty
 let add_usages (p, t) m = (p, t, m)
 let add_empty_usages (p, t) = (p, t, Usage.empty)
 
-let type_unary_op : TypingContext.t -> UnaryOp.t -> context =
+let type_unary_op : TypingContext.t -> UnaryOp.t -> (tyarg list * Types.datatype * Usage.t)
+  = fun context op ->
+  match op with
   (* let datatype = datatype env.tycon_env in *)
-  function
   | UnaryOp.Minus | UnaryOp.FloatMinus -> assert false
   | UnaryOp.Name n  -> add_usages (Instantiate.typ (TC.lookup n context)) (assert false) (* TODO FIXME usages of n (Usage.singleton n) *)
 
@@ -2165,13 +2073,13 @@ let extract_binders_from_patterns : Pattern.with_pos list -> Binder.with_pos Ide
 
       method! binder b =
         let ident = Binder.to_ident b in
-        {< binders = Ident.Map.add ident binder binders >}
+        {< binders = Ident.Map.add ident b binders >}
     end
   in
-  List.iter visitor#pattern ps;
+  List.iter (visitor#pattern ->- ignore) ps;
   visitor#get_binders
 
-let extract_identifiers_from_patterns : Pattern.with_pos list -> Binder.with_pos Ident.Set.t
+let extract_identifiers_from_patterns : Pattern.with_pos list -> Ident.Set.t
   = fun ps ->
   Ident.Map.fold
     (fun v _ idents ->
@@ -2415,7 +2323,7 @@ let type_pattern closed : Pattern.with_pos -> Pattern.with_pos * TypingContext.E
     let pos, env, (outer_type, _) = type_pattern pattern in
     pos, env, outer_type
 
-let rec pattern_env : Pattern.with_pos -> TC.Env.t =
+let rec pattern_env : Pattern.with_pos -> Types.datatype TC.Env.t =
   fun { node = p; _} -> let open Pattern in
   match p with
     | Any | Nil| Negative _ | Constant _ -> TC.Env.empty

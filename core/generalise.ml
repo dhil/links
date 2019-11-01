@@ -1,5 +1,4 @@
 open Utility
-open Types
 open CommonTypes
 
 (* debug flags *)
@@ -12,7 +11,7 @@ let show_recursion = Instantiate.show_recursion
 
 let internal_error message = Errors.internal_error ~filename:"generalise" ~message
 
-type gen_kind = [`Rigid|`All]
+type gen_kind = [ `Rigid | `All ]
 
 (** [get_type_args kind bound_vars t] gets the free type variables of
     the datatype [t] as type args. The [kind] parameter specifies
@@ -36,11 +35,12 @@ let rec get_type_args : gen_kind -> TypeVarSet.t -> datatype -> type_arg list =
                 | `Var (_, _, `Flexible) -> []
                 | `Var (_, _, `Rigid) -> [`Type (`MetaTypeVar point)]
                 | `Recursive (var, body) ->
-                    Debug.if_set (show_recursion) (fun () -> "rec (get_type_args): " ^(string_of_int var));
-                    if TypeVarSet.mem var bound_vars then
-                      []
-                    else
-                      get_type_args kind (TypeVarSet.add var bound_vars) body
+                   Debug.if_set
+                     (show_recursion)
+                     (fun () -> Printf.sprintf "rec (get_type_args): %d" var);
+                    if TypeVarSet.mem var bound_vars
+                    then  []
+                    else get_type_args kind (TypeVarSet.add var bound_vars) body
                 | `Body t -> gt t
             end
         | `Function (f, m, t) ->
@@ -106,14 +106,16 @@ and get_presence_type_args : gen_kind -> TypeVarSet.t -> field_spec -> type_arg 
 
 and get_row_type_args : gen_kind -> TypeVarSet.t -> row -> type_arg list =
   fun kind bound_vars (field_env, row_var, _) ->
-    let field_vars =
+  let field_vars =
       StringMap.fold
         (fun _ field_spec vars ->
-           vars @ get_presence_type_args kind bound_vars field_spec
-        ) field_env [] in
-    let row_vars = get_row_var_type_args kind bound_vars (row_var:row_var)
+          vars @ get_presence_type_args kind bound_vars field_spec)
+        field_env []
     in
-      field_vars @ row_vars
+    let row_vars =
+      get_row_var_type_args kind bound_vars (row_var : row_var)
+    in
+    field_vars @ row_vars
 
 and get_type_arg_type_args : gen_kind -> TypeVarSet.t -> type_arg -> type_arg list =
   fun kind bound_vars ->
@@ -142,8 +144,8 @@ let remove_duplicates =
 let get_type_args kind bound_vars t =
   remove_duplicates (get_type_args kind bound_vars t)
 
-let env_type_vars (env : Types.environment) =
-  TypeVarSet.union_all (List.map free_type_vars (Env.String.range env))
+let env_type_vars (env : TypingContext.t) =
+  TypeVarSet.union_all (List.map free_type_vars (TypingContext.Env.range (TypingContext.variable_environment env))) (* TODO FIXME I am not sure it is correct to only look at the local type vars. *)
 
 let rigidify_type_arg : type_arg -> unit =
   let rigidify_point point =
@@ -177,7 +179,7 @@ let mono_type_args : type_arg -> unit =
 (** generalise:
     Universally quantify any free type variables in the expression.
 *)
-let generalise : gen_kind -> ?unwrap:bool -> environment -> datatype -> ((Quantifier.t list * type_arg list) * datatype) =
+let generalise : gen_kind -> ?unwrap:bool -> TypingContext.t -> datatype -> ((Quantifier.t list * type_arg list) * datatype) =
   fun kind ?(unwrap=true) env t ->
     (* throw away any existing top-level quantifiers *)
     Debug.if_set show_generalisation (fun () -> "Generalising : " ^ string_of_datatype t);
@@ -224,8 +226,10 @@ let generalise : gen_kind -> ?unwrap:bool -> environment -> datatype -> ((Quanti
             quantifiers, type_args
       end in
 *)
-      Debug.if_set show_generalisation (fun () -> "Generalised: " ^ string_of_datatype quantified);
-      ((quantifiers, type_args), quantified)
+    Debug.if_set
+      show_generalisation
+      (fun () -> Printf.sprintf "Generalised: %s" (string_of_datatype quantified));
+    ((quantifiers, type_args), quantified)
 
 (** only generalise rigid type variables *)
 let generalise_rigid = generalise `Rigid
@@ -233,5 +237,6 @@ let generalise_rigid = generalise `Rigid
 (** generalise both rigid and flexible type variables *)
 let generalise = generalise `All
 
-let get_quantifiers_rigid (env : environment) (t : datatype) : Quantifier.t list =
-  get_type_args `Rigid (env_type_vars env) t |> Types.quantifiers_of_type_args
+let get_quantifiers_rigid (env : TypingContext.t) (t : datatype) : Quantifier.t list =
+  get_type_args `Rigid (env_type_vars env) t
+  |> Types.quantifiers_of_type_args

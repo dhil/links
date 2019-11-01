@@ -1243,10 +1243,11 @@ end = functor (K : CONTINUATION) -> struct
              varenv fs
          in
          (state, varenv, None, fun code -> LetRec (List.map (generate_function varenv fs) defs, code))
-      | Alien (bnd, raw_name, _lang) ->
-        let (a, _a_name) = name_binder bnd in
-        let varenv = VEnv.bind a raw_name varenv in
-        state, varenv, None, (fun code -> code)
+      | Alien (bnd, pident, _lang) ->
+         let raw_name = Ident.Persistent.to_string pident in
+         let (a, _a_name) = name_binder bnd in
+         let varenv = VEnv.bind a raw_name varenv in
+         state, varenv, None, (fun code -> code)
       | Module _ -> state, varenv, None, (fun code -> code)
 
   let rec generate_toplevel_bindings : Value.env -> Json.json_state -> venv -> Ir.binding list -> Json.json_state * venv * string list * (code -> code) =
