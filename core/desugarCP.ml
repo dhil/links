@@ -1,18 +1,19 @@
 open Utility
+open CommonTypes
 open Sugartypes
 open SugarConstructors.DummyPositions
 open SourceCode.WithPos
 
 module TyEnv = Env.String
 
-let accept_str    = "accept"
-let close_str     = "closeBang"
-let link_sync_str = "linkSync"
-let new_str       = "new"
-let receive_str   = "receive"
-let request_str   = "request"
-let send_str      = "send"
-let wait_str      = "wait"
+(* let accept_str    = "accept"
+ * let close_str     = "closeBang"
+ * let link_sync_str = "linkSync"
+ * let new_str       = "new"
+ * let receive_str   = "receive"
+ * let request_str   = "request"
+ * let send_str      = "send"
+ * let wait_str      = "wait" *)
 let wild_str      = "wild"
 
 class desugar_cp env =
@@ -31,8 +32,10 @@ object (o : 'self_type)
             o, block_node (bs, e), t
          | CPGrab ((c, _), None, p) ->
             let (o, e, t) = desugar_cp o p in
+            let wait = assert false in (* TODO FIXME use resolved wait. *)
+            let c = ignore(c); assert false in
             o, block_node
-                ([val_binding (any_pat dp) (fn_appl_var wait_str c)],
+                ([val_binding (any_pat dp) (fn_appl_var wait c)],
                  with_dummy_pos e), t
          | CPGrab ((c, Some (`Input (_a, s), grab_tyargs)), Some xb, p) -> (* FYI: a = u *)
             let x = Binder.to_name xb in
@@ -47,16 +50,19 @@ object (o : 'self_type)
             let (o, e, t) = desugar_cp o p in
             let o = o#restore_envs envs in
             let c = o#refer_to cb in
+            let receive = assert false in (* TODO FIXME *)
             o, block_node
                  ([val_binding (with_dummy_pos (
                                     Pattern.Record ([("1", variable_pat xb);
                                                      ("2", variable_pat cb)], None)))
-                     (fn_appl receive_str grab_tyargs [var c])],
+                     (fn_appl receive grab_tyargs [var c])],
                  with_dummy_pos e), t
          | CPGive ((c, _), None, p) ->
             let (o, e, t) = desugar_cp o p in
+            let close = assert false in (* TODO FIXME *)
+            let c = ignore(c); assert false in
             o, block_node
-                ([val_binding (any_pat dp) (fn_appl_var close_str c)],
+                ([val_binding (any_pat dp) (fn_appl_var close c)],
                  with_dummy_pos e), t
          | CPGive ((c, Some (`Output (_t, s), give_tyargs)), Some e, p) ->
             let envs = o#backup_envs in
@@ -65,14 +71,15 @@ object (o : 'self_type)
             let (o, p, t) = desugar_cp o p in
             let o = o#restore_envs envs in
             let c = o#refer_to cb in
+            let send = assert false in (* TODO FIXME *)
             o, block_node
                  ([val_binding (variable_pat cb)
-                     (fn_appl send_str give_tyargs [e; var c])],
+                     (fn_appl send give_tyargs [e; var c])],
                   with_dummy_pos p), t
          | CPGiveNothing bndr ->
-            let c = Binder.to_name bndr in
+            let c = Binder.to_ident bndr in
             let t = Binder.to_type bndr in
-            o, Var c, t
+            o, Var (Name.Immediate.local c), t
          | CPSelect (cb, label, p) ->
             let c = Binder.to_name cb in
             let s = Binder.to_type cb in
@@ -108,7 +115,8 @@ object (o : 'self_type)
                    o, Offer (var (o#refer_to bndr), cases, Some t), t)
          | CPLink (bndr, bndr') ->
             let ct = Binder.to_type bndr in
-            o, fn_appl_node link_sync_str [`Type ct; `Row o#lookup_effects]
+            let link_sync = assert false in (* TODO FIXME *)
+            o, fn_appl_node link_sync [`Type ct; `Row o#lookup_effects]
                  [var (o#refer_to bndr); var (o#refer_to bndr')],
             Types.make_endbang_type
          | CPComp (bndr, left, right) ->
@@ -129,23 +137,27 @@ object (o : 'self_type)
             in
 
             let left_block =
+              let accept = assert false in (* TODO FIXME *)
+              let close = assert false in (* TODO FIXME *)
               let cb  = o#fresh_binder s c in
               let cb' = o#fresh_binder Types.make_endbang_type c in
               spawn Angel NoSpawnLocation (block (
-                                               [ val_binding (variable_pat cb) (fn_appl_var accept_str (o#refer_to cb)); (* TODO FIXME reference to accept_str. *)
+                                               [ val_binding (variable_pat cb) (fn_appl_var accept (o#refer_to cb));
                                                  val_binding (variable_pat cb')
                                                    (with_dummy_pos left)],
-                                               fn_appl_var close_str (o#refer_to cb))) (* TODO FIXME reference to close_str. *)
+                                               fn_appl_var close (o#refer_to cb)))
                 ~row:(eff_fields, eff_row, eff_closed)
             in
             let o = o#restore_envs envs in
             let cb = o#fresh_binder (`Application (Types.access_point, [`Type s])) c in
             let cb' = o#fresh_binder (Types.dual_type s) c in
             let c = o#refer_to cb' in
+            let new' = assert false in (* TODO FIXME *)
+            let request = assert false in (* TODO FIXME *)
             o, block_node
-                 ([ val_binding (variable_pat cb) (fn_appl new_str [] []) (* TODO FIXME: reference to new_str. *)
+                 ([ val_binding (variable_pat cb) (fn_appl new' [] [])
                   ; val_binding (any_pat dp) left_block
-                  ; val_binding (variable_pat cb') (fn_appl_var request_str c) ] (* TODO FIXME: reference to request_str. *)
+                  ; val_binding (variable_pat cb') (fn_appl_var request c) ]
                  ,
                    with_dummy_pos right), t
          | _ -> assert false in
@@ -160,5 +172,3 @@ module Typeable
         let name = "cp"
         let obj env = (desugar_cp env : TransformSugar.transform :> Transform.Typeable.sugar_transformer)
       end)
-
-      

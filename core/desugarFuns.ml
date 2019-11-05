@@ -66,6 +66,7 @@ let unwrap_def o (bndr, linearity, (tyvars, lam), location) =
             let g = gensym ~prefix:"_fun_" () in
             let rt = TypeUtils.return_type t in
             let gb = o#fresh_binder t g in
+            let g = o#refer_to gb in
               ([ps], block
                        ([fun_binding' ~linearity ~location gb
                            (make_lam rt (pss, body))],
@@ -106,6 +107,7 @@ object (o : 'self_type)
       let fb = o#fresh_binder ft f in
       unwrap_def o (fb, lin, ([], lam), location)
     in
+    let f = o#refer_to bndr in
     let e = block_node ([with_dummy_pos (Fun { fun_binder = bndr; fun_linearity = lin;
                                                fun_definition = def; fun_location = loc;
                                                fun_signature = None;
@@ -130,9 +132,11 @@ object (o : 'self_type)
                                            `Function (Types.make_tuple_type [r], eff, a))
         in
         let xb = o#fresh_binder r x in
+        let x = o#refer_to xb in
         let fb = o#fresh_binder ft f in
+        let f = o#refer_to fb in
         let pss = [[variable_pat xb]] in
-        let body = with_dummy_pos (Projection (var x, name)) in (* TODO FIXME reference to x. *)
+        let body = with_dummy_pos (Projection (var x, name)) in
         let e : phrasenode =
           block_node
             ([fun_binding' ~tyvars:[ab; rhob; effb] fb (pss, body)],

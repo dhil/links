@@ -40,8 +40,8 @@ object(self)
   method! binding = function
     | {node=AlienBlock (lang, lib, decls); _} ->
         self#list (fun o ((bnd, dt)) ->
-          let name = Binder.to_name bnd in
-          o#add_binding (with_dummy_pos (Foreign (bnd, name, lang, lib, dt)))) decls
+          let pident = Ident.Persistent.of_string (Binder.to_name bnd) in
+          o#add_binding (with_dummy_pos (Foreign (bnd, pident, lang, lib, dt)))) decls
     | {node=Module ({ members; _ } as module') ; _} ->
         let flattened_bindings =
           List.concat (

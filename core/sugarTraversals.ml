@@ -161,9 +161,7 @@ class map =
       | Constant _x -> let _x = o#constant _x in Constant _x
       | Var _x -> let _x = o#name _x in Var _x
       | FreezeVar _x -> let _x = o#name _x in FreezeVar _x
-      | QualifiedVar _xs ->
-         let _xs = o#name _xs in
-         QualifiedVar _xs
+      | QualifiedVar _xs -> assert false
       | FunLit (_x, _x1, _x_i1, _x_i2) ->
           let _x = o#option (fun o -> o#list (fun o (t, r) -> (o#typ t, o#type_row r))) _x in
           let _x_i1 = o#funlit _x_i1 in
@@ -531,7 +529,8 @@ class map =
       = fun l -> l
 
     method name : Name.t -> Name.t = function
-      | Unresolved source_name -> Unresolved (o#string source_name)
+      | Name.Unresolved source_name ->
+         Name.Unresolved (o#list (fun o -> o#string) source_name)
       | var -> var
 
     method type_name : Typename.t -> Typename.t
@@ -932,7 +931,7 @@ class fold =
       | Constant _x -> let o = o#constant _x in o
       | Var _x -> let o = o#name _x in o
       | FreezeVar _x -> let o = o#name _x in o
-      | QualifiedVar _xs -> o#name _xs
+      | QualifiedVar _xs -> assert false
       | FunLit (_x, _x1, _x_i1, _x_i2) -> let o = o#funlit _x_i1 in let _x_i2 = o#location _x_i2 in o
       | Spawn (_spawn_kind, _given_spawn_location, _block_phr, _dt) ->
          let o = o#given_spawn_location _given_spawn_location in
@@ -1249,7 +1248,8 @@ class fold =
       = fun _ -> o
 
     method name : Name.t -> 'self_type = function
-      | Unresolved source_name -> o#string source_name
+      | Name.Unresolved source_name ->
+         o#list (fun o -> o#string) source_name
       | _ -> o
 
     method type_name : Typename.t -> 'self_type
@@ -1644,9 +1644,7 @@ class fold_map =
       | Constant _x -> let (o, _x) = o#constant _x in (o, (Constant _x))
       | Var _x -> let (o, _x) = o#name _x in (o, (Var _x))
       | FreezeVar _x -> let (o, _x) = o#name _x in (o, (FreezeVar _x))
-      | QualifiedVar _xs ->
-          let (o, _xs) = o#name _xs in
-          (o, (QualifiedVar _xs))
+      | QualifiedVar _xs -> assert false
       | FunLit (_x, _x1, _x_i1, _x_i2) ->
         let (o, _x_i1) = o#funlit _x_i1 in
         let (o, _x_i2) = o#location _x_i2 in (o, (FunLit (_x, _x1, _x_i1, _x_i2)))
@@ -2041,9 +2039,9 @@ class fold_map =
       = fun l -> (o, l)
 
     method name : Name.t -> ('self_type * Name.t) = function
-      | Unresolved source_name ->
-         let (o, source_name') = o#string source_name in
-         (o, Unresolved source_name')
+      | Name.Unresolved source_name ->
+         let (o, source_name') = o#list (fun o -> o#string) source_name in
+         (o, Name.Unresolved source_name')
       | var -> (o, var)
 
     method type_name : Typename.t -> ('self_type * Typename.t)
@@ -2106,7 +2104,7 @@ class fold_map =
       | TypeVar _x ->
           let (o, _x) = o#known_type_variable _x in (o, (TypeVar _x))
       | QualifiedTypeApplication (ns, args) ->
-          let (o, ns) = o#list (fun o -> o#typename) ns in
+          let (o, ns) = o#list (fun o -> o#type_name) ns in
           let (o, args) = o#list (fun o -> o#type_arg) args in
           (o, QualifiedTypeApplication (ns, args))
       | Function (_x, _x_i1, _x_i2) ->
@@ -2120,7 +2118,7 @@ class fold_map =
           let (o, _x_i2) = o#datatype _x_i2
           in (o, (Lolli (_x, _x_i1, _x_i2)))
       | Mu (_x, _x_i1) ->
-          let (o, _x) = o#typevar _x in
+          let (o, _x) = o#type_var _x in
           let (o, _x_i1) = o#datatype _x_i1 in (o, (Mu (_x, _x_i1)))
       | Forall (_x, _x_i1) ->
           (*let (o, _x) = o#list (fun o -> o#quantifier) _x in*)

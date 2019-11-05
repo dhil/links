@@ -53,8 +53,7 @@ let tt = function
   This function generates the code to extract the results.
   It roughly corresponds to [[qs]].
 *)
-let results o :  Types.row ->
-  (Sugartypes.phrase list * Name.t list * Types.datatype list) -> Sugartypes.phrase =
+let results o :  Types.row -> (Sugartypes.phrase list * Name.t list * Types.datatype list) -> Sugartypes.phrase =
   fun eff (es, (xs : Name.t list), ts) ->
     (* let results_type = Types.make_tuple_type ts in *)
     let rec results =
@@ -67,12 +66,14 @@ let results o :  Types.row ->
             let qst = tt ts in
             let ((qsb, qs) : Sugartypes.Pattern.with_pos list * Sugartypes.phrase list) =
               List.split
-                (List.map2 (fun x t ->
-                     let xb = o#fresh_binder t x in
-                     (variable_pat xb, var (o#refer_to xb))) xs ts)
+                (List.map2
+                   (fun x t ->
+                     let xb = o#fresh_binder t "_for_" in (* TODO(dhil): Not quite sure this is right; `x` is bound in qualifiers-method. *)
+                     (variable_pat xb, var x))
+                   xs ts)
             in
-            let xb = o#fresh_binder t x in
-            let qb, q = (variable_pat xb, var (o#refer_to xb)) in
+            let xb = o#fresh_binder t "_for_" in
+            let qb, q = (variable_pat xb, var x) in
 
             let inner : Sugartypes.phrase =
               let ps =
@@ -84,15 +85,18 @@ let results o :  Types.row ->
             let outer : Sugartypes.phrase =
               let a = `Type qst in
               let b = `Type (Types.make_tuple_type (t :: ts)) in
-                fun_lit ~args:[Types.make_tuple_type [t], eff]
-                        dl_unl [[qb]]
-                        (fn_appl "map" [a; `Row eff; b] [inner; r]) in
+              let map = assert false in (* TODO FIXME use resolved map. *)
+              fun_lit ~args:[Types.make_tuple_type [t], eff]
+                dl_unl [[qb]]
+                (fn_appl map [a; `Row eff; b] [inner; r])
+            in
             let a = `Type qt in
             let b = `Type (Types.make_tuple_type (t :: ts)) in
-            fn_appl "concatMap" [a; `Row eff; b] [outer; e]
+            let concat_map = assert false in (* TODO FIXME *)
+            fn_appl concat_map [a; `Row eff; b] [outer; e]
         | _, _, _ -> assert false
     in
-      results (es, xs, ts)
+    results (es, xs, ts)
 
 
 class desugar_fors env =
@@ -120,8 +124,8 @@ object (o : 'self_type)
 
                    let xb = o#fresh_binder element_type "_for_" in
                    let x = o#refer_to xb in
-                     o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
-                         x::xs, element_type::ts)
+                   o, (e::es, with_dummy_pos (Pattern.As (xb, p)) :: ps,
+                       x::xs, element_type::ts)
                | Table (p, e) ->
                    let (o, e, t) = o#phrase e in
                    let (o, p) = o#pattern p in
@@ -132,11 +136,12 @@ object (o : 'self_type)
                    let w = `Type (TypeUtils.table_write_type t) in
                    let n = `Type (TypeUtils.table_needed_type t) in
 
-                   let e = fn_appl "AsList" [r; w; n] [e] in
+                   let as_list = assert false in (* TODO FIXME use resolved AsList *)
+                   let e = fn_appl as_list [r; w; n] [e] in
                    let xb = o#fresh_binder t "_for" in
                    let x = o#refer_to xb in
-                     o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
-                         x::xs, element_type::ts))
+                   o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
+                       x::xs, element_type::ts))
           (o, ([], [], [], []))
           qs
       in
@@ -175,19 +180,23 @@ object (o : 'self_type)
             | None, None -> results
             | Some sort, Some sort_type ->
                 let sort_by, sort_type_arg =
-                  "sortByBase", `Row (TypeUtils.extract_row sort_type) in
-
+                  assert false (* TODO FIXME use resolved "sortByBase"*), `Row (TypeUtils.extract_row sort_type)
+                in
                 let g : phrase =
                   fun_lit ~args:[Types.make_tuple_type [arg_type], eff]
                           dl_unl [arg] sort
                 in
-                fn_appl sort_by [`Type arg_type; `Row eff; sort_type_arg]
-                        [g; results]
-            | _, _ -> assert false in
-
+                fn_appl sort_by
+                  [`Type arg_type; `Row eff; sort_type_arg]
+                  [g; results]
+            | _, _ -> assert false
+        in
         let e : phrasenode =
-          fn_appl_node "concatMap" [`Type arg_type; `Row eff; `Type elem_type]
-                       [f; results] in
+          let concat_map = assert false in (* TODO FIXME use resolved concatMap *)
+          fn_appl_node concat_map
+            [`Type arg_type; `Row eff; `Type elem_type]
+            [f; results]
+        in
         (o, e, body_type)
     | e -> super#phrasenode e
 end

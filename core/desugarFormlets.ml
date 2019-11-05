@@ -24,10 +24,10 @@ let tt =
     | [t] -> t
     | ts -> Types.make_tuple_type ts
 
-let xml_str           = "xml"
-let pure_str          = "pure"
-let plug_str          = "plug"
-let atatat_str        = "@@@"
+(* let xml_str           = "xml"
+ * let pure_str          = "pure"
+ * let plug_str          = "plug"
+ * let atatat_str        = "@@@" *)
 
 let closed_wild = Types.row_with ("wild", `Present Types.unit_type) (Types.make_empty_closed_row ())
 
@@ -76,86 +76,91 @@ object (o : 'self_type)
     fun e ->
         let ppos = WithPos.pos e in
         match WithPos.node e with
-          | _ when is_raw e ->
-             let e = fn_appl ~ppos xml_str [`Row (o#lookup_effects)] [e]
-             in (o, e, Types.xml_type)
-          | FormBinding (f, _) ->
-              let (o, f, ft) = o#phrase f
-              in (o, f, ft)
-          | Xml ("#", [], None, contents) ->
-              (* pure (fun ps -> vs) <*> e1 <*> ... <*> ek *)
-              let pss', vs', ts' =
-                List.fold_left
-                  (fun (pss, vs, ts) node ->
-                       match o#formlet_patterns node with
-                         | [p], [v], [t] ->
-                             (* grrr... n-ary arguments are messy!
+        | _ when is_raw e ->
+           let xml = assert false in (* TODOD FIXME used resolved xml *)
+           let e = fn_appl ~ppos xml [`Row (o#lookup_effects)] [e]
+           in (o, e, Types.xml_type)
+        | FormBinding (f, _) ->
+           let (o, f, ft) = o#phrase f
+           in (o, f, ft)
+        | Xml ("#", [], None, contents) ->
+           (* pure (fun ps -> vs) <*> e1 <*> ... <*> ek *)
+           let pss', vs', ts' =
+             List.fold_left
+               (fun (pss, vs, ts) node ->
+                 match o#formlet_patterns node with
+                 | [p], [v], [t] ->
+                    (* grrr... n-ary arguments are messy!
                                 this type has to be a 1-tuple!
-                             *)
-                             [p]::pss, v::vs, t::ts
-                         | ps', vs', ts' ->
-                             [tuple_pat ps']::pss, tuple vs'::vs, (Types.make_tuple_type ts')::ts)
-                  ([], [], []) contents
-              in
-              let vs, ts = List.rev vs', List.rev ts' in
+                     *)
+                    [p]::pss, v::vs, t::ts
+                 | ps', vs', ts' ->
+                    [tuple_pat ps']::pss, tuple vs'::vs, (Types.make_tuple_type ts')::ts)
+               ([], [], []) contents
+           in
+           let vs, ts = List.rev vs', List.rev ts' in
 
-              (* Given (f1 -> v1 : t1) ... (fn -> vn : tt), we generate a term of the form
+           (* Given (f1 -> v1 : t1) ... (fn -> vn : tt), we generate a term of the form
                  (@@@)(f1, ... (@@@)(fn)(pure (fun(pn : tn)...(p1 : t1) { (p1, ..., pn) }))).
 
                  Thus we generate a function with the arguments in reverse, but the variables
                  in the original order.
-               *)
-              let ft =
-                List.fold_right
-                  (fun t ft -> `Function (Types.make_tuple_type [t], closed_wild, ft))
-                  ts' (tt ts)
-              in
-                begin
-                  match vs with
-                    | [] ->
-                        let (o, e, _) = super#phrasenode (Xml ("#", [], None, contents)) in
-                        (o,
-                         fn_appl ~ppos xml_str [`Row (o#lookup_effects)] [with_dummy_pos e],
-                         Types.unit_type)
-                    | _ ->
-                        let args = List.map (fun t -> (Types.make_tuple_type [t], closed_wild)) ts' in
-                        let (o, es, _) = TransformSugar.list o (fun o -> o#formlet_body) contents in
-                        let eff = `Row (o#lookup_effects) in
-                        let base : phrase =
-                          fn_appl pure_str
-                            [`Type ft; eff]
-                            [fun_lit ~ppos ~args:args dl_unl pss' (tuple vs)]
-                        in
-                        let p, et =
-                          List.fold_right
-                            (fun arg (base, ft) ->
-                               let arg_type = List.hd (TypeUtils.arg_types ft) in
-                               let ft = TypeUtils.return_type ft in
-                               let base : phrase =
-                                 fn_appl ~ppos atatat_str
-                                   [`Type arg_type; `Type ft; `Row o#lookup_effects]
-                                   [arg; base]
-                               in base, ft)
-                            es (base, ft)
-                        in
-                          (o, p, et)
-                end
-          | Xml(tag, attrs, attrexp, contents) ->
-              (* plug (fun x -> (<tag attrs>{x}</tag>)) (<#>contents</#>)^o*)
-              let (o, attrexp, _) = TransformSugar.option o (fun o -> o#phrase) attrexp in
-              let eff = o#lookup_effects in
-              let context : phrase =
-                let name = Utility.gensym ~prefix:"_formlet_" () in
-                let xb = o#fresh_binder Types.xml_type name in
-                let x = o#refer_to xb in
-                fun_lit ~ppos
-                        ~args:[Types.make_tuple_type [Types.xml_type], closed_wild]
-                        dl_unl
-                        [[variable_pat xb]]
-                        (xml tag attrs attrexp [block ([], var x)]) in
-              let (o, e, t) = o#formlet_body (xml "#" [] None contents) in
-              (o, fn_appl ~ppos plug_str [`Type t; `Row eff] [context; e], t)
-          | _ -> assert false
+            *)
+           let ft =
+             List.fold_right
+               (fun t ft -> `Function (Types.make_tuple_type [t], closed_wild, ft))
+               ts' (tt ts)
+           in
+           begin
+             match vs with
+             | [] ->
+                let (o, e, _) = super#phrasenode (Xml ("#", [], None, contents)) in
+                let xml = assert false in (* TODOD FIXME used resolved xml *)
+                (o,
+                 fn_appl ~ppos xml [`Row (o#lookup_effects)] [with_dummy_pos e],
+                 Types.unit_type)
+             | _ ->
+                let args = List.map (fun t -> (Types.make_tuple_type [t], closed_wild)) ts' in
+                let (o, es, _) = TransformSugar.list o (fun o -> o#formlet_body) contents in
+                let eff = `Row (o#lookup_effects) in
+                let base : phrase =
+                  let pure = assert false in (* TODOD FIXME used resolved pure *)
+                  fn_appl pure
+                    [`Type ft; eff]
+                    [fun_lit ~ppos ~args:args dl_unl pss' (tuple vs)]
+                in
+                let p, et =
+                  List.fold_right
+                    (fun arg (base, ft) ->
+                      let arg_type = List.hd (TypeUtils.arg_types ft) in
+                      let ft = TypeUtils.return_type ft in
+                      let base : phrase =
+                        let atatat = assert false in (* TODOD FIXME used resolved atatat *)
+                        fn_appl ~ppos atatat
+                          [`Type arg_type; `Type ft; `Row o#lookup_effects]
+                          [arg; base]
+                      in base, ft)
+                    es (base, ft)
+                in
+                (o, p, et)
+           end
+        | Xml(tag, attrs, attrexp, contents) ->
+           (* plug (fun x -> (<tag attrs>{x}</tag>)) (<#>contents</#>)^o*)
+           let (o, attrexp, _) = TransformSugar.option o (fun o -> o#phrase) attrexp in
+           let eff = o#lookup_effects in
+           let context : phrase =
+             let name = Utility.gensym ~prefix:"_formlet_" () in
+             let xb = o#fresh_binder Types.xml_type name in
+             let x = o#refer_to xb in
+             fun_lit ~ppos
+               ~args:[Types.make_tuple_type [Types.xml_type], closed_wild]
+               dl_unl
+               [[variable_pat xb]]
+               (xml tag attrs attrexp [block ([], var x)]) in
+           let (o, e, t) = o#formlet_body (xml "#" [] None contents) in
+           let plug = assert false in (* TODOD FIXME used resolved plug *)
+           (o, fn_appl ~ppos plug [`Type t; `Row eff] [context; e], t)
+        | _ -> assert false
 
   method! phrasenode  : phrasenode -> ('self_type * phrasenode * Types.datatype) = function
     | Formlet (body, yields) ->
@@ -178,13 +183,15 @@ object (o : 'self_type)
         let arg_type = tt ts in
 
         let e =
-          fn_appl_node atatat_str
+          let atatat = assert false in (* TODO FIXME used resolved atatat *)
+          let pure = assert false in (* TODO FIXME used resolved pure *)
+          fn_appl_node atatat
              [`Type arg_type; `Type yields_type; `Row eff]
-             [body; fn_appl pure_str
+             [body; fn_appl pure
                     [`Type (`Function (Types.make_tuple_type [arg_type], closed_wild, yields_type)); `Row eff]
                     [fun_lit ~args:[Types.make_tuple_type [arg_type], closed_wild] dl_unl pss yields]]
         in
-          (o, e, Instantiate.alias "Formlet" [`Type yields_type] tycon_env)
+        (o, e, Instantiate.alias "Formlet" [`Type yields_type] tycon_env) (* TODO FIXME use resolved Formlet *)
     | e -> super#phrasenode e
 end
 

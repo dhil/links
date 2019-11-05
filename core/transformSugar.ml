@@ -160,8 +160,9 @@ class transform (context : Context.t) =
     method fresh_binder : Types.datatype -> string -> Binder.with_pos
       = fun datatype name ->
       o#fresh_binder' Position.dummy datatype name
-    method refer_to : Binder.with_pos -> string
-      = fun b -> Binder.to_name b
+    method refer_to : Binder.with_pos -> Name.t
+      = fun b -> (* TODO FIXME *)
+      Name.Immediate.local (Binder.to_ident b)
 
     method backup_envs = var_env, tycon_env, formlet_env, effect_row, context
     method restore_envs (var_env, tycon_env, formlet_env, effect_row, context) =

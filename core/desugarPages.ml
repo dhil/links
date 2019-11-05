@@ -34,20 +34,22 @@ let rec is_raw phrase =
 let rec desugar_page (o, page_type) =
   let desugar_nodes : phrase list -> phrase = function
     | [] ->
-       let unit_p = assert false (* "unitP" *) (* TODO FIXME reference to unitP *)
+       let unit_p = assert false (* "unitP" *) in (* TODO FIXME reference to unitP *)
        var unit_p
     | page :: ps ->
        let page = desugar_page (o, page_type) page in
        List.fold_left (fun prev page ->
            let page = desugar_page (o, page_type) page in
-           fn_appl "joinP" [`Row (o#lookup_effects)] [prev; page])
+           let join_p = assert false (* "joinP" *) in (* TODO FIXME *)
+           fn_appl join_p [`Row (o#lookup_effects)] [prev; page])
        page ps
   in
     fun ({node=e; pos} as phrase) ->
       match e with
         | _ when is_raw phrase ->
-          (* TODO: check that e doesn't contain any formletplacements or page placements *)
-           fn_appl "bodyP" [`Row (o#lookup_effects)] [phrase]
+           (* TODO: check that e doesn't contain any formletplacements or page placements *)
+           let body_p = assert false (* "bodyP" *) in (* TODO FIXME *)
+           fn_appl body_p [`Row (o#lookup_effects)] [phrase]
         | FormletPlacement (formlet, handler, attributes) ->
             let (_, formlet, formlet_type) = o#phrase formlet in
             let formlet_type = Types.concrete_type formlet_type in
@@ -64,7 +66,8 @@ let rec desugar_page (o, page_type) =
         | Xml (name, attrs, dynattrs, children) ->
            let xb = o#fresh_binder Types.xml_type "xml" in
            let x = o#refer_to xb in
-            fn_appl "plugP" [`Row (o#lookup_effects)]
+           let plug_p = assert false (* "plugP" *) in (* TODO FIXME *)
+            fn_appl plug_p [`Row (o#lookup_effects)]
                [fun_lit ~args:[Types.make_tuple_type [Types.xml_type], closed_wild]
                         dl_unl [[variable_pat xb]]
                         (xml name attrs dynattrs [block ([], var x)]);

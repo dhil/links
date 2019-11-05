@@ -87,7 +87,7 @@ object (o : 'self_type)
           begin
             match StringMap.find "hear" fields with
             | (`Present mbt) ->
-               let recv = assert false (* "recv" *) (* TODO FIXME use resolved recv *)
+               let recv = assert false (* "recv" *) (* TODO FIXME use resolved recv *) in
                   o#phrasenode
                     (Switch (fn_appl recv [`Type mbt; `Row other_effects] [],
                              cases,

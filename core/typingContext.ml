@@ -1,3 +1,5 @@
+open CommonTypes
+
 module Env = struct
   type 'a t = 'a Env.Ident.t
 
@@ -35,6 +37,8 @@ type t =
     (* Whether to permit occurrences of non-user facing constructs
        introduced after desugaring. *)
     desugared: bool }
+
+let default_effect_subkind = (lin_unl, res_any)
 
 let make ?(eff=Types.make_empty_open_row default_effect_subkind) ?(desugared=false) context =
   { comp_state = context;

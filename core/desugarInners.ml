@@ -1,4 +1,5 @@
 open Utility
+open CommonTypes
 open Operators
 open SourceCode.WithPos
 open Sugartypes
@@ -11,7 +12,7 @@ open Sugartypes
    stores a single type for each recursive function.
 *)
 
-let internal_error message = Errors.InternalError { filename = "desugarInners"; message }
+let internal_error message = Errors.internal_error ~filename:"desugarInners" ~message
 
 (** Rewrite our list of type arguments from using the inner type to the outer
    one.
@@ -45,7 +46,8 @@ let rec add_extras in_fun qs extras tyargs =
                | _, (Row, sk) -> `Row (Types.make_empty_open_row sk)
                | _, (Presence, sk) -> `Presence (Types.fresh_presence_variable sk)
      in q :: add_extras in_fun qs extras tyargs
-  | _::qs, Some i::extras -> List.nth tyargs i :: add_extras in_fun qs extras tyargs
+  | _::qs, Some i :: extras ->
+     List.nth tyargs i :: add_extras in_fun qs extras tyargs
   | _, _ -> raise (internal_error "Mismatch in number of quantifiers and type arguments")
 
 let freeze = function
@@ -53,6 +55,10 @@ let freeze = function
   | Section s -> FreezeSection s
   | FreezeVar _ | FreezeSection _ as e -> e
   | _ -> raise (internal_error "Unfreezable node")
+
+let ident_of_local = function
+  | Name.Local v -> Ident.Local.root v
+  | _ -> assert false
 
 (** Attempt to patch up all references to recursive functions.
 
@@ -77,10 +83,20 @@ object (o : 'self_type)
   method with_visiting funs = {< visiting_funs = funs>}
 
   method add_extras name tyargs =
-    let tyvars, extras = Ident.Map.find name extra_env in
-    let in_fun = Ident.Set.mem name visiting_funs in
-    let tyargs = add_extras in_fun tyvars extras tyargs in
-    tyargs
+    match name with
+    | Name.Local v ->
+       let ident = Ident.Local.root v in
+       let tyvars, extras = Ident.Map.find ident extra_env in
+       let in_fun = Ident.Set.mem ident visiting_funs in
+       let tyargs = add_extras in_fun tyvars extras tyargs in
+       tyargs
+    | _ -> (* TODO(dhil): I think only local names should be considered *)
+       tyargs
+
+  method mem_extra_env = function
+    | Name.Local v ->
+       Ident.Map.mem Ident.Local.(root v) extra_env
+    | _ -> false
 
   method bind f tyvars extras =
     {< extra_env = Ident.Map.add f (tyvars, extras) extra_env >}
@@ -92,27 +108,26 @@ object (o : 'self_type)
     | (Var name as e)
     | (FreezeVar name as e)
     | (Section (Section.Name name) as e)
-    | (FreezeSection (Section.Name name) as e) ->
-       (match name with
-        | Name.Local v when Ident.Map.mem Ident.Local.(root v) extra_env ->
-           let tyargs = o#add_extras Ident.Local.(root v) [] in (* TODO FIXME `v` may not be an immediate. *)
-           let o = o#unbind name in
-           let (o, e, t) = o#phrasenode (tappl (freeze e, tyargs)) in
-           (o#with_extra_env extra_env, e, t)
-        | _ -> super#phrasenode e (* TODO FIXME *))
+    | (FreezeSection (Section.Name name) as e) when o#mem_extra_env name ->
+       let tyargs = o#add_extras name [] in
+       let ident = ident_of_local name in
+       let o = o#unbind ident in
+       let (o, e, t) = o#phrasenode (tappl (freeze e, tyargs)) in
+       (o#with_extra_env extra_env, e, t)
     | TAppl ({node=Var name;_} as p, tyargs)
     | TAppl ({node=FreezeVar name;_} as p, tyargs)
     | TAppl ({node=Section (Section.Name name);_} as p, tyargs)
     | TAppl ({node=FreezeSection (Section.Name name);_} as p, tyargs)
-         when StringMap.mem name extra_env ->
-        let tyargs = o#add_extras name (List.map (snd ->- val_of) tyargs) in
-        let o = o#unbind name in
-        let (o, e, t) = o#phrasenode (tappl' (SourceCode.WithPos.map ~f:freeze p, tyargs)) in
-        (o#with_extra_env extra_env, e, t)
-    | InfixAppl ((tyargs, BinaryOp.Name name), e1, e2) when StringMap.mem name extra_env ->
+         when o#mem_extra_env name ->
+       let tyargs = o#add_extras name (List.map (snd ->- val_of) tyargs) in
+       let ident = ident_of_local name in
+       let o = o#unbind ident in
+       let (o, e, t) = o#phrasenode (tappl' (SourceCode.WithPos.map ~f:freeze p, tyargs)) in
+       (o#with_extra_env extra_env, e, t)
+    | InfixAppl ((tyargs, BinaryOp.Name name), e1, e2) when o#mem_extra_env name ->
         let tyargs = o#add_extras name tyargs in
           super#phrasenode (InfixAppl ((tyargs, BinaryOp.Name name), e1, e2))
-    | UnaryAppl ((tyargs, UnaryOp.Name name), e) when StringMap.mem name extra_env ->
+    | UnaryAppl ((tyargs, UnaryOp.Name name), e) when o#mem_extra_env name ->
         let tyargs = o#add_extras name tyargs in
           super#phrasenode (UnaryAppl ((tyargs, UnaryOp.Name name), e))
     (* HACK: manage the lexical scope of extras *)

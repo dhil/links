@@ -139,7 +139,7 @@ let typevars =
 object (self)
   inherit SugarTraversals.fold as super
 
-  val tyvar_list : Typename.var list = []
+  val tyvar_list : Typevar.t list = []
   val tyvars : type_variable StringMap.t = StringMap.empty
 
   (* fill in subkind with the default *)
