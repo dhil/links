@@ -70,7 +70,7 @@ object (o : 'self_type)
             let (o, e, _typ) = o#phrase e in
             let (o, p, t) = desugar_cp o p in
             let o = o#restore_envs envs in
-            let c = o#refer_to cb in
+            let c = o#refer_to c in
             let send = assert false in (* TODO FIXME *)
             o, block_node
                  ([val_binding (variable_pat cb)

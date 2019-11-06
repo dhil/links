@@ -5,13 +5,13 @@ module Env = struct
 
   let empty = Env.Ident.empty
 
-  let bind v t env = Env.Ident.bind env (v, t)
+  let bind v t env = Env.Ident.bind v t env
 
-  let unbind v env = Env.Ident.unbind env v
+  let unbind v env = Env.Ident.unbind v env
 
   let singleton v t = bind v t empty
 
-  let lookup v ctxt = Env.Ident.lookup ctxt v
+  let lookup v ctxt = Env.Ident.find v ctxt
 
   let extend env env' = Env.Ident.extend env env'
 

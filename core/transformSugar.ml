@@ -10,58 +10,58 @@ module TyEnv = Env.String
 let internal_error message =
   Errors.internal_error ~filename:"transformSugar.ml" ~message
 
-let type_section env =
-  let open Section in function
-  | Minus -> TyEnv.find "-" env
-  | FloatMinus -> TyEnv.find "-."env
-  | Project label ->
-      let ab, a = Types.fresh_type_quantifier (lin_any, res_any) in
-      let rhob, (fields, rho, _) = Types.fresh_row_quantifier (lin_any, res_any) in
-      let eb, e = Types.fresh_row_quantifier default_effect_subkind in
+let type_section env = ignore(env); assert false (* TODO FIXME *)
+  (* let open Section in function
+   * | Minus -> TyEnv.find "-" env
+   * | FloatMinus -> TyEnv.find "-."env
+   * | Project label ->
+   *     let ab, a = Types.fresh_type_quantifier (lin_any, res_any) in
+   *     let rhob, (fields, rho, _) = Types.fresh_row_quantifier (lin_any, res_any) in
+   *     let eb, e = Types.fresh_row_quantifier default_effect_subkind in
+   * 
+   *     let r = `Record (StringMap.add label (`Present a) fields, rho, false) in
+   *       `ForAll ([ab; rhob; eb],
+   *                `Function (Types.make_tuple_type [r], e, a))
+   * | Name var -> TyEnv.find var env *)
 
-      let r = `Record (StringMap.add label (`Present a) fields, rho, false) in
-        `ForAll ([ab; rhob; eb],
-                 `Function (Types.make_tuple_type [r], e, a))
-  | Name var -> TyEnv.find var env
+let type_unary_op env tycon_env = ignore(env); ignore(tycon_env); assert false (* TODO FIXME *)
+  (* let datatype = DesugarDatatypes.read ~aliases:tycon_env in function
+   *   | UnaryOp.Minus      -> datatype "(Int) -> Int"
+   *   | UnaryOp.FloatMinus -> datatype "(Float) -> Float"
+   *   | UnaryOp.Name n     -> TyEnv.find n env *)
 
-let type_unary_op env tycon_env =
-  let datatype = DesugarDatatypes.read ~aliases:tycon_env in function
-    | UnaryOp.Minus      -> datatype "(Int) -> Int"
-    | UnaryOp.FloatMinus -> datatype "(Float) -> Float"
-    | UnaryOp.Name n     -> TyEnv.find n env
-
-let type_binary_op env tycon_env =
-  let open BinaryOp in
-  let datatype = DesugarDatatypes.read ~aliases:tycon_env in function
-  | Minus        -> TyEnv.find "-" env
-  | FloatMinus   -> TyEnv.find "-." env
-  | RegexMatch flags ->
-      let nativep  = List.exists ((=) RegexNative)  flags
-      and listp    = List.exists ((=) RegexList)    flags
-      and replacep = List.exists ((=) RegexReplace) flags in
-        (match replacep, listp, nativep with
-           | true,   _   , false -> (* stilde  *) datatype "(String, Regex) -> String"
-           | false, true , false -> (* ltilde *)  datatype "(String, Regex) -> [String]"
-           | false, false, false -> (* tilde *)   datatype "(String, Regex) -> Bool"
-           | _,     _,     true  -> assert false)
-
-  | And
-  | Or           -> datatype "(Bool,Bool) -> Bool"
-  | Cons         -> TyEnv.find "Cons" env
-  | Name "++"    -> TyEnv.find "Concat" env
-  | Name ">"
-  | Name ">="
-  | Name "=="
-  | Name "<"
-  | Name "<="
-  | Name "<>" ->
-      let ab, a = Types.fresh_type_quantifier (lin_any, res_any) in
-      let eb, e = Types.fresh_row_quantifier (lin_any, res_any) in
-        `ForAll ([ab; eb],
-                 `Function (Types.make_tuple_type [a; a], e,
-                            `Primitive Primitive.Bool))
-  | Name "!"     -> TyEnv.find "Send" env
-  | Name n       -> TyEnv.find n env
+let type_binary_op env tycon_env = ignore(env); ignore(tycon_env); assert false (* TODO FIXME *)
+  (* let open BinaryOp in
+   * let datatype = DesugarDatatypes.read ~aliases:tycon_env in function
+   * | Minus        -> TyEnv.find "-" env
+   * | FloatMinus   -> TyEnv.find "-." env
+   * | RegexMatch flags ->
+   *     let nativep  = List.exists ((=) RegexNative)  flags
+   *     and listp    = List.exists ((=) RegexList)    flags
+   *     and replacep = List.exists ((=) RegexReplace) flags in
+   *       (match replacep, listp, nativep with
+   *          | true,   _   , false -> (\* stilde  *\) datatype "(String, Regex) -> String"
+   *          | false, true , false -> (\* ltilde *\)  datatype "(String, Regex) -> [String]"
+   *          | false, false, false -> (\* tilde *\)   datatype "(String, Regex) -> Bool"
+   *          | _,     _,     true  -> assert false)
+   * 
+   * | And
+   * | Or           -> datatype "(Bool,Bool) -> Bool"
+   * | Cons         -> TyEnv.find "Cons" env
+   * | Name "++"    -> TyEnv.find "Concat" env
+   * | Name ">"
+   * | Name ">="
+   * | Name "=="
+   * | Name "<"
+   * | Name "<="
+   * | Name "<>" ->
+   *     let ab, a = Types.fresh_type_quantifier (lin_any, res_any) in
+   *     let eb, e = Types.fresh_row_quantifier (lin_any, res_any) in
+   *       `ForAll ([ab; eb],
+   *                `Function (Types.make_tuple_type [a; a], e,
+   *                           `Primitive Primitive.Bool))
+   * | Name "!"     -> TyEnv.find "Send" env
+   * | Name n       -> TyEnv.find n env *)
 
 let fun_effects t pss =
   let rec get_eff =
@@ -182,7 +182,8 @@ class transform (context : Context.t) =
       {< tycon_env = TyEnv.bind name tycon tycon_env >}
 
     method lookup_type : Name.t -> Types.datatype = fun var ->
-      TyEnv.find var var_env
+      ignore(var); assert false (* TODO FIXME *)
+      (* TyEnv.find var var_env *)
 
     method lookup_effects : Types.row = effect_row
 
