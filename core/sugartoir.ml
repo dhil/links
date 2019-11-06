@@ -762,342 +762,343 @@ struct
   let (++) (nenv, tenv, _) (nenv', tenv', eff') = (NEnv.extend nenv nenv', TEnv.extend tenv tenv', eff')
 
   let rec eval : env -> Sugartypes.phrase -> tail_computation I.sem =
-    fun env {node=e; pos} ->
-      let lookup_var name =
-        let x, xt = lookup_name_and_type name env in
-          I.var (x, xt) in
-      let instantiate name tyargs =
-        let x, xt = lookup_name_and_type name env in
-          match tyargs with
-            | [] -> I.var (x, xt)
-            | _ ->
-                try
-                  I.tappl (I.var (x, xt), tyargs)
-                with
-                    Instantiate.ArityMismatch (expected, provided) ->
-                      raise (Errors.TypeApplicationArityMismatch { pos; name; expected; provided }) in
-
-      let rec is_pure_primitive e =
-        let open Sugartypes in
-        match WithPos.node e with
-          | TAbstr (_, e)
-          | TAppl (e, _) -> is_pure_primitive e
-          | Var f when Lib.is_pure_primitive f -> true
-          | _ -> false in
-
-      let eff = lookup_effects env in
-
-      let instantiate_mb name = instantiate name [`Row eff] in
-      let cofv = I.comp_of_value in
-      let ec = eval env in
-      let ev = evalv env in
-      let evs = List.map ev in
-        let open Sugartypes in
-        match e with
-          | Constant c -> cofv (I.constant c)
-          | Var x -> cofv (I.var (lookup_name_and_type x env))
-          | FreezeVar x -> cofv (I.var (lookup_name_and_type x env))
-          | RangeLit (low, high) ->
-              I.apply (instantiate_mb "intRange", [ev low; ev high])
-          | ListLit ([], Some t) ->
-              cofv (instantiate "Nil" [`Type t])
-          | ListLit (e::es, Some t) ->
-              cofv (I.apply_pure(instantiate "Cons" [`Type t; `Row eff],
-                                 [ev e; ev (WithPos.make ~pos (ListLit (es, Some t)))]))
-          | Escape (bndr, body) when Binder.has_type bndr ->
-             let k  = Binder.to_name bndr in
-             let kt = Binder.to_type bndr in
-             I.escape ((kt, k, Scope.Local), eff, fun v -> eval (extend [k] [(v, kt)] env) body)
-          | Section Section.Minus | FreezeSection Section.Minus -> cofv (lookup_var "-")
-          | Section Section.FloatMinus | FreezeSection Section.FloatMinus -> cofv (lookup_var "-.")
-          | Section (Section.Name name) | FreezeSection (Section.Name name) -> cofv (lookup_var name)
-          | Conditional (p, e1, e2) ->
-              I.condition (ev p, ec e1, ec e2)
-          | InfixAppl ((tyargs, BinaryOp.Name ((">" | ">=" | "==" | "<" | "<=" | "<>") as op)), e1, e2) ->
-              cofv (I.apply_pure (instantiate op tyargs, [ev e1; ev e2]))
-          | InfixAppl ((tyargs, BinaryOp.Name "++"), e1, e2) ->
-              cofv (I.apply_pure (instantiate "Concat" tyargs, [ev e1; ev e2]))
-          | InfixAppl ((tyargs, BinaryOp.Name "!"), e1, e2) ->
-              I.apply (instantiate "Send" tyargs, [ev e1; ev e2])
-          | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) when Lib.is_pure_primitive n ->
-              cofv (I.apply_pure (instantiate n tyargs, [ev e1; ev e2]))
-          | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) ->
-              I.apply (instantiate n tyargs, [ev e1; ev e2])
-          | InfixAppl ((tyargs, BinaryOp.Cons), e1, e2) ->
-              cofv (I.apply_pure (instantiate "Cons" tyargs, [ev e1; ev e2]))
-          | InfixAppl ((tyargs, BinaryOp.FloatMinus), e1, e2) ->
-              cofv (I.apply_pure (instantiate "-." tyargs, [ev e1; ev e2]))
-          | InfixAppl ((tyargs, BinaryOp.Minus), e1, e2) ->
-              cofv (I.apply_pure (instantiate "-" tyargs, [ev e1; ev e2]))
-          | InfixAppl ((_tyargs, BinaryOp.And), e1, e2) ->
-              (* IMPORTANT: we compile boolean expressions to
-                 conditionals in order to faithfully capture
-                 short-circuit evaluation *)
-              I.condition (ev e1, ec e2, cofv (I.constant (Constant.Bool false)))
-          | InfixAppl ((_tyargs, BinaryOp.Or), e1, e2) ->
-              I.condition (ev e1, cofv (I.constant (Constant.Bool true)), ec e2)
-          | UnaryAppl ((_tyargs, UnaryOp.Minus), e) ->
-              cofv (I.apply_pure(instantiate_mb "negate", [ev e]))
-          | UnaryAppl ((_tyargs, UnaryOp.FloatMinus), e) ->
-              cofv (I.apply_pure(instantiate_mb "negatef", [ev e]))
-          | UnaryAppl ((tyargs, UnaryOp.Name n), e) when Lib.is_pure_primitive n ->
-              cofv (I.apply_pure(instantiate n tyargs, [ev e]))
-          | UnaryAppl ((tyargs, UnaryOp.Name n), e) ->
-              I.apply (instantiate n tyargs, [ev e])
-          | FnAppl ({node=Var f; _}, es) when Lib.is_pure_primitive f ->
-              cofv (I.apply_pure (I.var (lookup_name_and_type f env), evs es))
-          | FnAppl ({node=TAppl ({node=Var f; _}, tyargs); _}, es)
-               when Lib.is_pure_primitive f ->
-              cofv (I.apply_pure (instantiate f (List.map (snd ->- val_of) tyargs), evs es))
-          | FnAppl (e, es) when is_pure_primitive e ->
-              cofv (I.apply_pure (ev e, evs es))
-          | FnAppl (e, es) ->
-              I.apply (ev e, evs es)
-          | TAbstr (tyvars, e) ->
-              let v = ev e in
-                cofv (I.tabstr (tyvars, v))
-          | TAppl (e, tyargs) ->
-              let v = ev e in
-              let vt = I.sem_type v in
-                begin
-                  try
-                    cofv (I.tappl (v, List.map (snd ->- val_of) tyargs))
-                  with
-                      Instantiate.ArityMismatch (expected, provided) ->
-                        raise (Errors.TypeApplicationArityMismatch { pos;
-                          name=(Types.string_of_datatype vt); expected; provided })
-                end
-          | TupleLit [e] ->
-              (* It isn't entirely clear whether there should be any 1-tuples at this stage,
-                 but if there are we should get rid of them.
-
-                 The parser certainly doesn't disallow them.
-              *)
-              ec e
-          | TupleLit es ->
-              let fields = mapIndex (fun e i -> (string_of_int (i+1), ev e)) es in
-                cofv (I.record (fields, None))
-          | RecordLit (fields, rest) ->
-              cofv
-                (I.record
-                   (List.map (fun (name, e) -> (name, ev e)) fields,
-                    opt_map ev rest))
-          | Projection (e, name) ->
-              cofv (I.project (ev e, name))
-          | With (e, fields) ->
-              cofv (I.update
-                      (ev e,
-                       List.map (fun (name, e) -> (name, ev e)) fields))
-          | TypeAnnotation (e, _) ->
-              (* we might consider getting rid of type annotations before here *)
-              ec e
-          | Upcast (e, (_, Some t), _) ->
-              cofv (I.coerce (ev e, t))
-          | ConstructorLit (name, None, Some t) ->
-              cofv (I.inject (name, I.record ([], None), t))
-          | ConstructorLit (name, Some e, Some t) ->
-              cofv (I.inject (name, ev e, t))
-          | DoOperation (name, ps, Some t) ->
-             let vs = evs ps in
-             I.do_operation (name, vs, t)
-          | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
-             (* it happens that the ambient effects are the right ones
-                for all of the patterns here (they match those of the
-                initial computations for parameterised handlers and
-                the bodies of the cases) *)
-             let eff = lookup_effects env in
-             let henv, params =
-               let empty_env = (NEnv.empty, TEnv.empty, eff) in
-                match (sh_descr.shd_params) with
-                | None -> empty_env, []
-                | Some { shp_bindings = bindings; shp_types = types } ->
-                   let env, bindings =
-                     List.fold_right2
-                       (fun (p, body) t (env, bindings) ->
-                         let p, penv = CompilePatterns.desugar_pattern eff p in
-                         let bindings = ((fun env -> eval env body), p, t) :: bindings in
-                         ((env ++ penv), bindings))
-                       bindings types (empty_env, [])
-                   in
-                   env, List.rev bindings
-             in
-             let eff_cases =
-               List.map
-                 (fun (p, body) ->
-                   let p, penv = CompilePatterns.desugar_pattern eff p in
-                   (p, fun env -> eval ((env ++ henv) ++ penv) body))
-                 sh_effect_cases
-             in
-             let val_cases =
-                List.map
-                  (fun (p, body) ->
-                    let p, penv = CompilePatterns.desugar_pattern eff p in
-                    (p, fun env -> eval ((env ++ henv) ++ penv) body))
-                  sh_value_cases
-             in
-             I.handle env (ec sh_expr, val_cases, eff_cases, params, sh_descr)
-          | Switch (e, cases, Some t) ->
-              let cases =
-                List.map
-                  (fun (p, body) ->
-                     let p, penv = CompilePatterns.desugar_pattern (lookup_effects env) p in
-                       (p, fun env ->  eval (env ++ penv) body))
-                  cases
-              in
-                I.switch env (ev e, cases, t)
-          | DatabaseLit (name, (None, _)) ->
-              I.database (ev (WithPos.make ~pos (RecordLit ([("name", name)],
-                                          Some (WithPos.make ~pos (FnAppl (WithPos.make ~pos (Var "getDatabaseConfig"), [])))))))
-          | DatabaseLit (name, (Some driver, args)) ->
-              let args =
-                match args with
-                  | None -> WithPos.make ~pos (Sugartypes.Constant (Constant.String ""))
-                  | Some args -> args
-              in
-                I.database
-                  (ev (WithPos.make ~pos (RecordLit ([("name", name); ("driver", driver); ("args", args)], None))))
-          | LensLit (table, Some t) ->
-              let table = ev table in
-                I.lens_handle (table, t)
-          | LensDropLit (lens, drop, key, default, Some t) ->
-              let lens = ev lens in
-              let default = ev default in
-                I.lens_drop_handle (lens, drop, key, default, t)
-          | LensSelectLit (lens, pred, Some t) ->
-              let lens = ev lens in
-              let trow = Lens.Type.sort t |> Lens.Sort.record_type in
-              if Lens_sugar_conv.is_static trow pred then
-                let pred = Lens_sugar_conv.lens_sugar_phrase_of_sugar pred |> Lens.Phrase.of_sugar in
-                I.lens_select_handle (lens, `Static pred, t)
-              else
-                let pred = ev pred in
-                I.lens_select_handle (lens, `Dynamic pred, t)
-          | LensJoinLit (lens1, lens2, on, left, right, Some t) ->
-              let lens1 = ev lens1 in
-              let lens2 = ev lens2 in
-              let on = Lens_sugar_conv.cols_of_phrase on in
-              let left = Lens_sugar_conv.lens_sugar_phrase_of_sugar left |> Lens.Phrase.of_sugar in
-              let right = Lens_sugar_conv.lens_sugar_phrase_of_sugar right |> Lens.Phrase.of_sugar in
-                I.lens_join_handle (lens1, lens2, on, left, right, t)
-          | LensCheckLit (lens, Some t) ->
-              let lens = ev lens in
-                I.lens_check (lens, t)
-          | LensGetLit (lens, Some t) ->
-              let lens = ev lens in
-                I.lens_get (lens, t)
-          | LensPutLit (lens, data, Some t) ->
-              let lens = ev lens in
-              let data = ev data in
-                I.lens_put (lens, data, t)
-          | TableLit (name, (_, Some (readtype, writetype, neededtype)), _constraints, keys, db) ->
-              I.table_handle (ev db, ev name, ev keys, (readtype, writetype, neededtype))
-          | Xml (tag, attrs, attrexp, children) ->
-               if tag = "#" then
-                 cofv (I.concat (instantiate "Nil"
-                                   [`Type (`Primitive Primitive.XmlItem)],
-                                 instantiate "Concat"
-                                   [ `Type (`Primitive Primitive.XmlItem)
-                                   ; `Row eff],
-                                 List.map ev children))
-                else
-                  let attrs    = alistmap (List.map ev) attrs in
-                  let children = List.map ev children in
-                  let body     = I.xml (instantiate "^^" [`Row eff], tag, attrs,
-                                        children) in
-                  begin match attrexp with
-                  | None   -> cofv body
-                  | Some e -> cofv (I.apply_pure (instantiate_mb "addAttributes",
-                                                 [body; ev e]))
-                  end
-          | TextNode name ->
-              cofv
-                (I.apply_pure
-                   (instantiate_mb "stringToXml",
-                    [ev (WithPos.make ~pos (Sugartypes.Constant (Constant.String name)))]))
-          | Block (bs, e) -> eval_bindings Scope.Local env bs e
-          | Query (range, policy, e, _) ->
-              I.query (opt_map (fun (limit, offset) -> (ev limit, ev offset)) range, policy, ec e)
-	  | DBInsert (source, _fields, rows, None) ->
-	      let source = ev source in
-	      let rows = ev rows in
-	      I.db_insert env (source, rows)
-	  | DBInsert (source, _fields, rows, Some returning) ->
-	      let source = ev source in
-	      let rows = ev rows in
-	      let returning = ev returning in
-	      I.db_insert_returning env (source, rows, returning)
-          | DBUpdate (p, source, where, fields) ->
-              let p, penv = CompilePatterns.desugar_pattern (lookup_effects env) p in
-              let env' = env ++ penv in
-              let source = ev source in
-              let where =
-                opt_map
-                  (fun where -> eval env' where)
-                  where in
-              let body = eval env' (WithPos.make ~pos (RecordLit (fields, None))) in
-                I.db_update env (p, source, where, body)
-          | DBDelete (p, source, where) ->
-              let p, penv = CompilePatterns.desugar_pattern (lookup_effects env) p in
-              let env' = env ++ penv in
-              let source = ev source in
-              let where =
-                opt_map
-                  (fun where -> eval env' where)
-                  where
-              in
-                I.db_delete env (p, source, where)
-
-          | Select (l, e) ->
-             I.select (l, ev e)
-          | Offer (e, cases, Some t) ->
-             let eff = lookup_effects env in
-             let cases =
-                List.map
-                  (fun (p, body) ->
-                     let p, penv = CompilePatterns.desugar_pattern eff p in
-                       (p, fun env ->  eval (env ++ penv) body))
-                  cases
-              in
-                I.offer env (ev e, cases, t)
-
-                  (* These things should all have been desugared already *)
-          | Spawn _
-          | Receive _
-          | Section (Section.Project _)
-          | FreezeSection (Section.Project _)
-          | FunLit _
-          | Iteration _
-          | InfixAppl ((_, BinaryOp.RegexMatch _), _, _)
-          | Regex _
-          | Formlet _
-          | Page _
-          | FormletPlacement _
-          | PagePlacement _
-          | FormBinding _
-          | ListLit _
-          | Escape _
-          | Upcast _
-          | ConstructorLit _
-          | Switch _
-          | TableLit _
-          | LensLit _
-          | LensDropLit _
-          | LensSelectLit _
-          | LensJoinLit _
-          | LensCheckLit _
-          | LensGetLit _
-          | LensPutLit _
-          | LensFunDepsLit _
-          | LensKeysLit _
-          | Offer _
-          | QualifiedVar _
-          | DoOperation _
-          | TryInOtherwise _
-          | Raise
-          | Instantiate _ | Generalise _
-          | CP _ ->
-              Debug.print ("oops: " ^ show_phrasenode e);
-              assert false
+    fun _env {node=_e; pos = _pos} ->
+    assert false (* TODO FIXME *)
+      (* let lookup_var name =
+       *   let x, xt = lookup_name_and_type name env in
+       *     I.var (x, xt) in
+       * let instantiate name tyargs =
+       *   let x, xt = lookup_name_and_type name env in
+       *     match tyargs with
+       *       | [] -> I.var (x, xt)
+       *       | _ ->
+       *           try
+       *             I.tappl (I.var (x, xt), tyargs)
+       *           with
+       *               Instantiate.ArityMismatch (expected, provided) ->
+       *                 raise (Errors.TypeApplicationArityMismatch { pos; name; expected; provided }) in
+       * 
+       * let rec is_pure_primitive e =
+       *   let open Sugartypes in
+       *   match WithPos.node e with
+       *     | TAbstr (_, e)
+       *     | TAppl (e, _) -> is_pure_primitive e
+       *     | Var _f when Lib.is_pure_primitive (assert false) (\* f *\) -> true (\* TODO FIXME *\)
+       *     | _ -> false in
+       * 
+       * let eff = lookup_effects env in
+       * 
+       * let instantiate_mb name = instantiate name [`Row eff] in
+       * let cofv = I.comp_of_value in
+       * let ec = eval env in
+       * let ev = evalv env in
+       * let evs = List.map ev in *)
+        (* let open Sugartypes in *)
+        (* match e with
+         *   | Constant c -> cofv (I.constant c)
+         *   | Var x -> cofv (I.var (lookup_name_and_type x env))
+         *   | FreezeVar x -> cofv (I.var (lookup_name_and_type x env))
+         *   | RangeLit (low, high) ->
+         *       I.apply (instantiate_mb "intRange", [ev low; ev high])
+         *   | ListLit ([], Some t) ->
+         *       cofv (instantiate "Nil" [`Type t])
+         *   | ListLit (e::es, Some t) ->
+         *       cofv (I.apply_pure(instantiate "Cons" [`Type t; `Row eff],
+         *                          [ev e; ev (WithPos.make ~pos (ListLit (es, Some t)))]))
+         *   | Escape (bndr, body) when Binder.has_type bndr ->
+         *      let k  = Binder.to_name bndr in
+         *      let kt = Binder.to_type bndr in
+         *      I.escape ((kt, k, Scope.Local), eff, fun v -> eval (extend [k] [(v, kt)] env) body)
+         *   | Section Section.Minus | FreezeSection Section.Minus -> cofv (lookup_var "-")
+         *   | Section Section.FloatMinus | FreezeSection Section.FloatMinus -> cofv (lookup_var "-.")
+         *   | Section (Section.Name name) | FreezeSection (Section.Name name) -> cofv (lookup_var name)
+         *   | Conditional (p, e1, e2) ->
+         *       I.condition (ev p, ec e1, ec e2)
+         *   | InfixAppl ((tyargs, BinaryOp.Name ((assert false) (\* (">" | ">=" | "==" | "<" | "<=" | "<>") *\) as op)), e1, e2) -> (\* TODO FIXME *\)
+         *       cofv (I.apply_pure (instantiate op tyargs, [ev e1; ev e2]))
+         *   | InfixAppl ((tyargs, BinaryOp.Name (assert false) (\* "++" *\)), e1, e2) ->
+         *       cofv (I.apply_pure (instantiate (assert false) (\* "Concat" *\) tyargs, [ev e1; ev e2]))
+         *   | InfixAppl ((tyargs, BinaryOp.Name "!"), e1, e2) ->
+         *       I.apply (instantiate (assert false) (\* "Send" *\) tyargs, [ev e1; ev e2])
+         *   | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) when Lib.is_pure_primitive (assert false) ->
+         *       cofv (I.apply_pure (instantiate n tyargs, [ev e1; ev e2]))
+         *   | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) ->
+         *       I.apply (instantiate n tyargs, [ev e1; ev e2])
+         *   | InfixAppl ((tyargs, BinaryOp.Cons), e1, e2) ->
+         *       cofv (I.apply_pure (instantiate "Cons" tyargs, [ev e1; ev e2]))
+         *   | InfixAppl ((tyargs, BinaryOp.FloatMinus), e1, e2) ->
+         *       cofv (I.apply_pure (instantiate "-." tyargs, [ev e1; ev e2]))
+         *   | InfixAppl ((tyargs, BinaryOp.Minus), e1, e2) ->
+         *       cofv (I.apply_pure (instantiate "-" tyargs, [ev e1; ev e2]))
+         *   | InfixAppl ((_tyargs, BinaryOp.And), e1, e2) ->
+         *       (\* IMPORTANT: we compile boolean expressions to
+         *          conditionals in order to faithfully capture
+         *          short-circuit evaluation *\)
+         *       I.condition (ev e1, ec e2, cofv (I.constant (Constant.Bool false)))
+         *   | InfixAppl ((_tyargs, BinaryOp.Or), e1, e2) ->
+         *       I.condition (ev e1, cofv (I.constant (Constant.Bool true)), ec e2)
+         *   | UnaryAppl ((_tyargs, UnaryOp.Minus), e) ->
+         *       cofv (I.apply_pure(instantiate_mb "negate", [ev e]))
+         *   | UnaryAppl ((_tyargs, UnaryOp.FloatMinus), e) ->
+         *       cofv (I.apply_pure(instantiate_mb "negatef", [ev e]))
+         *   | UnaryAppl ((tyargs, UnaryOp.Name n), e) when Lib.is_pure_primitive n ->
+         *       cofv (I.apply_pure(instantiate n tyargs, [ev e]))
+         *   | UnaryAppl ((tyargs, UnaryOp.Name n), e) ->
+         *       I.apply (instantiate n tyargs, [ev e])
+         *   | FnAppl ({node=Var f; _}, es) when Lib.is_pure_primitive f ->
+         *       cofv (I.apply_pure (I.var (lookup_name_and_type f env), evs es))
+         *   | FnAppl ({node=TAppl ({node=Var f; _}, tyargs); _}, es)
+         *        when Lib.is_pure_primitive f ->
+         *       cofv (I.apply_pure (instantiate f (List.map (snd ->- val_of) tyargs), evs es))
+         *   | FnAppl (e, es) when is_pure_primitive e ->
+         *       cofv (I.apply_pure (ev e, evs es))
+         *   | FnAppl (e, es) ->
+         *       I.apply (ev e, evs es)
+         *   | TAbstr (tyvars, e) ->
+         *       let v = ev e in
+         *         cofv (I.tabstr (tyvars, v))
+         *   | TAppl (e, tyargs) ->
+         *       let v = ev e in
+         *       let vt = I.sem_type v in
+         *         begin
+         *           try
+         *             cofv (I.tappl (v, List.map (snd ->- val_of) tyargs))
+         *           with
+         *               Instantiate.ArityMismatch (expected, provided) ->
+         *                 raise (Errors.TypeApplicationArityMismatch { pos;
+         *                   name=(Types.string_of_datatype vt); expected; provided })
+         *         end
+         *   | TupleLit [e] ->
+         *       (\* It isn't entirely clear whether there should be any 1-tuples at this stage,
+         *          but if there are we should get rid of them.
+         * 
+         *          The parser certainly doesn't disallow them.
+         *       *\)
+         *       ec e
+         *   | TupleLit es ->
+         *       let fields = mapIndex (fun e i -> (string_of_int (i+1), ev e)) es in
+         *         cofv (I.record (fields, None))
+         *   | RecordLit (fields, rest) ->
+         *       cofv
+         *         (I.record
+         *            (List.map (fun (name, e) -> (name, ev e)) fields,
+         *             opt_map ev rest))
+         *   | Projection (e, name) ->
+         *       cofv (I.project (ev e, name))
+         *   | With (e, fields) ->
+         *       cofv (I.update
+         *               (ev e,
+         *                List.map (fun (name, e) -> (name, ev e)) fields))
+         *   | TypeAnnotation (e, _) ->
+         *       (\* we might consider getting rid of type annotations before here *\)
+         *       ec e
+         *   | Upcast (e, (_, Some t), _) ->
+         *       cofv (I.coerce (ev e, t))
+         *   | ConstructorLit (name, None, Some t) ->
+         *       cofv (I.inject (name, I.record ([], None), t))
+         *   | ConstructorLit (name, Some e, Some t) ->
+         *       cofv (I.inject (name, ev e, t))
+         *   | DoOperation (name, ps, Some t) ->
+         *      let vs = evs ps in
+         *      I.do_operation (name, vs, t)
+         *   | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
+         *      (\* it happens that the ambient effects are the right ones
+         *         for all of the patterns here (they match those of the
+         *         initial computations for parameterised handlers and
+         *         the bodies of the cases) *\)
+         *      let eff = lookup_effects env in
+         *      let henv, params =
+         *        let empty_env = (NEnv.empty, TEnv.empty, eff) in
+         *         match (sh_descr.shd_params) with
+         *         | None -> empty_env, []
+         *         | Some { shp_bindings = bindings; shp_types = types } ->
+         *            let env, bindings =
+         *              List.fold_right2
+         *                (fun (p, body) t (env, bindings) ->
+         *                  let p, penv = CompilePatterns.desugar_pattern eff p in
+         *                  let bindings = ((fun env -> eval env body), p, t) :: bindings in
+         *                  ((env ++ penv), bindings))
+         *                bindings types (empty_env, [])
+         *            in
+         *            env, List.rev bindings
+         *      in
+         *      let eff_cases =
+         *        List.map
+         *          (fun (p, body) ->
+         *            let p, penv = CompilePatterns.desugar_pattern eff p in
+         *            (p, fun env -> eval ((env ++ henv) ++ penv) body))
+         *          sh_effect_cases
+         *      in
+         *      let val_cases =
+         *         List.map
+         *           (fun (p, body) ->
+         *             let p, penv = CompilePatterns.desugar_pattern eff p in
+         *             (p, fun env -> eval ((env ++ henv) ++ penv) body))
+         *           sh_value_cases
+         *      in
+         *      I.handle env (ec sh_expr, val_cases, eff_cases, params, sh_descr)
+         *   | Switch (e, cases, Some t) ->
+         *       let cases =
+         *         List.map
+         *           (fun (p, body) ->
+         *              let p, penv = CompilePatterns.desugar_pattern (lookup_effects env) p in
+         *                (p, fun env ->  eval (env ++ penv) body))
+         *           cases
+         *       in
+         *         I.switch env (ev e, cases, t)
+         *   | DatabaseLit (name, (None, _)) ->
+         *       I.database (ev (WithPos.make ~pos (RecordLit ([("name", name)],
+         *                                   Some (WithPos.make ~pos (FnAppl (WithPos.make ~pos (Var "getDatabaseConfig"), [])))))))
+         *   | DatabaseLit (name, (Some driver, args)) ->
+         *       let args =
+         *         match args with
+         *           | None -> WithPos.make ~pos (Sugartypes.Constant (Constant.String ""))
+         *           | Some args -> args
+         *       in
+         *         I.database
+         *           (ev (WithPos.make ~pos (RecordLit ([("name", name); ("driver", driver); ("args", args)], None))))
+         *   | LensLit (table, Some t) ->
+         *       let table = ev table in
+         *         I.lens_handle (table, t)
+         *   | LensDropLit (lens, drop, key, default, Some t) ->
+         *       let lens = ev lens in
+         *       let default = ev default in
+         *         I.lens_drop_handle (lens, drop, key, default, t)
+         *   | LensSelectLit (lens, pred, Some t) ->
+         *       let lens = ev lens in
+         *       let trow = Lens.Type.sort t |> Lens.Sort.record_type in
+         *       if Lens_sugar_conv.is_static trow pred then
+         *         let pred = Lens_sugar_conv.lens_sugar_phrase_of_sugar pred |> Lens.Phrase.of_sugar in
+         *         I.lens_select_handle (lens, `Static pred, t)
+         *       else
+         *         let pred = ev pred in
+         *         I.lens_select_handle (lens, `Dynamic pred, t)
+         *   | LensJoinLit (lens1, lens2, on, left, right, Some t) ->
+         *       let lens1 = ev lens1 in
+         *       let lens2 = ev lens2 in
+         *       let on = Lens_sugar_conv.cols_of_phrase on in
+         *       let left = Lens_sugar_conv.lens_sugar_phrase_of_sugar left |> Lens.Phrase.of_sugar in
+         *       let right = Lens_sugar_conv.lens_sugar_phrase_of_sugar right |> Lens.Phrase.of_sugar in
+         *         I.lens_join_handle (lens1, lens2, on, left, right, t)
+         *   | LensCheckLit (lens, Some t) ->
+         *       let lens = ev lens in
+         *         I.lens_check (lens, t)
+         *   | LensGetLit (lens, Some t) ->
+         *       let lens = ev lens in
+         *         I.lens_get (lens, t)
+         *   | LensPutLit (lens, data, Some t) ->
+         *       let lens = ev lens in
+         *       let data = ev data in
+         *         I.lens_put (lens, data, t)
+         *   | TableLit (name, (_, Some (readtype, writetype, neededtype)), _constraints, keys, db) ->
+         *       I.table_handle (ev db, ev name, ev keys, (readtype, writetype, neededtype))
+         *   | Xml (tag, attrs, attrexp, children) ->
+         *        if tag = "#" then
+         *          cofv (I.concat (instantiate "Nil"
+         *                            [`Type (`Primitive Primitive.XmlItem)],
+         *                          instantiate "Concat"
+         *                            [ `Type (`Primitive Primitive.XmlItem)
+         *                            ; `Row eff],
+         *                          List.map ev children))
+         *         else
+         *           let attrs    = alistmap (List.map ev) attrs in
+         *           let children = List.map ev children in
+         *           let body     = I.xml (instantiate "^^" [`Row eff], tag, attrs,
+         *                                 children) in
+         *           begin match attrexp with
+         *           | None   -> cofv body
+         *           | Some e -> cofv (I.apply_pure (instantiate_mb "addAttributes",
+         *                                          [body; ev e]))
+         *           end
+         *   | TextNode name ->
+         *       cofv
+         *         (I.apply_pure
+         *            (instantiate_mb "stringToXml",
+         *             [ev (WithPos.make ~pos (Sugartypes.Constant (Constant.String name)))]))
+         *   | Block (bs, e) -> eval_bindings Scope.Local env bs e
+         *   | Query (range, policy, e, _) ->
+         *       I.query (opt_map (fun (limit, offset) -> (ev limit, ev offset)) range, policy, ec e)
+	 *   | DBInsert (source, _fields, rows, None) ->
+	 *       let source = ev source in
+	 *       let rows = ev rows in
+	 *       I.db_insert env (source, rows)
+	 *   | DBInsert (source, _fields, rows, Some returning) ->
+	 *       let source = ev source in
+	 *       let rows = ev rows in
+	 *       let returning = ev returning in
+	 *       I.db_insert_returning env (source, rows, returning)
+         *   | DBUpdate (p, source, where, fields) ->
+         *       let p, penv = CompilePatterns.desugar_pattern (lookup_effects env) p in
+         *       let env' = env ++ penv in
+         *       let source = ev source in
+         *       let where =
+         *         opt_map
+         *           (fun where -> eval env' where)
+         *           where in
+         *       let body = eval env' (WithPos.make ~pos (RecordLit (fields, None))) in
+         *         I.db_update env (p, source, where, body)
+         *   | DBDelete (p, source, where) ->
+         *       let p, penv = CompilePatterns.desugar_pattern (lookup_effects env) p in
+         *       let env' = env ++ penv in
+         *       let source = ev source in
+         *       let where =
+         *         opt_map
+         *           (fun where -> eval env' where)
+         *           where
+         *       in
+         *         I.db_delete env (p, source, where)
+         * 
+         *   | Select (l, e) ->
+         *      I.select (l, ev e)
+         *   | Offer (e, cases, Some t) ->
+         *      let eff = lookup_effects env in
+         *      let cases =
+         *         List.map
+         *           (fun (p, body) ->
+         *              let p, penv = CompilePatterns.desugar_pattern eff p in
+         *                (p, fun env ->  eval (env ++ penv) body))
+         *           cases
+         *       in
+         *         I.offer env (ev e, cases, t)
+         * 
+         *           (\* These things should all have been desugared already *\)
+         *   | Spawn _
+         *   | Receive _
+         *   | Section (Section.Project _)
+         *   | FreezeSection (Section.Project _)
+         *   | FunLit _
+         *   | Iteration _
+         *   | InfixAppl ((_, BinaryOp.RegexMatch _), _, _)
+         *   | Regex _
+         *   | Formlet _
+         *   | Page _
+         *   | FormletPlacement _
+         *   | PagePlacement _
+         *   | FormBinding _
+         *   | ListLit _
+         *   | Escape _
+         *   | Upcast _
+         *   | ConstructorLit _
+         *   | Switch _
+         *   | TableLit _
+         *   | LensLit _
+         *   | LensDropLit _
+         *   | LensSelectLit _
+         *   | LensJoinLit _
+         *   | LensCheckLit _
+         *   | LensGetLit _
+         *   | LensPutLit _
+         *   | LensFunDepsLit _
+         *   | LensKeysLit _
+         *   | Offer _
+         *   | QualifiedVar _
+         *   | DoOperation _
+         *   | TryInOtherwise _
+         *   | Raise
+         *   | Instantiate _ | Generalise _
+         *   | CP _ ->
+         *       Debug.print ("oops: " ^ show_phrasenode e);
+         *       assert false *)
 
   and eval_bindings scope env bs' e =
     let ec = eval env in

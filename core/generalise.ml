@@ -1,5 +1,6 @@
 open Utility
 open CommonTypes
+open Types
 
 (* debug flags *)
 let show_generalisation

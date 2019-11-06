@@ -51,7 +51,6 @@ module SugarConstructors (Position : Pos)
                   signame signame name));
        Some datatype
     | None -> None
-    | _ -> assert false
 
 
   (** Common stuff *)

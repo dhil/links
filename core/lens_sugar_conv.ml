@@ -19,26 +19,27 @@ let binary_of_sugartype_op v =
   | BinaryOp.FloatMinus -> Some Minus
   | BinaryOp.And -> Some LogicalAnd
   | BinaryOp.Or -> Some LogicalOr
-  | BinaryOp.Name "+" -> Some Plus
-  | BinaryOp.Name "*" -> Some Multiply
-  | BinaryOp.Name "/" -> Some Divide
-  | BinaryOp.Name ">" -> Some Greater
-  | BinaryOp.Name "<" -> Some Less
-  | BinaryOp.Name ">=" -> Some GreaterEqual
-  | BinaryOp.Name "<=" -> Some LessEqual
-  | BinaryOp.Name "==" -> Some Equal
+  | BinaryOp.Name _ -> assert false (* TODO FIXME *)
+  (* | BinaryOp.Name "+" -> Some Plus
+   * | BinaryOp.Name "*" -> Some Multiply
+   * | BinaryOp.Name "/" -> Some Divide
+   * | BinaryOp.Name ">" -> Some Greater
+   * | BinaryOp.Name "<" -> Some Less
+   * | BinaryOp.Name ">=" -> Some GreaterEqual
+   * | BinaryOp.Name "<=" -> Some LessEqual
+   * | BinaryOp.Name "==" -> Some Equal *)
   | _ -> None
 
 let cols_of_phrase key : string list =
   let open Sugartypes in
   let var_name (var : phrase) =
     match WithPos.node var with
-    | Var name -> name
+    | Var _name -> assert false (* TODO FIXME *)
     | _ -> failwith "Expected a `Var type"
   in
   match WithPos.node key with
   | TupleLit keys -> List.map ~f:var_name keys
-  | Var name -> [name]
+  | Var _name -> [assert false] (* TODO FIXME *)
   | _ -> failwith "Expected a tuple or a variable."
 
 module Error = struct
@@ -52,7 +53,7 @@ let is_static _typ p =
     match p |> WithPos.node with
     | S.Block ([], body) -> no_ext_deps v body
     | S.InfixAppl (_, left, right) -> no_ext_deps v left && no_ext_deps v right
-    | S.Var v' -> S.Binder.to_name v = v'
+    | S.Var _v' -> assert false (* S.Binder.to_name v = v' *) (* TODO FIXME *)
     | S.Projection (body, _) -> no_ext_deps v body
     | S.Constant _ -> true
     | _ -> false
@@ -85,10 +86,10 @@ let rec lens_sugar_phrase_of_body v p =
   | S.Block ([], body) -> conv body >>| LPS.node
   | S.Projection (var, field) ->
       ( match var |> WithPos.node with
-      | S.Var v' ->
-          if v = v' then Result.return ()
+      | S.Var _v' ->
+         if assert false (* v = v' *) then Result.return () (* TODO FIXME *)
           else
-            Format.asprintf "Unexpected external variable: %s" v'
+            Format.asprintf "Unexpected external variable: %s" "v'" (* v' *) (* TODO FIXME *)
             |> Error.internal_error_res
       | _ ->
           Format.asprintf "Unexpected expression to project on: %a" S.pp_phrase
