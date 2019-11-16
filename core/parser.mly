@@ -411,9 +411,16 @@ alien_datatype:
                                                                  let datatype = datatype $4 in
                                                                  Alien.Entity.make binder datatype $6 $2 }
 | sigop perhaps_location COLON datatype EQ STRING SEMICOLON    { let sigop = $1 in
-                                                                 let binder = binder ~ppos:$loc($2) (WithPos.node sigop) in
+                                                                 let binder = binder ~ppos:$loc($1) (WithPos.node sigop) in
                                                                  let datatype = datatype $4 in
                                                                  Alien.Entity.make binder datatype $6 $2 }
+| MINUS perhaps_location COLON datatype EQ STRING SEMICOLON    { let binder = binder ~ppos:$loc($1) "-" in
+                                                                 let datatype = datatype $4 in
+                                                                 Alien.Entity.make binder datatype $6 $2 }
+| MINUSDOT perhaps_location COLON datatype EQ STRING SEMICOLON { let binder = binder ~ppos:$loc($1) "-" in
+                                                                 let datatype = datatype $4 in
+                                                                 Alien.Entity.make binder datatype $6 $2 }
+
 
 alien_datatypes:
 | alien_datatype+                                              { $1 }

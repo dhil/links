@@ -6,6 +6,345 @@ alien builtin {
   -   : (Int, Int) -> Int = "%int_minus";
   *   : (Int, Int) -> Int = "%int_mult";
   /   : (Int, Int) -> Int = "%int_div";
-  ^   : (Int, Int) -> Int = "%int_exp";
+  ^   : (Int, Int) -> Int = "%int_pow";
   mod : (Int, Int) -> Int = "%int_mod";
+  negate : (Int) -> Int   = "%int_negate";
 }
+
+# Floating point operations.
+alien builtin {
+  +.   : (Float, Float) -> Float = "%float_plus";
+  -.   : (Float, Float) -> Float = "%float_minus";
+  *.   : (Float, Float) -> Float = "%float_mult";
+  /.   : (Float, Float) -> Float = "%float_div";
+  ^.   : (Float, Float) -> Float = "%float_pow";
+  negatef : (Float) -> Float     = "%float_negate";
+  # Trig.
+  floor   : (Float) -> Float     = "%float_floor";
+  ceiling : (Float) -> Float     = "%float_ceiling";
+  cos     : (Float) -> Float     = "%float_cos";
+  sin     : (Float) -> Float     = "%float_sin";
+  tan     : (Float) -> Float     = "%float_tan";
+  log     : (Float) -> Float     = "%float_log";
+  log10   : (Float) -> Float     = "%float_log10";
+  sqrt    : (Float) -> Float     = "%float_sqrt";
+}
+
+# String concatenation.
+alien builtin ^^ : (String, String) -> String = "%str_cat";
+
+# Polymorphic relational operators.
+alien builtin {
+  == : (a, a) -> Bool = "%rel_poly_eq";
+  <> : (a, a) -> Bool = "%rel_poly_neq";
+  <  : (a, a) -> Bool = "%rel_poly_lt";
+  >  : (a, a) -> Bool = "%rel_poly_gt";
+  <= : (a, a) -> Bool = "%rel_poly_le";
+  >= : (a, a) -> Bool = "%rel_poly_ge";
+
+  objectEq : (a, a) -> Bool = "%rel_poly_eq_obj";
+}
+
+# Concrete equality functions.
+alien builtin {
+  intEq    : (Int, Int) -> Bool       = "%int_eq";
+  stringEq : (String, String) -> Bool = "%str_eq";
+  floatEq  : (Float, Float) -> Bool   = "%float_eq";
+  floatNeq : (Float, Float) -> Bool   = "%float_neq";
+}
+
+# Conversion functions.
+alien builtin {
+  # Integers.
+  intToString : (Int)    -> String = "%conv_int_to_string";
+  intToFloat  : (Int)    -> Float  = "%conv_int_to_float";
+  intToXml    : (Int)    -> Xml    = "%conv_int_to_xml";
+
+  # Floating points.
+  floatToInt    : (Float) -> Int    = "%conv_int_to_float";
+  floatToString : (Float) -> String = "%conv_float_to_string";
+  floatToXml    : (Float) -> Xml    = "%conv_float_to_xml";
+
+  # Strings.
+  stringToInt : (String) -> Int = "%conv_string_to_int";
+  stringToFloat : (String) -> Float = "%conv_string_to_float";
+}
+
+# Exit.
+alien builtin exit : (a) ~> b = "%exit";
+
+# Process related operations.
+alien builtin {
+  process_send     : forall a::Type(Any, Any) . (Process({hear:a|_}), a) ~> () = "%proc_send";
+  self             : () {hear{a}|_}~> Process({ hear{a} })                     = "%proc_self";
+  here             : () ~> Location                                            = "%proc_here";
+  there            : () ~> Location                                            = "%proc_there";
+  haveMail         : () {:_|_}~> Bool                                          = "%proc_have_mail";
+  recv             : () {:a|_}~> a                                             = "%proc_recv";
+  process_spawn    : (() ~e~@ _) ~> (Process ({ |e }))                         = "%proc_spawn";
+  spawn_at         : (Location, () ~e~@ _) ~> Process ({ |e })                 = "%proc_spawn_at";
+  spawn_angel      : (() ~e~@ _) ~> Process ({ |e })                           = "%proc_spawn_angel";
+  spawn_angel_at   : (Location, () ~e~@ _) ~> Process ({ |e })                 = "%proc_spawn_angel_at";
+  spawn_wait       : (() { |e}~> a) ~> a                                       = "%proc_spawn_wait";
+  spawn_wait'      : () ~> a                                                   = "%proc_spawn_wait'";
+  sleep            : (Int) ~> ()                                               = "%proc_sleep";
+}
+
+# Sessions.
+alien builtin {
+  send             : forall a::Type(Any, Any), s::Type(Any, Session). (a, !a.s) ~> s = "%session_send";
+  session_receive  : forall a::Type(Any, Any), s::Type(Any, Session). (?a.s) ~> (a, s) = "%session_recv";
+  link             : forall s::Type(Any, Session), e::Row(Unl, Any).(s, ~s) ~e~> () = "%session_link";
+}
+
+# Access points.
+alien builtin {
+  new         : forall s::Type(Any, Session). () ~> AP(s)         = "%ap_new";
+  newAP       : forall s::Type(Any, Session). (Location) ~> AP(s) = "%ap_new_loc";
+  newClientAP : forall s::Type(Any, Session). () ~> AP(s)         = "%ap_new_client";
+  newServerAP : forall s::Type(Any, Session). () ~> AP(s)         = "%ap_new_server";
+  accept      : forall s::Type(Any, Session). (AP(s)) ~> s        = "%ap_accept";
+  request     : forall s::Type(Any, Session). (AP(s)) ~> ~s       = "%ap_request";
+  cancel      : forall s::Type(Any, Session). (s) ~> ()           = "%ap_cancel";
+  close       : (End) ~> ()                                       = "%ap_close";
+}
+
+# Lists.
+alien builtin {
+  nil    : [a]               = "%list_nil";
+  cons   : (a, [a]) -> [a]   = "%list_cons";
+  concat : ([a], [a]) -> [a] = "%list_concat";
+  hd     : ([a]) ~> a        = "%list_hd";
+  tl     : ([a]) ~> [a]      = "%list_tl";
+  length : ([a]) -> Int      = "%list_length";
+  take   : (Int, [a]) ~> [a] = "%list_take";
+  drop   : (Int, [a]) ~> [a] = "%list_drop";
+  max    : ([a]) ~> [|Some:a|None:()|] = "%list_max";
+  min    : ([a]) ~> [|Some:a|None:()|] = "%list_min";
+}
+
+# XML.
+alien builtin {
+  childNodes       : (Xml) -> Xml                                 = "%xml_child_nodes";
+  attribute        : (Xml, String) -> [|Just:String|Nothing|]     = "%xml_attribute";
+  makeXml          : (String, [(String, String)], Xml) -> XmlItem = "%xml_make";
+  xmlToVariant     : (Xml) ~> mu n.[ [|Text:String | Attr:(String, String) | Node:(String, n) | NsAttr: (String, String, String) | NsNode: (String, String, n) |] ]  = "%xml_to_variant";
+  variantToXml     : (mu n.[ [|Text:String | Attr:(String, String) | Node:(String, n) | NsAttr: (String, String, String) | NsNode: (String, String, n) |] ]) ~> Xml  = "%xml_variant_to_xml";
+  xmlItemToVariant : (XmlItem) ~> mu n. [|Text:String | Attr:(String, String) | Node:(String, [ n ]) | NsAttr: (String, String, String) | NsNode: (String, String, [ n ]) |] = "%xml_item_to_variant";
+  variantToXmlItem : (mu n. [| Text: String | Attr: (String, String) | Node: (String, [ n ]) | NsAttr: (String, String, String) | NsNode: (String, String, [ n ]) |]) ~> XmlItem = "%xml_variant_to_xml_item";
+  getTagName       : (Xml) ~> String                              = "%xml_get_tag_name";
+  getNamespace     : (Xml) ~> String                              = "%xml_get_namespace";
+  getAttributes    : (Xml) ~> [(String, String)]                  = "%xml_get_attributes";
+  getChildNodes    : (Xml) ~> Xml                                 = "%xml_get_child_nodes";
+  parseXml  server : (String) -> Xml                              = "%xml_parse";
+}
+
+# Client side XML functions.
+alien javascript {
+  getTextContent client : (Xml) ~> String            = "getTextContent";
+  hasAttribute   client : (Xml, String) ~> Bool      = "hasAttribute";
+  getAttribute   client : (Xml, String) ~> String    = "getAttribute";
+}
+
+# DOM.
+alien javascript {
+  textContent        client : (DomNode) ~> String        = "textContent";
+  isElementNode      client : (DomNode) ~> Bool          = "isElementNode";
+  insertBefore       client : (Xml, DomNode) ~> ()       = "insertBefore";
+  appendChildren     client : (Xml, DomNode) ~> ()       = "appendChildren";
+  replaceNode        client : (Xml, DomNode) ~> ()       = "replaceNode";
+  domInsertBeforeRef client : (DomNode, DomNode) ~> ()   = "domInsertBeforeRef";
+  domAppendChildRef  client : (DomNode, DomNode) ~> ()   = "domAppendChildRef";
+  removeNode         client : (DomNode) ~> ()            = "removeNode";
+  cloneNode          client : (DomNode, Bool) ~> DomNode = "cloneNode";
+  domReplaceChildren client : (Xml, DomNode) ~> ()       = "domReplaceChildren";
+  swapNodes          client : (DomNode, DomNode) ~> ()   = "swapNodes";
+  getDocumentNode    client : () ~> DomNode              = "getDocumentNode";
+  getNodeById        client : (String) ~> DomNode        = "getNodeById";
+  getValue           client : (DomNode) ~> Xml           = "getValue";
+  isNull             client : (DomNode) ~> Bool          = "isNull";
+
+  domGetNodeValueFromRef    client : (DomNode) ~> String             = "domGetNodeValueFromRef";
+  domGetTagNameFromRef      client : (DomNode) ~> String             = "domGetTagNameFromRef";
+  domGetPropertyFromRef     client : (DomNode, String) ~> String     = "domGetPropertyFromRef";
+  domSetPropertyFromRef     client : (DomNode, String, String) ~> () = "domSetPropertyFromRef";
+  domHasAttribute           client : (DomNode, String) ~> Bool       = "domHasAttribute";
+  domRemoveAttributeFromRef client : (DomNode, String) ~> ()         = "domRemoveAttributeFromRef";
+  domGetAttributeFromRef    client : (DomNode, String) ~> String     = "domGetAttributeFromRef";
+  domSetAttributeFromRef    client : (DomNode, String, String) ~> () = "domSetAttributeFromRef";
+  domGetStyleAttrFromRef    client : (DomNode, String) ~> String     = "domGetStyleAttrFromRef";
+  domSetStyleAttrFromRef    client : (DomNode, String, String) ~> () = "domSetStyleAttrFromRef";
+  domGetChildrenFromRef     client : (DomNode) ~> [DomNode]          = "domGetChildrenFromRef";
+  domSetAnchor              client : (String) ~> ()                  = "domSetAnchor";
+  domGetAnchor              client : () ~> String                    = "domGetAnchor";
+  # Navigation.
+  parentNode                client : (DomNode) ~> DomNode            = "parentNode";
+  firstChild                client : (DomNode) ~> DomNode            = "firstChild";
+  nextSibling               client : (DomNode) ~> DomNode            = "nextSibling";
+  # Event API.
+  getTarget                 client : (Event) ~> DomNode              = "getTarget";
+  getTargetValue            client : (Event) ~> String               = "getTargetValue";
+  getTargetElement          client : (Event) ~> DomNode              = "getTargetElement";
+  getPageX                  client : (Event) ~> Int                  = "getPageX";
+  getPageY                  client : (Event) ~> Int                  = "getPageY";
+  getFromElement            client : (Event) ~> DomNode              = "getFromElement";
+  getToElement              client : (Event) ~> DomNode              = "getToElement";
+  getTime                   client : (Event) ~> Int                  = "getTime";
+  getCharCode               client : (Event) ~> Int                  = "getCharCode";
+  event                     client : Event                           = "event";
+  # Forms.
+  getInputValue             client : (String) ~> String              = "getInputValue";
+  # Time.
+  clientTime                client : () ~> Int                       = "clientTime";
+  clientTimeMilliseconds    client : () ~> Int                       = "clientTimeMilliseconds";
+}
+
+# Server time.
+alien builtin {
+  serverTime             server : () ~> Int  = "%server_time";
+  serverTimeMilliseconds server : () ~> Int  = "%server_time_milliseconds";
+}
+
+# Time.
+alien builtin {
+  dateToInt : ((year:Int, month:Int, day:Int, hours:Int, minutes:Int, seconds:Int)) ~> Int = "%date_to_int";
+  intToDate : (Int) ~> (year:Int, month:Int, day:Int, hours:Int, minutes:Int, seconds:Int) = "%date_int_to_date";
+}
+
+# Event handlers.
+alien builtin {
+  registerEventHandlers : ([(String, (Event) { |e}~> ())]) ~> String = "%register_event_handlers";
+}
+
+# Cookies.
+alien builtin {
+  setCookie : (String, String) ~> () = "%cookie_set";
+  getCookie : (String) ~> String     = "%cookie_get";
+}
+
+# HTTP manipulation.
+alien builtin {
+  redirect : (String) ~> () = "%http_redirect";
+}
+
+# Database.
+alien builtin {
+  asList            : (TableHandle(r, w, n)) {}-> [r]    = "%db_as_list";
+  getDatabaseConfig : () ~> (driver:String, args:String) = "%db_get_config";
+}
+
+# Characters.
+alien builtin {
+  ord : (Char) -> Int  = "%char_ord";
+  chr : (Int)  -> Char = "%char_chr";
+}
+
+# Regexes.
+alien builtin {
+  tilde  : (String, Regex) -> Bool     = "%regex_tilde";
+  ltilde : (String, Regex) ~> [String] = "%regex_ltilde";
+  stilde : (String, Regex) ~> [String] = "%regex_stilde";
+}
+
+# Strings.
+alien builtin {
+  chatAt      : (String, Int) ~> Char        = "%str_char_at";
+  strsub      : (String, Int, Int) ~> String = "%str_sub";
+  strescape   : (String) ~> String           = "%str_escape";
+  strunescape : (String) ~> String           = "%str_unescape";
+  strContains : (String) ~> String           = "%str_contains";
+  implode     : ([Char]) ~> String           = "%str_implode";
+  explode     : (String) ~> [Char]           = "%str_explode";
+}
+
+# Unsafe.
+alien builtin {
+  unsafePickleCont server : (() { |e}-> a) ~> String = "%unsafe_pickle_cont";
+  unsafe_cast      server : (a) ~> b                 = "%unsafe_cast";
+}
+
+# Misc.
+alien builtin {
+  random            : () -> Float     = "%random";
+  environment       : () ~> [(String, String)] = "%environment";
+  objectType client : (a) ~> String   = "_objectType";
+  debug             : (String) ~> ()  = "%debug";
+  debugObj client   : (a) ~> ()       = "%debug_object";
+  dump client       : (a) ~> ()       = "%dump";
+  print             : (String) ~> ()  = "%print";
+  javascript        : Bool            = "%javascript";
+  error             : (String) ~> a   = "%error";
+  gensym server     : () -> Int       = "%gensym";
+}
+
+# Game library.
+typename Context2D = [||]; # Hack to simulate an alien abstract type.
+alien javascript {
+  jsSetInterval           client : (() ~e~> (), Int) ~e~> () = "jsSetInterval";
+  jsRequestAnimationFrame client : (() ~e~> ()) ~e~> ()      = "jsRequestAnimationFrame";
+  jsSave                  client : (a) ~> ()                 = "jsSave";
+  jsRestore               client : (a) ~> ()                 = "jsRestore";
+  jsSetOnKeyDown          client : (DomNode, (Event) ~e~> ()) ~e~> () = "jsSetOnKeyDown";
+  jsSetOnEvent            client : (DomNode, String, (Event) ~e~> (), Bool) ~e~> () = "jsSetOnEvent";
+  jsSetWindowEvent        client : (String, (Event) ~e~> (), Bool) ~e~> () = "jsSetWindowEvent";
+  jsSetOnLoad             client : ((Event) ~e~> ()) ~e~> () = "jsSetOnLoad";
+  jsSaveGlobalObject      client : (String, a) ~> ()         = "jsSaveGlobalObject";
+  jsLoadGlobalObject      client : (String) ~> a             = "jsLoadGlobalObject";
+  # Canvas specific operations.
+  jsGetContext2D          client : (DomNode) ~> Context2D    = "jsGetContext2D";
+  jsFillText              client : (Context2D, String, Float, Float) ~> () = "jsFillText";
+  jsCanvasFont            client : (Context2D, String) ~> () = "jsCanvasFont";
+  jsDrawImage             client : (Context2D, DomNode, Float, Float) ~> () = "jsDrawImage";
+  jsFillRect              client : (Context2D, Float, Float, Float, Float) ~> () = "jsFillRect";
+  jsFillCircle            client : (Context2D, Float, Float, Float) ~> () = "jsFillCircle";
+  jsBeginPath             client : (Context2D) ~> ()         = "jsBeginPath";
+  jsClosePath             client : (Context2D) ~> ()         = "jsClosePath";
+  jsFill                  client : (Context2D) ~> ()         = "jsFill";
+  jsArc                   client : (Context2D, Float, Float, Float, Float, Float, Bool) ~> () = "jsArc";
+  jsMoveTo                client : (Context2D, Float, Float) ~> () = "jsMoveTo";
+  jsLineTo                client : (Context2D, Float, Float) ~> () = "jsLineTo";
+  jsLineWidth             client : (Context2D, Float) ~> ()  = "jsLineWidth";
+  jsScale                 client : (Context2D, Float, Float) ~> () = "jsScale";
+  jsTranslate             client : (Context2D, Float, Float) ~> () = "jsTranslate";
+  jsStrokeStyle           client : (Context2D, a) ~> ()            = "jsStrokeStyle";
+  jsStroke                client : (Context2D) ~> ()               = "jsStroke";
+  jsSetFillColor          client : (Context2D, String) ~> ()       = "jsSetFillColor";
+  jsClearRect             client : (Context2D, Float, Float, Float, Float) ~> () = "jsClearRect";
+  jsCanvasWidth           client : (Context2D) ~> Float            = "jsCanvasWidth";
+  jsCanvasHeight          client : (Context2D) ~> Float            = "jsCanvasHeight";
+  jsSaveCanvas            client : (DomNode, DomNode, String) ~> () = "jsSaveCanvas";
+}
+
+# Sockets.
+alien builtin {
+  connectSocket  server : (String, Int) ~> [|Nothing|Just:Socket|] = "%socket_connect";
+  writeToSocket  server : (String, Socket) ~> ()                   = "%socket_write";
+  readFromSocket server : (Socket) ~> [|Nothing|Just:String|]      = "%socket_read";
+  closeSocket    server : (Socket) ~> ()                           = "%socket_close";
+}
+
+# Routes.
+alien builtin {
+  addStaticRoute server : (String, String, [(String, String)]) ~> () = "%route_add_static";
+  unsafeAddRoute server : (String, (String, Location) {hear{_}}~> a, (String, String, Location) {hear{_}}~> a) ~> () = "%route_add_unsafe";
+}
+
+# Serve.
+alien builtin {
+  servePages     server : () ~> () = "%serve_pages";
+  serveWebsocket server : () ~> () = "%serve_websockets";
+}
+
+# Crypt.
+alien builtin {
+  crypt  server : (String) ~> String       = "%crypt_hash";
+  verify server : (String, String) ~> Bool = "%crypt_verify";
+}
+
+# CLI.
+alien builtin getArgs : () ~> [String] = "%cli_get_args";
+
+# Booleans.
+sig not : (Bool) -> Bool
+fun not(b) { if (b) false else true }
+
