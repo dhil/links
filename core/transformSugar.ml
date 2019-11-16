@@ -815,10 +815,13 @@ class transform (env : Types.typing_environment) =
       | Foreign alien ->
          let (o, declarations) =
            listu o
-             (fun o (b, dt) ->
-               let o, b = o#binder b in
-               let o, dt = o#datatype' dt in
-               (o, (b, dt)))
+             (fun o entity ->
+               let open Alien.Entity in
+               let bndr = binder entity in
+               let datatype = datatype entity in
+               let o, binder = o#binder bndr in
+               let o, datatype = o#datatype' datatype in
+               o, Alien.Entity.modify ~binder ~datatype entity)
              (Alien.declarations alien)
          in
          let o, language = o#foreign_language (Alien.language alien) in

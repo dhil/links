@@ -168,88 +168,124 @@ module Alien: sig
   type single [@@deriving show]
   type multi [@@deriving show]
 
-  val object_file : 'a t -> string
-  val object_name : single t -> string
-  val declarations : 'a t -> (Binder.with_pos * datatype') list
-  val declaration : single t -> (Binder.with_pos * datatype')
-  val language : 'a t -> ForeignLanguage.t
-  val modify : ?declarations:(Binder.with_pos * datatype') list -> ?language:ForeignLanguage.t -> ?object_file:string -> 'a t -> 'a t
+  module Entity: sig
+    type t [@@deriving show]
+    val binder : t -> Binder.with_pos
+    val object_name : t -> string
+    val datatype : t -> datatype'
+    val location : t -> Location.t
 
-  val multi : ForeignLanguage.t -> string -> (Binder.with_pos * datatype') list -> multi t
-  val single : ForeignLanguage.t -> string -> Binder.with_pos -> datatype' -> single t
+    val modify : ?binder:Binder.with_pos -> ?datatype:datatype' -> ?location:Location.t -> t -> t
+    val make : Binder.with_pos -> datatype' -> string -> Location.t -> t
+  end
+
+  val object_name : single t -> string
+  val declarations : 'a t -> Entity.t list
+  val declaration : single t -> Entity.t
+  val language : 'a t -> ForeignLanguage.t
+  val modify : ?declarations:Entity.t list -> ?language:ForeignLanguage.t -> 'a t -> 'a t
+
+  val multi : ForeignLanguage.t -> Entity.t list -> multi t
+  val single : ForeignLanguage.t -> Entity.t -> single t
 end = struct
+
+  module Entity = struct
+    type t =
+      { binder: Binder.with_pos;
+        datatype: datatype';
+        location: Location.t;
+        object_name: string }
+        [@@deriving show]
+
+    let binder { binder; _ } = binder
+    let object_name { object_name; _ } = object_name
+    let datatype { datatype; _ } = datatype
+    let location { location; _ } = location
+
+    let modify : ?binder:Binder.with_pos -> ?datatype:datatype' -> ?location:Location.t -> t -> t
+      = fun ?binder ?datatype ?location entity ->
+      match binder, datatype, location with
+      | Some binder, Some datatype, Some location ->
+         { entity with binder; datatype; location }
+      | Some binder, Some datatype, None ->
+         { entity with binder; datatype }
+      | Some binder, None, Some location ->
+         { entity with binder; location }
+      | Some binder, None, None ->
+         { entity with binder }
+      | None, Some datatype, Some location ->
+         { entity with datatype; location }
+      | None, Some datatype, None ->
+         { entity with datatype }
+      | None, None, Some location ->
+         { entity with location }
+      | None, None, None -> entity
+
+    let make binder datatype object_name location =
+      { binder; datatype; object_name; location }
+
+  end
+
   (* Ideally we would use a GADT and have `single` and `multi` be
      fully abstract types, however we cannot, since we insist on using
      `ppx_deriving show` which does not support either. Instead we
      simulate a GADT here by making use of phantom types. *)
   type single = unit
   and multi = unit
-  and common =
-    { language: ForeignLanguage.t;
-      object_file: string }
   and 'a t =
-    | Single of { common: common;
-                  binder: Binder.with_pos;
-                  datatype: datatype';
-                  object_name: string }
-    | Multi of { common: common;
-                 declarations: (Binder.with_pos * datatype') list }
+    | Single of { language: ForeignLanguage.t;
+                  entity: Entity.t }
+    | Multi of { language: ForeignLanguage.t;
+                 declarations: Entity.t list }
   [@@deriving show]
 
-  let object_file : type a. a t -> string = function
-    | Single { common; _ } -> common.object_file
-    | Multi { common; _ } -> common.object_file
-
   let object_name : single t -> string = function
-    | Single { object_name; _ } -> object_name
+    | Single { entity; _ } -> entity.Entity.object_name
     | _ -> assert false
 
   let language : type a. a t -> ForeignLanguage.t = function
-    | Single { common; _ } -> common.language
-    | Multi { common; _ } -> common.language
+    | Single { language; _ } -> language
+    | Multi { language; _ } -> language
 
-  let declarations : type a. a t -> (Binder.with_pos * datatype') list = function
-    | Single { binder; datatype; _ } -> [(binder, datatype)]
+  let declarations : type a. a t -> Entity.t list = function
+    | Single { entity; _ } -> [entity]
     | Multi { declarations; _ } -> declarations
 
-  let declaration : single t -> (Binder.with_pos * datatype') = function
-    | Single { binder; datatype; _ } -> (binder, datatype)
+  let declaration : single t -> Entity.t = function
+    | Single { entity; _ } -> entity
     | _ -> assert false
 
-  let modify : type a. ?declarations:(Binder.with_pos * datatype') list -> ?language:ForeignLanguage.t -> ?object_file:string -> a t -> a t
-    = fun ?declarations ?language ?object_file alien ->
-    let common : type a. a t -> common = function
-      | Single { common; _ } -> common
-      | Multi { common; _ } -> common
-    in
-    let common =
-      let common = common alien in
-      match language, object_file with
-      | Some language, Some object_file ->
-         { language; object_file }
-      | Some language, None ->
-         { common with language }
-      | None, Some object_file ->
-         { common with object_file }
-      | None, None ->
-         common
-    in
-    match alien, declarations with
-    | Single payload, Some [(binder, datatype)] ->
-       Single { payload with common; binder; datatype }
-    | Multi _, Some declarations ->
-       Multi { common; declarations }
-    | _, _ ->
-       raise (Errors.internal_error ~filename:"sugartypes.ml" ~message:"Invalid arguments (Alien.modify)")
+  let modify : type a. ?declarations:Entity.t list -> ?language:ForeignLanguage.t -> a t -> a t
+    = fun ?declarations ?language alien ->
+    match alien with
+    | Single payload ->
+      begin match declarations, language with
+      | Some [entity], Some language ->
+         Single { language; entity }
+      | None, Some language ->
+         Single { payload with language }
+      | Some [entity], None ->
+         Single { payload with entity }
+      | _, _ ->
+         raise (Errors.internal_error ~filename:"sugartypes.ml" ~message:"Invalid arguments (Alien.modify)")
+      end
+    | Multi payload ->
+       match declarations, language with
+       | Some declarations, Some language ->
+          Multi { language; declarations }
+       | None, Some language ->
+          Multi { payload with language }
+       | Some declarations, None ->
+          Multi { payload with declarations }
+       | None, None -> alien
 
-  let multi : ForeignLanguage.t -> string -> (Binder.with_pos * datatype') list -> multi t
-    = fun language object_file declarations ->
-    Multi { common = { language; object_file }; declarations }
+  let multi : ForeignLanguage.t -> Entity.t list -> multi t
+    = fun language declarations ->
+    Multi { language; declarations }
 
-  let single : ForeignLanguage.t -> string -> Binder.with_pos -> datatype' -> single t
-    = fun language object_file binder datatype ->
-    let object_name = Binder.to_name binder in
-    Single { common = { language; object_file }; binder; datatype; object_name }
+  let single : ForeignLanguage.t -> Entity.t -> single t
+    = fun language entity ->
+    Single { language; entity }
 end
 
 type spawn_kind = Angel | Demon | Wait
@@ -653,7 +689,9 @@ struct
     | Foreign alien ->
        let bound_foreigns =
          List.fold_left
-           (fun acc (bndr, _) ->
+           (fun acc entity ->
+             let open Alien.Entity in
+             let bndr = binder entity in
              StringSet.add (Binder.to_name bndr) acc)
            (StringSet.empty)
            (Alien.declarations alien)
@@ -662,7 +700,9 @@ struct
     | AlienBlock alien ->
         let bound_foreigns =
           List.fold_left
-            (fun acc (bndr, _) ->
+            (fun acc entity ->
+              let open Alien.Entity in
+              let bndr = binder entity in
               StringSet.add (Binder.to_name bndr) acc)
             (StringSet.empty)
             (Alien.declarations alien)

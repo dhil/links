@@ -65,7 +65,8 @@ and binding =
   | Rec        of fun_def list
   | Alien      of { binder: binder;
                     language: ForeignLanguage.t;
-                    object_name: string }
+                    object_name: string;
+                    location: location }
   | Module     of string * binding list option
 and special =
   | Wrong      of Types.datatype

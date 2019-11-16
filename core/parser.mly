@@ -376,11 +376,27 @@ declaration:
 
 nofun_declaration:
 | alien_block                                                  { $1 }
-| ALIEN VARIABLE STRING VARIABLE COLON datatype SEMICOLON      { let alien =
-                                                                   let binder = binder ~ppos:$loc($4) $4 in
-                                                                   let datatype = datatype $6 in
+| ALIEN VARIABLE VARIABLE perhaps_location
+                          COLON datatype EQ STRING SEMICOLON   { let alien =
+                                                                   let entity =
+                                                                     let binder = binder ~ppos:$loc($2) $3 in
+                                                                     let datatype = datatype $6 in
+                                                                     Alien.Entity.make binder datatype $8 $4
+                                                                   in
                                                                    let language = parse_foreign_language (pos $loc($1)) $2 in
-                                                                   Alien.single language $3 binder datatype
+                                                                   Alien.single language entity
+                                                                 in
+                                                                 with_pos $loc (Foreign alien) }
+| ALIEN VARIABLE sigop perhaps_location
+                          COLON datatype EQ STRING SEMICOLON   { let alien =
+                                                                   let entity =
+                                                                     let sigop = $3 in
+                                                                     let binder = binder ~ppos:$loc($2) (WithPos.node sigop) in
+                                                                     let datatype = datatype $6 in
+                                                                     Alien.Entity.make binder datatype $8 $4
+                                                                   in
+                                                                   let language = parse_foreign_language (pos $loc($1)) $2 in
+                                                                   Alien.single language entity
                                                                  in
                                                                  with_pos $loc (Foreign alien) }
 | FIXITY UINTEGER? op SEMICOLON                                { let precedence = from_option default_fixity $2 in
@@ -391,7 +407,13 @@ nofun_declaration:
 | pollute = boption(OPEN) IMPORT CONSTRUCTOR SEMICOLON         { import ~ppos:$loc($2) ~pollute [$3] }
 
 alien_datatype:
-| VARIABLE COLON datatype SEMICOLON                            { (binder ~ppos:$loc($1) $1, datatype $3) }
+| VARIABLE perhaps_location COLON datatype EQ STRING SEMICOLON { let binder = binder ~ppos:$loc($1) $1 in
+                                                                 let datatype = datatype $4 in
+                                                                 Alien.Entity.make binder datatype $6 $2 }
+| sigop perhaps_location COLON datatype EQ STRING SEMICOLON    { let sigop = $1 in
+                                                                 let binder = binder ~ppos:$loc($2) (WithPos.node sigop) in
+                                                                 let datatype = datatype $4 in
+                                                                 Alien.Entity.make binder datatype $6 $2 }
 
 alien_datatypes:
 | alien_datatype+                                              { $1 }
@@ -400,8 +422,9 @@ links_module:
 | MODULE name = CONSTRUCTOR members = moduleblock              { module_binding ~ppos:$loc($1) (binder ~ppos:$loc(name) name) members }
 
 alien_block:
-| ALIEN VARIABLE STRING LBRACE alien_datatypes RBRACE          { let lang = parse_foreign_language (pos $loc($1)) $2 in
-                                                                 with_pos $loc (AlienBlock (Alien.multi lang $3 $5)) }
+| ALIEN VARIABLE LBRACE alien_datatypes RBRACE                 { let entities = $4 in
+                                                                 let language = parse_foreign_language (pos $loc($1)) $2 in
+                                                                 with_pos $loc (AlienBlock (Alien.multi language entities)) }
 
 fun_declarations:
 | fun_declaration+                                             { $1 }

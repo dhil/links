@@ -195,14 +195,17 @@ end
 
 module ForeignLanguage = struct
   type t =
+    | Builtin
     | JavaScript
     [@@deriving show]
 
   let of_string = function
     | "javascript" -> JavaScript
+    | "builtin" -> Builtin
     | _ -> raise (Invalid_argument "of_string")
 
   let to_string = function
+    | Builtin -> "builtin"
     | JavaScript -> "javascript"
 end
 

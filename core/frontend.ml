@@ -105,22 +105,6 @@ module Untyped = struct
     = fun setting (module T) ->
     (module Conditional(struct include T let condition () = Settings.get setting end))
 
-  module Collect_FFI_Files : Untyped.S = struct
-    open Untyped
-    module Untyped = struct
-      let name = "collect_ffi_files"
-
-      let program state program =
-        let ffi_files' = ModuleUtils.get_ffi_files program in
-        let context'  = context state in
-        let context'' = Context.({ context' with ffi_files = ffi_files' }) in
-        return context'' program
-
-      let sentence state sentence =
-        return state sentence (* TODO FIXME bug. A sentence can contain an alien declaration. *)
-    end
-  end
-
   (* Collection of transformers. *)
   let transformers : transformer array
     = [| (module ResolvePositions)

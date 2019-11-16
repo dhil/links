@@ -50,7 +50,6 @@ val runtime_error: string -> exn
 val dynlink_error: string -> exn
 val module_error : ?pos:Position.t -> string -> exn
 val disabled_extension : ?pos:Position.t -> ?setting:(string * bool) -> ?flag:string -> string -> exn
-val prime_alien : Position.t -> exn
 val driver_locate_failure : string -> exn
 val illformed_plugin_description : string -> exn
 val dependency_load_failure : string -> Dynlink.error -> exn

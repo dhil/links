@@ -12,6 +12,21 @@ let prelude_file =
     | None -> locate_file "prelude.links" in
   Settings.(option ~default:(Some (Filename.concat prelude_dir "prelude.links")) "prelude"
             |> synopsis "The Links prelude source file"
+            |> privilege `System
+            |> to_string from_string_option
+            |> convert (Sys.expand ->- some)
+            |> sync)
+
+(* Name of the file containing the builtin declarations. *)
+let builtins_file =
+  let builtins_dir =
+    match Utility.getenv "LINKS_LIB" with
+    (* If user defined LINKS_LIB then it takes the highest priority *)
+    | Some path -> path
+    | None -> locate_file "builtins.links" in
+  Settings.(option ~default:(Some (Filename.concat builtins_dir "builtins.links")) "builtins"
+            |> synopsis "The Links builtins source file"
+            |> privilege `System
             |> to_string from_string_option
             |> convert (Sys.expand ->- some)
             |> sync)

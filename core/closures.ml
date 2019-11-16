@@ -391,8 +391,8 @@ struct
     | Let (x, body) -> Let (binder x, body)
     | Fun def -> Fun (fun_def def)
     | Rec defs -> Rec (List.map fun_def defs)
-    | Alien { binder = x; object_name; language } ->
-       Alien { binder = binder x; object_name; language }
+    | Alien ({ binder = x; _ } as payload) ->
+       Alien { payload with binder = binder x }
     | Module _ ->
         raise (Errors.internal_error ~filename:"closures.ml"
           ~message:"Globalisation of modules unimplemented")

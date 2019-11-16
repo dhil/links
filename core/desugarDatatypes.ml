@@ -1023,10 +1023,14 @@ object (self)
 
         ({< alias_env = alias_env >}, Typenames desugared_mutuals)
     | Foreign alien ->
-       let binder, datatype = Alien.declaration alien in
+       let entity = Alien.declaration alien in
+       let binder, datatype =
+         Alien.Entity.(binder entity, datatype entity)
+       in
        let _, binder = self#binder binder in
        let datatype = Desugar.foreign alias_env datatype in
-       self, Foreign (Alien.modify ~declarations:[(binder, datatype)] alien)
+       let entity = Alien.Entity.modify ~binder ~datatype entity in
+       self, Foreign (Alien.modify ~declarations:[entity] alien)
     | b -> super#bindingnode b
 
   method! sentence =

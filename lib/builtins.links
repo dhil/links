@@ -1,0 +1,11 @@
+## Declarations of Links builtins.
+
+# Integer arithmetic operations.
+alien builtin {
+  +   : (Int, Int) -> Int = "%int_plus";
+  -   : (Int, Int) -> Int = "%int_minus";
+  *   : (Int, Int) -> Int = "%int_mult";
+  /   : (Int, Int) -> Int = "%int_div";
+  ^   : (Int, Int) -> Int = "%int_exp";
+  mod : (Int, Int) -> Int = "%int_mod";
+}

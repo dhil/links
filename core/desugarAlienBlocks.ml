@@ -40,12 +40,11 @@ object(self)
   method! binding = function
     | {node=AlienBlock alien; _} ->
        self#list
-         (fun o ((bnd, dt)) ->
+         (fun o entity ->
            let alien =
              Foreign (Alien.single
                         (Alien.language alien)
-                        (Alien.object_file alien)
-                        bnd dt)
+                        entity)
            in
            o#add_binding (with_dummy_pos alien))
       (Alien.declarations alien)

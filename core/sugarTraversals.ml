@@ -684,10 +684,13 @@ class map =
       | Foreign alien ->
          let declarations =
            o#list
-             (fun o (b, dt) ->
-               let b = o#binder b in
-               let dt = o#datatype' dt in
-               (b, dt))
+             (fun o entity ->
+               let open Alien.Entity in
+               let bndr = binder entity in
+               let datatype = datatype entity in
+               let binder = o#binder bndr in
+               let datatype = o#datatype' datatype in
+               Alien.Entity.modify ~binder ~datatype entity)
              (Alien.declarations alien)
          in
          let language = o#foreign_language (Alien.language alien) in
@@ -710,10 +713,13 @@ class map =
       | AlienBlock alien ->
          let declarations =
            o#list
-             (fun o (b, dt) ->
-               let b = o#binder b in
-               let dt = o#datatype' dt in
-               (b, dt))
+             (fun o entity ->
+               let open Alien.Entity in
+               let bndr = binder entity in
+               let datatype = datatype entity in
+               let binder = o#binder bndr in
+               let datatype = o#datatype' datatype in
+               Alien.Entity.modify ~binder ~datatype entity)
              (Alien.declarations alien)
          in
          let language = o#foreign_language (Alien.language alien) in
@@ -1394,8 +1400,11 @@ class fold =
       | Foreign alien ->
          let o =
            o#list
-             (fun o (b, dt) ->
-               let o = o#binder b in
+             (fun o entity ->
+               let open Alien.Entity in
+               let bndr = binder entity in
+               let dt = datatype entity in
+               let o = o#binder bndr in
                o#datatype' dt)
              (Alien.declarations alien)
          in
@@ -1418,8 +1427,11 @@ class fold =
       | AlienBlock alien ->
          let o = o#foreign_language (Alien.language alien) in
          o#list
-           (fun o (b, dt) ->
-             let o = o#binder b in
+           (fun o entity ->
+             let open Alien.Entity in
+             let bndr = binder entity in
+             let dt = datatype entity in
+             let o = o#binder bndr in
              o#datatype' dt)
            (Alien.declarations alien)
 
@@ -2244,10 +2256,13 @@ class fold_map =
       | Foreign alien ->
          let o, declarations =
            o#list
-             (fun o (b, dt) ->
-               let o, b = o#binder b in
-               let o, dt = o#datatype' dt in
-               o, (b, dt))
+             (fun o entity ->
+               let open Alien.Entity in
+               let bndr = binder entity in
+               let datatype = datatype entity in
+               let o, binder = o#binder bndr in
+               let o, datatype = o#datatype' datatype in
+               o, Alien.Entity.modify ~binder ~datatype entity)
              (Alien.declarations alien)
          in
          let o, language = o#foreign_language (Alien.language alien) in
@@ -2273,10 +2288,13 @@ class fold_map =
          let o, lang = o#foreign_language (Alien.language alien) in
          let o, declarations =
            o#list
-             (fun o (b, dt) ->
-               let o, b = o#binder b in
-               let o, dt = o#datatype' dt in
-               o, (b, dt))
+             (fun o entity ->
+               let open Alien.Entity in
+               let bndr = binder entity in
+               let datatype = datatype entity in
+               let o, binder = o#binder bndr in
+               let o, datatype = o#datatype' datatype in
+               o, Alien.Entity.modify ~binder ~datatype entity)
              (Alien.declarations alien)
          in
          o, AlienBlock (Alien.modify ~language:lang ~declarations alien)

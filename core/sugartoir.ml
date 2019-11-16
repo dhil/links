@@ -195,7 +195,7 @@ sig
     (var list -> tail_computation sem) ->
     tail_computation sem
 
-  val alien : var_info * string * ForeignLanguage.t * (var -> tail_computation sem) -> tail_computation sem
+  val alien : var_info * location * string * ForeignLanguage.t * (var -> tail_computation sem) -> tail_computation sem
 
   val select : Name.t * value sem -> tail_computation sem
 
@@ -285,7 +285,7 @@ struct
        * location) list ->
       (Var.var list) M.sem
 
-    val alien_binding : var_info * string * ForeignLanguage.t -> var M.sem
+    val alien_binding : var_info * location * string * ForeignLanguage.t -> var M.sem
 
     val value_of_untyped_var : var M.sem * datatype -> value sem
   end =
@@ -333,9 +333,9 @@ struct
                 defs))
           fs
 
-    let alien_binding (x_info, object_name, language) =
+    let alien_binding (x_info, location, object_name, language) =
       let xb, x = Var.fresh_var x_info in
-      lift_binding (Alien { binder = xb; object_name; language }) x
+      lift_binding (Alien { binder = xb; object_name; language; location }) x
 
     let value_of_untyped_var (s, t) =
       M.bind s (fun x -> lift (Variable x, t))
@@ -544,8 +544,8 @@ struct
 
   let wrong t = lift (Special (Wrong t), t)
 
-  let alien (x_info, object_name, language, rest) =
-    M.bind (alien_binding (x_info, object_name, language)) rest
+  let alien (x_info, location, object_name, language, rest) =
+    M.bind (alien_binding (x_info, location, object_name, language)) rest
 
   let select (l, e) =
     let t = TypeUtils.select_type l (sem_type e) in
@@ -1190,13 +1190,14 @@ struct
                     in
                       I.letrec env defs (fun vs -> eval_bindings scope (extend fs (List.combine vs outer_fts) env) bs e)
                 | Foreign alien ->
-                   let binder =
-                     fst (Alien.declaration alien)
+                   let binder, location =
+                     let entity = Alien.declaration alien in
+                     Alien.Entity.(binder entity, location entity)
                    in
                    assert (Binder.has_type binder);
                    let x  = Binder.to_name binder in
                    let xt = Binder.to_type binder in
-                   I.alien ((xt, x, scope), Alien.object_name alien, Alien.language alien,
+                   I.alien ((xt, x, scope), location, Alien.object_name alien, Alien.language alien,
                             fun v -> eval_bindings scope (extend [x] [(v, xt)] env) bs e)
                 | Typenames _
                 | Infix _ ->

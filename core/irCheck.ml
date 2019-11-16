@@ -1232,9 +1232,9 @@ struct
             Rec defs, o
 
 
-        | Alien { binder; object_name; language } ->
+        | Alien ({ binder; _ } as payload) ->
            let x, o = o#binder binder in
-           Alien { binder = x; object_name; language }, o
+           Alien { payload with binder = x }, o
 
         | Module (name, defs) ->
             let defs, o =

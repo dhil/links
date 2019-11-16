@@ -472,23 +472,29 @@ and desugar ?(toplevel=false) (renamer' : Epithet.t) (scope' : Scope.t) =
       | Foreign alien ->
          let declarations =
            self#list
-             (fun o (b, dt) ->
-               let dt = o#datatype' dt in
-               let b = o#binder b in
-               (b, dt))
+             (fun o entity ->
+               let open Alien.Entity in
+               let b = binder entity in
+               let dt = datatype entity in
+               let datatype = o#datatype' dt in
+               let binder = o#binder b in
+               modify ~binder ~datatype entity)
              (Alien.declarations alien)
          in
          Foreign (Alien.modify ~declarations alien)
-      | AlienBlock aliendecls ->
+      | AlienBlock alien ->
          let decls' =
            self#list
-             (fun o (bndr, dt) ->
-               let dt' = o#datatype' dt in
-               let bndr' = o#binder bndr in
-               (bndr', dt'))
-             Alien.(declarations aliendecls)
+             (fun o entity ->
+               let open Alien.Entity in
+               let b = binder entity in
+               let dt = datatype entity in
+               let datatype = o#datatype' dt in
+               let binder = o#binder b in
+               modify ~binder ~datatype entity)
+             (Alien.declarations alien)
          in
-         AlienBlock (Alien.modify ~declarations:decls' aliendecls)
+         AlienBlock (Alien.modify ~declarations:decls' alien)
       | Infix { name; assoc; precedence } ->
          Infix { name = self#fixity name; assoc; precedence }
       | Module _ | Import _ | Open _ -> assert false (* Should have been processed by this point. *)
