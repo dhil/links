@@ -1,6 +1,6 @@
 (install
   (section lib)
-  (files prelude.links)
+  (files builtins.links prelude.links)
   (package links))
 
 (rule

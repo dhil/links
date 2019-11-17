@@ -9,6 +9,40 @@ open Var
 let internal_error message =
   Errors.internal_error ~filename:"evalir.ml" ~message
 
+(* Builtins *)
+type primitive =
+  [ Value.t
+  | `PDataFun of (RequestData.request_data -> Value.t list -> Value.t)
+  | `PFun of (Value.t list -> Value.t) ]
+
+let apply_primitive : primitive -> RequestData.request_data -> Value.t list -> Value.t
+  = fun prim req_data args ->
+  match prim with
+  | `PDataFun fn -> fn req_data args
+  | `PFun fn -> fn args
+  | _ -> raise (internal_error "Cannot apply non-function primitive")
+
+let builtins : (string, primitive) Hashtbl.t =
+  let binop impl unbox box = function
+    | [x; y] -> box (impl (unbox x) (unbox y))
+    | _ -> raise (internal_error "arity error in binary operation")
+  in
+  let int_op impl =
+    binop impl Value.unbox_int (fun x -> `Int x)
+  in
+  let implementations =
+    [ (* Integer operations. *)
+      "%int_plus" , `PFun (int_op (+))
+    ; "%int_minus", `PFun (int_op (-))
+    ; "%int_mult" , `PFun (int_op ( * )) ]
+  in
+  let tbl = Hashtbl.create 256 in
+  List.iter
+    (fun (prim_name, impl) ->
+      Hashtbl.add tbl prim_name impl)
+    implementations;
+  tbl
+
 let lookup_fun = Tables.lookup Tables.fun_defs
 let find_fun = Tables.find Tables.fun_defs
 
@@ -504,8 +538,12 @@ struct
         Webs.set_accepting_websocket_requests true;
         apply_cont cont env (`Record [])
     (*****************)
-    | `PrimitiveFunction (n,None), args ->
-       apply_cont cont env (Lib.apply_pfun n args (Value.Env.request_data env))
+    (* | `PrimitiveFunction (n,None), args ->
+     *    apply_cont cont env (Lib.apply_pfun n args (Value.Env.request_data env)) *)
+    | `PrimitiveFunction (name, None), args ->
+       let fn = Hashtbl.find builtins name in
+       let result = apply_primitive fn (Value.Env.request_data env) args in
+       apply_cont cont env result
     | `PrimitiveFunction (_, Some code), args ->
        apply_cont cont env (Lib.apply_pfun_by_code code args (Value.Env.request_data env))
     | `ClientFunction name, args ->
@@ -541,10 +579,21 @@ struct
             computation env cont (bs, tailcomp)
          | Rec _ ->
             computation env cont (bs, tailcomp)
-         | Alien { binder; _ } ->
+         | Alien { binder; language; location; object_name } ->
             let var = Var.var_of_binder binder in
             let scope = Var.scope_of_binder binder in
-            computation (Value.Env.bind var (`Alien, scope) env) cont (bs, tailcomp)
+            let open ForeignLanguage in
+            begin match language with
+            | JavaScript ->
+               let env' = Value.Env.bind var (`ClientFunction object_name, scope) env in
+               computation env' cont (bs, tailcomp)
+            | Builtin when Location.is_client location ->
+               let env' = Value.Env.bind var (`ClientFunction object_name, scope) env in
+               computation env' cont (bs, tailcomp)
+            | Builtin ->
+               let env' = Value.Env.bind var (`PrimitiveFunction (object_name, None), scope) env in
+               computation env' cont (bs, tailcomp)
+            end
          | Module _ -> raise (internal_error "Not implemented interpretation of modules yet")
   and tail_computation env (cont : continuation) : Ir.tail_computation -> result = function
     | Ir.Return v   ->

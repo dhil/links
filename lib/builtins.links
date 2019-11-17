@@ -1,6 +1,11 @@
 ## Declarations of Links builtins.
 
 # Integer arithmetic operations.
+infixl 6 +;
+#infixl 6 -; # Minus is hard-coded in the parser for now.
+infixl 7 *;
+infixl 7 /;
+infixr 8 ^;
 alien builtin {
   +   : (Int, Int) -> Int = "%int_plus";
   -   : (Int, Int) -> Int = "%int_minus";
@@ -12,6 +17,11 @@ alien builtin {
 }
 
 # Floating point operations.
+infixl 6 +.;
+#infixl 6 -.; # Float minus is hard-coded in the parser for now.
+infixl 7 *.;
+infixl 7 /.;
+infixr 8 ^.;
 alien builtin {
   +.   : (Float, Float) -> Float = "%float_plus";
   -.   : (Float, Float) -> Float = "%float_minus";
@@ -31,9 +41,16 @@ alien builtin {
 }
 
 # String concatenation.
+infixr 8 ^^;
 alien builtin ^^ : (String, String) -> String = "%str_cat";
 
 # Polymorphic relational operators.
+infix 4 ==;
+infix 4 <>;
+infix 4 <;
+infix 4 >;
+infix 4 <=;
+infix 4 >=;
 alien builtin {
   == : (a, a) -> Bool = "%rel_poly_eq";
   <> : (a, a) -> Bool = "%rel_poly_neq";
@@ -122,6 +139,10 @@ alien builtin {
   max    : ([a]) ~> [|Some:a|None:()|] = "%list_max";
   min    : ([a]) ~> [|Some:a|None:()|] = "%list_min";
 }
+
+# infixr 5 ::;
+# sig :: : (a, [a]) -> [a]
+# op x :: xs { cons(x, xs) }
 
 # XML.
 alien builtin {

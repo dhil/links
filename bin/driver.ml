@@ -150,12 +150,40 @@ module Phases = struct
         Printf.fprintf oc " %d -> %s : %s\n%!" var name datatype)
       Lib.nenv
 
-  (* Loads the prelude, and returns the 'initial' compilation context. *)
-  let initialise : unit -> Context.t
+  (* Bootstraps the builtins/primitives, and returns the 'initial' compilation context. *)
+  let bootstrap : unit -> Context.t
     = fun () ->
+    Debug.print_l (lazy "Bootstrapping...");
     let context = Context.({ empty with name_environment = Lib.nenv;
                                         typing_environment = Lib.typing_env })
     in
+    let filename = val_of (Settings.get builtins_file) in
+    let result =
+      Parse.run context filename
+      |> Desugar.run
+      |> (fun result ->
+        let context = result.Frontend.context in
+        let venv =
+          Var.varify_env (Lib.nenv, Lib.typing_env.Types.var_env)
+        in
+        let context' = Context.({ context with variable_environment = venv }) in
+        Compile.IR.run Frontend.({ result with context = context' }))
+      |> Transform.run
+    in
+    let context', _, _ = Evaluate.run result in
+    let nenv = Context.name_environment context' in
+    let tenv = Context.typing_environment context' in
+    let venv = Var.varify_env (nenv, tenv.Types.var_env) in
+    (* Prepare the webserver. *)
+    Webserver.set_prelude (fst result.Backend.program);
+    (* Return the 'initial' compiler context. *)
+    Debug.print_l (lazy "Bootstrapped");
+    Context.({ context' with variable_environment = venv })
+
+  (* Loads the prelude. *)
+  let load_prelude : Context.t -> Context.t
+    = fun context ->
+    Debug.print_l (lazy "Loading prelude...");
     let filename = val_of (Settings.get prelude_file) in
     let result =
       Parse.run context filename
@@ -176,6 +204,7 @@ module Phases = struct
     (* Prepare the webserver. *)
     Webserver.set_prelude (fst result.Backend.program);
     (* Return the 'initial' compiler context. *)
+    Debug.print_l (lazy "Loaded prelude");
     Context.({ context' with variable_environment = venv })
 
   let whole_program : Context.t -> string -> (Context.t * Types.datatype * Value.t)

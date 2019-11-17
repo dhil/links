@@ -182,7 +182,7 @@ let add_attributes : (Value.t * Value.t) list -> Value.t -> Value.t =
   List.fold_right add_attribute
 
 let env : (string * (located_primitive * Types.datatype * pure)) list = [
-  "+", int_op (+) PURE;
+  (* "+", int_op (+) PURE; *)
   "-", int_op (-) PURE;
   "*", int_op ( * ) PURE;
   "/", int_op (/) IMPURE;
@@ -1504,7 +1504,6 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
     (`PFun (fun _ -> assert false),
     datatype "() ~> ()",
     IMPURE);
-
     (* Crypt API *)
 
     "crypt",
