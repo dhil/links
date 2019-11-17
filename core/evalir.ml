@@ -6,42 +6,134 @@ open Utility
 open Proc
 open Var
 
+let runtime_error msg = Errors.runtime_error msg
 let internal_error message =
   Errors.internal_error ~filename:"evalir.ml" ~message
 
 (* Builtins *)
-type primitive =
-  [ Value.t
-  | `PDataFun of (RequestData.request_data -> Value.t list -> Value.t)
-  | `PFun of (Value.t list -> Value.t) ]
+module Builtins = struct
+  type t =
+    [ Value.t
+    | `PDataFun of (RequestData.request_data -> Value.t list -> Value.t)
+    | `PFun of (Value.t list -> Value.t) ]
 
-let apply_primitive : primitive -> RequestData.request_data -> Value.t list -> Value.t
-  = fun prim req_data args ->
-  match prim with
-  | `PDataFun fn -> fn req_data args
-  | `PFun fn -> fn args
-  | _ -> raise (internal_error "Cannot apply non-function primitive")
+  let apply : t -> RequestData.request_data -> Value.t list -> Value.t
+    = fun prim req_data args ->
+    match prim with
+    | `PDataFun fn -> fn req_data args
+    | `PFun fn -> fn args
+    | _ -> raise (internal_error "Cannot apply non-function primitive")
 
-let builtins : (string, primitive) Hashtbl.t =
-  let binop impl unbox box = function
-    | [x; y] -> box (impl (unbox x) (unbox y))
-    | _ -> raise (internal_error "arity error in binary operation")
-  in
-  let int_op impl =
-    binop impl Value.unbox_int (fun x -> `Int x)
-  in
-  let implementations =
-    [ (* Integer operations. *)
-      "%int_plus" , `PFun (int_op (+))
-    ; "%int_minus", `PFun (int_op (-))
-    ; "%int_mult" , `PFun (int_op ( * )) ]
-  in
-  let tbl = Hashtbl.create 256 in
-  List.iter
-    (fun (prim_name, impl) ->
-      Hashtbl.add tbl prim_name impl)
-    implementations;
-  tbl
+  (* Relational operators. *)
+  let rec equal l r =
+    match l, r with
+    | `Bool l  , `Bool r   -> (l : bool)  = r
+    | `Int l   , `Int r    -> (l : int)   = r
+    | `Float l , `Float r  -> (l : float) = r
+    | `Char l  , `Char r   -> (l : char)  = r
+    | `String l, `String r -> String.equal l r
+    | `Record lfields, `Record rfields ->
+       let rec one_equal_all = (fun alls (ref_label, ref_result) ->
+           match alls with
+           | [] -> false
+           | (label, result) :: _ when label = ref_label -> equal result ref_result
+           | _ :: alls -> one_equal_all alls (ref_label, ref_result))
+       in
+       List.for_all (one_equal_all rfields) lfields && List.for_all (one_equal_all lfields) rfields
+    | `Variant (llabel, lvalue), `Variant (rlabel, rvalue) ->
+       llabel = rlabel && equal lvalue rvalue
+    | `List (l), `List (r) -> equal_lists l r
+    | l, r ->
+       raise (runtime_error
+                (Printf.sprintf "Comparing %s with %s which either does not make sense or isn't implemented." (Value.string_of_value l) (Value.string_of_value r)))
+  and equal_lists l r =
+    match l,r with
+    | [], [] -> true
+    | (l::ls), (r::rs) -> equal l r && equal_lists ls rs
+    | _,_ -> false
+
+
+  let rec less l r =
+    match l, r with
+    | `Bool l, `Bool r   -> (l : bool) < r
+    | `Int l, `Int r     -> (l : int)  < r
+    | `Float l, `Float r -> (l : float) < r
+    | `Char l, `Char r   -> (l : char) < r
+    | `String l, `String r -> (l : string) < r
+    (* Compare fields in lexicographic order of labels *)
+    | `Record lf, `Record rf ->
+       let order = List.sort (fun x y -> compare (fst x) (fst y)) in
+       let lv, rv = List.map snd (order lf), List.map snd (order rf) in
+       let rec compare_list = function
+         | [] -> false
+         | (l,r)::_ when less l r -> true
+         | (l,r)::_ when less r l -> false
+         | _::rest                -> compare_list rest in
+       compare_list (List.combine lv rv)
+    | `List (l), `List (r) -> less_lists (l,r)
+    | l, r ->  raise (runtime_error ("Cannot yet compare "^ Value.string_of_value l ^" with "^ Value.string_of_value r))
+  and less_lists = function
+    | _, [] -> false
+    | [], (_::_) -> true
+    | (l::_), (r::_) when less l r -> true
+    | (l::_), (r::_) when less r l -> false
+    | (_::l), (_::r) -> less_lists (l, r)
+
+  let less_or_equal l r = less l r || equal l r
+
+  let builtins : (string, t) Hashtbl.t =
+    let binop impl unbox box = function
+      | [x; y] -> box (impl (unbox x) (unbox y))
+      | _ -> raise (internal_error "arity error in binary operation")
+    in
+    let int_op impl =
+      binop impl Value.unbox_int Value.box_int
+    in
+    let float_op impl =
+      binop impl Value.unbox_float Value.box_float
+    in
+    let unary impl unbox box = function
+      | [x] -> box (impl (unbox x))
+      | _ -> raise (internal_error "arity error in unary operation")
+    in
+    let float_fn impl =
+      unary impl Value.unbox_float Value.box_float
+    in
+    let implementations =
+      [ (* Integer operations. *)
+        "%int_plus"  , `PFun (int_op (+))
+      ; "%int_minus" , `PFun (int_op (-))
+      ; "%int_mult"  , `PFun (int_op ( * ))
+      ; "%int_div"   , `PFun (int_op (/))
+      ; "%int_mod"   , `PFun (int_op (mod))
+      ; "%int_negate", `PFun (unary (~-) Value.unbox_int Value.box_int)
+      (* Floating point operations. *)
+      ; "%float_plus"  , `PFun (float_op (+.))
+      ; "%float_minus" , `PFun (float_op (-.))
+      ; "%float_mult"  , `PFun (float_op ( *. ))
+      ; "%float_div"   , `PFun (float_op (/.))
+      ; "%float_negate", `PFun (float_fn (~-.))
+      (* Trig functions. *)
+      ; "%float_floor"  , `PFun (float_fn floor)
+      ; "%float_ceiling", `PFun (float_fn ceil)
+      ; "%float_cos"    , `PFun (float_fn cos)
+      ; "%float_sin"    , `PFun (float_fn sin)
+      ; "%float_tan"    , `PFun (float_fn tan)
+      ; "%float_log"    , `PFun (float_fn log)
+      ; "%float_log10"  , `PFun (float_fn log10)
+      ; "%float_sqrt"   , `PFun (float_fn sqrt)
+      (* String operations. *)
+      ; "%str_cat", `PFun (binop (^) Value.unbox_string Value.box_string) ]
+    in
+    let tbl = Hashtbl.create 256 in
+    List.iter
+      (fun (prim_name, impl) ->
+        Hashtbl.add tbl prim_name impl)
+      implementations;
+    tbl
+
+  let find name = Hashtbl.find builtins name
+end
 
 let lookup_fun = Tables.lookup Tables.fun_defs
 let find_fun = Tables.find Tables.fun_defs
@@ -541,8 +633,8 @@ struct
     (* | `PrimitiveFunction (n,None), args ->
      *    apply_cont cont env (Lib.apply_pfun n args (Value.Env.request_data env)) *)
     | `PrimitiveFunction (name, None), args ->
-       let fn = Hashtbl.find builtins name in
-       let result = apply_primitive fn (Value.Env.request_data env) args in
+       let fn = Builtins.find name in
+       let result = Builtins.apply fn (Value.Env.request_data env) args in
        apply_cont cont env result
     | `PrimitiveFunction (_, Some code), args ->
        apply_cont cont env (Lib.apply_pfun_by_code code args (Value.Env.request_data env))
