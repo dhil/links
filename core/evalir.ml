@@ -86,6 +86,10 @@ module Builtins = struct
       | [x; y] -> box (impl (unbox x) (unbox y))
       | _ -> raise (internal_error "arity error in binary operation")
     in
+    let binop' impl box = function
+      | [x; y] -> box (impl x y)
+      | _ -> raise (internal_error "arity error in binary operation")
+    in
     let int_op impl =
       binop impl Value.unbox_int Value.box_int
     in
@@ -123,7 +127,18 @@ module Builtins = struct
       ; "%float_log10"  , `PFun (float_fn log10)
       ; "%float_sqrt"   , `PFun (float_fn sqrt)
       (* String operations. *)
-      ; "%str_cat", `PFun (binop (^) Value.unbox_string Value.box_string) ]
+      ; "%str_cat", `PFun (binop (^) Value.unbox_string Value.box_string)
+      (* Relational operators. *)
+      ; "%rel_poly_eq"    , `PFun (binop' equal Value.box_bool)
+      ; "%rel_poly_neq"   , `PFun (binop' (fun x y -> not (equal x y)) Value.box_bool)
+      ; "%rel_poly_lt"    , `PFun (binop' less Value.box_bool)
+      ; "%rel_poly_gt"    , `PFun (binop' (flip less) Value.box_bool)
+      ; "%rel_poly_le"    , `PFun (binop' less_or_equal Value.box_bool)
+      ; "%rel_poly_ge"    , `PFun (binop' (flip less_or_equal) Value.box_bool)
+      (* Conversion functions *)
+      ; "%conv_int_to_string", `PFun (unary string_of_int Value.unbox_int Value.box_string)
+      ; "%conv_int_to_float" , `PFun (unary float_of_int Value.unbox_int Value.box_float)
+      ]
     in
     let tbl = Hashtbl.create 256 in
     List.iter

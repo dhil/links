@@ -58,16 +58,15 @@ alien builtin {
   >  : (a, a) -> Bool = "%rel_poly_gt";
   <= : (a, a) -> Bool = "%rel_poly_le";
   >= : (a, a) -> Bool = "%rel_poly_ge";
-
-  objectEq : (a, a) -> Bool = "%rel_poly_eq_obj";
 }
 
 # Concrete equality functions.
-alien builtin {
-  intEq    : (Int, Int) -> Bool       = "%int_eq";
-  stringEq : (String, String) -> Bool = "%str_eq";
-  floatEq  : (Float, Float) -> Bool   = "%float_eq";
-  floatNeq : (Float, Float) -> Bool   = "%float_neq";
+alien javascript {
+  intEq    client : (Int   , Int)     -> Bool = "intEq";
+  stringEq client : (String, String)  -> Bool = "stringEq";
+  floatEq  client : (Float , Float)   -> Bool = "floatEq";
+  floatNeq client : (Float , Float)   -> Bool = "floatNeq";
+  objectEq client : (a     , a)       -> Bool = "objectEq";
 }
 
 # Conversion functions.

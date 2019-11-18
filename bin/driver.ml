@@ -174,8 +174,6 @@ module Phases = struct
     let nenv = Context.name_environment context' in
     let tenv = Context.typing_environment context' in
     let venv = Var.varify_env (nenv, tenv.Types.var_env) in
-    (* Prepare the webserver. *)
-    Webserver.set_prelude (fst result.Backend.program);
     (* Return the 'initial' compiler context. *)
     Debug.print_l (lazy "Bootstrapped");
     Context.({ context' with variable_environment = venv })

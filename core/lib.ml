@@ -228,12 +228,12 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
    PURE);
 
   (* Conversions (any missing?) *)
-  "intToString",   conversion_op ~from:(`Primitive Primitive.Int)
-                                 ~unbox:Value.unbox_int
-                                 ~conv:string_of_int
-                                 ~box:Value.box_string
-                                 ~into:Types.string_type
-                                 PURE;
+  (* "intToString",   conversion_op ~from:(`Primitive Primitive.Int)
+   *                                ~unbox:Value.unbox_int
+   *                                ~conv:string_of_int
+   *                                ~box:Value.box_string
+   *                                ~into:Types.string_type
+   *                                PURE; *)
   "stringToInt",   conversion_op ~from:Types.string_type
                                  ~unbox:Value.unbox_string
                                  ~conv:int_of_string
