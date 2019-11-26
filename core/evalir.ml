@@ -104,6 +104,10 @@ module Builtins = struct
       | [x; y] -> box (impl (unboxl x) (unboxr y))
       | _ -> raise (internal_error "arity error in binary operation")
     in
+    let ternary impl unbox1 unbox2 unbox3 box = function
+      | [x; y; z] -> box (impl (unbox1 x) (unbox2 y) (unbox3 z))
+      | _ -> raise (internal_error "arity error in ternary operation")
+    in
     let nullary impl box = function
       | [] -> box (impl ())
       | _ -> raise (internal_error "arity error in nullary operation")
@@ -124,8 +128,9 @@ module Builtins = struct
     let not_implemented name
       = unary (fun _ -> raise (runtime_error (Printf.sprintf "The %s function has not yet been implemented on the server." name))) (fun _ -> assert false) (fun x -> x )
     in
+    let id x = x in
     let implementations =
-      [ (* Integer operations. *)
+      [| (* Integer operations. *)
         "%int_plus"  , `PFun (int_op (+))
       ; "%int_minus" , `PFun (int_op (-))
       ; "%int_mult"  , `PFun (int_op ( * ))
@@ -171,7 +176,7 @@ module Builtins = struct
       (* System primitives. *)
       ; "%exit"   , `Continuation Value.Continuation.empty
       ; "%sysexit", `PFun (unary exit Value.unbox_int (fun _ -> assert false))
-      ; "%show"   , `PFun (unary Value.string_of_value (fun x -> x) Value.box_string)
+      ; "%show"   , `PFun (unary Value.string_of_value id Value.box_string)
 
       (* Process operations. *)
       (* The functions: Send, recv
@@ -186,10 +191,11 @@ module Builtins = struct
       ; "%proc_sleep"    , `PFun (not_implemented "sleep")
       (* Session functions are implemented by the interpreter. *)
       (* Access point functions are implemented by the interpreter. *)
+      (* List operations. *)
       ; "%list_nil", `List []
-      ; "%list_cons", `PFun (binary (fun x xs -> x :: xs) (fun x -> x) Value.unbox_list Value.box_list)
+      ; "%list_cons", `PFun (binary (fun x xs -> x :: xs) id Value.unbox_list Value.box_list)
       ; "%list_concat", `PFun (binop (@) Value.unbox_list Value.box_list)
-      ; "%list_hd"    , `PFun (unary List.hd Value.unbox_list (fun x -> x))
+      ; "%list_hd"    , `PFun (unary List.hd Value.unbox_list id)
       ; "%list_tl"    , `PFun (unary List.tl Value.unbox_list Value.box_list)
       ; "%list_length", `PFun (unary List.length Value.unbox_list Value.box_int)
       ; "%list_take"  , `PFun (binary ListUtils.take Value.unbox_int Value.unbox_list Value.box_list)
@@ -200,19 +206,247 @@ module Builtins = struct
                                    | x :: xs ->
                                       `Variant ("Some", List.fold_left
                                                           (fun x y -> if less x y then y else x) x xs))
-                                 Value.unbox_list (fun x -> x))
+                                 Value.unbox_list id)
       ; "%list_min"   , `PFun (unary (function
                                    | [] ->
                                       `Variant ("None", `Record [])
                                    | x :: xs ->
                                       `Variant ("Some", List.fold_left
                                                           (fun x y -> if less x y then x else y) x xs))
-                                 Value.unbox_list (fun x -> x))
-      ;
-      ]
+                                 Value.unbox_list id)
+      (* XML operations. *)
+      ; "%xml_child_nodes", `PFun (unary (function
+                                         | [`XML (Value.Node (_, children))] ->
+                                            List.filter (function
+                                                | Value.Node _ -> true
+                                                | Value.NsNode _ -> true
+                                                | _ -> false)
+                                              children
+                                         | [ `XML (Value.NsNode (_, _, children)) ] ->
+                                            List.filter (function
+                                                | Value.Node _ -> true
+                                                | Value.NsNode _ -> true
+                                                | _ -> false)
+                                              children
+                                         | _ -> raise (internal_error "non-XML given to childNodes")) Value.unbox_list (fun xs -> Value.box_list (List.map Value.box_xml xs)))
+      ; "%xml_attribute", `PFun (binary (fun elem attr ->
+                                     let find_attr cs =
+                                       (try match List.find (function
+                                                      | Value.Attr (k, _) ->
+                                                         String.equal k attr
+                                                      | Value.NsAttr (ns, k, _) ->
+                                                         String.equal (Printf.sprintf "%s:%s" ns k) attr
+                                                      | _ -> false
+                                                    ) cs with
+                                            | Value.Attr (_, v) -> `Variant ("Just", Value.box_string v)
+                                            | Value.NsAttr (_, _, v) -> `Variant ("Just", Value.box_string v)
+                                            | _ -> raise (internal_error "Incorrect arguments to `attribute' function")
+                                        with NotFound _ -> `Variant ("Nothing", `Record []))
+                                     in
+                                     match elem with
+                                     | [`XML (Value.Node (_, children))] -> find_attr children
+                                     | [`XML (Value.NsNode (_, _, children))] -> find_attr children
+                                     | _ -> raise (internal_error  "Non-element node given to attribute function"))
+                                   Value.unbox_list Value.unbox_string id)
+      ; "%xml_make", `PFun (ternary (fun name attrs children ->
+                                let attrs' =
+                                  List.map (function
+                                      | `Record [ ("1", key); ("2", value) ] ->
+                                         Value.Attr (Value.unbox_string(key), Value.unbox_string(value))
+                                      | _ -> raise (internal_error "non-XML in makeXml"))
+                                    attrs
+                                in
+                                Value.Node
+                                  (name, List.map (function
+                                             | (`XML x) -> x
+                                             | _ -> raise (internal_error "non-XML in makeXml")
+                                           ) children @ attrs'))
+                              Value.unbox_string Value.unbox_list Value.unbox_list Value.box_xml)
+      ; "%xml_to_variant", `PFun (unary (fun xs ->
+                                      List.map (function
+                                          | `XML x -> Value.value_of_xmlitem x
+                                          | _ -> raise (internal_error "non-XML passed to xmlToVariant")) xs) Value.unbox_list Value.box_list)
+      ; "%xml_variant_to_xml", `PFun (unary (Value.xml_of_variants ->- (List.map Value.box_xml)) id Value.box_list)
+      ; "%xml_item_to_variant", `PFun (unary Value.value_of_xmlitem Value.unbox_xml id)
+      ; "%xml_variant_to_xml_item", `PFun (unary Value.xmlitem_of_variant id Value.box_xml)
+      ; "%xml_get_tag_name", `PFun (unary (function
+                                        | [ `XML (Value.Node (name, _)) ] | [ `XML (Value.NsNode (_, name, _)) ] -> name
+                                        | _ -> raise (internal_error "non-element passed to getTagName"))
+                                      Value.unbox_list Value.box_string)
+      ; "%xml_get_namespace", `PFun (unary (function
+                                         | [ `XML (Value.Node (_, _)) ] -> ""
+                                         | [ `XML (Value.NsNode (ns, _, _)) ] -> ns
+                                         | _ -> raise (internal_error "non-element passed to getNamespace")) Value.unbox_list Value.box_string)
+      ; "%xml_get_attributes", `PFun (unary (fun v ->
+                                          let attr_to_record = function
+                                            | (Value.Attr (name, value)) -> `Record [("1", Value.box_string name); ("2", Value.box_string value)]
+                                            | (Value.NsAttr (ns, name, value)) -> `Record [ ("1", Value.box_string (ns ^ ":" ^ name)); ("2", Value.box_string value) ]
+                                            | _ -> assert false
+                                          and is_attr = function
+                                            | Value.Attr _ -> true
+                                            | Value.NsAttr _ -> true
+                                            | _ -> false
+                                          in match v with
+                                             | [ `XML (Value.Node (_, children)) ]      -> List.(map attr_to_record (filter is_attr children))
+                                             | [ `XML (Value.NsNode (_, _, children)) ] -> List.(map attr_to_record (filter is_attr children))
+                                             | _ -> raise (internal_error "non-element given to getAttributes")) Value.unbox_list Value.box_list)
+      ; "%xml_get_child_nodes", `PFun (unary (fun v ->
+                                           let is_xml_node = function
+                                             | Value.Node _ | Value.NsNode _ -> true
+                                             | _ -> false
+                                           in
+                                           match v with
+                                           | [ `XML (Value.Node(_, children)) ] ->
+                                              List.filter is_xml_node children
+                                           | [ `XML (Value.NsNode(_, _, children)) ] ->
+                                              List.filter is_xml_node children
+                                           | _ -> raise (internal_error "non-element given to getChildNodes")) Value.unbox_list ((List.map Value.box_xml) ->- Value.box_list))
+      ; "%xml_parse", `PFun (unary ParseXml.parse_xml Value.unbox_string (Value.box_xml ->- (fun v -> Value.box_list [v])))
+      (* Server time. *)
+      ; "%server_time", `PFun (nullary (Unix.time ->- int_of_float) Value.box_int)
+      ; "%server_time_ms", `PFun (nullary Utility.time_milliseconds Value.box_int)
+      (* Time. *)
+      ; "%date_to_int", `PFun (unary (fun r ->
+                                   let lookup s =
+                                     Value.unbox_int (List.assoc s r) in
+                                   let tm = {
+                                       Unix.tm_sec = lookup "seconds";
+                                       Unix.tm_min = lookup "minutes";
+                                       Unix.tm_hour = lookup "hours";
+                                       Unix.tm_mday = lookup "day";
+                                       Unix.tm_mon = lookup "month";
+                                       Unix.tm_year = (lookup "year" - 1900);
+                                       Unix.tm_wday = 0; (* ignored *)
+                                       Unix.tm_yday =  0; (* ignored *)
+                                       Unix.tm_isdst = false}
+                                   in
+                                   let t, _ = Unix.mktime tm in
+                                   int_of_float t) Value.unbox_record Value.box_int)
+      ; "%date_int_to_date", `PFun (unary (fun t ->
+                                        let tm = Unix.localtime (float_of_int t) in
+                                        [ "year", Value.box_int (tm.Unix.tm_year + 1900);
+                                          "month", Value.box_int tm.Unix.tm_mon;
+                                          "day", Value.box_int tm.Unix.tm_mday;
+                                          "hours", Value.box_int tm.Unix.tm_hour;
+                                          "minutes", Value.box_int tm.Unix.tm_min;
+                                          "seconds", Value.box_int tm.Unix.tm_sec ])
+                                      Value.unbox_int Value.box_record)
+                              (* HTTP manipulation. *)
+      ; "%http_redirect", `PDataFun (fun req_data args ->
+                              let url =
+                                match args with
+                                | [url] -> Value.unbox_string url
+                                | _ -> raise (internal_error "arity mismatch in redirect")
+                              in
+                              (* This is all quite hackish, just testing an idea. --ez *)
+                              let resp_headers = RequestData.get_http_response_headers req_data in
+                              RequestData.set_http_response_headers req_data (("Location", url) :: resp_headers);
+                              RequestData.set_http_response_code req_data 302;
+                              `Record [])
+                           (* Database. *)
+      ; "%db_get_config", `PFun (nullary (fun () ->
+                                     let args = Utility.from_option "" (Settings.get Database.connection_info) in
+                                     match Settings.get DatabaseDriver.driver with
+                                     | None ->
+                                        raise (Errors.settings_error "Default database driver not defined. Set `database_driver`.")
+                                     | Some driver ->
+                                        [ "driver", Value.box_string driver;
+                                          "args", Value.box_string args ])
+                                   Value.box_record)
+      (* Character functions. *)
+      ; "%char_ord", `PFun (unary Char.code Value.unbox_char Value.box_int)
+      ; "%char_chr", `PFun (unary Char.chr Value.unbox_int Value.box_char)
+                      (* Regexes. *)
+      ; "%regex_tilde", `PFun (binary (fun s r ->
+                                   let regex = Regex.compile_ocaml r in
+                                   Str.string_match regex s 0)
+                                 Value.unbox_string Linksregex.Regex.ofLinks Value.box_bool)
+      ; "%regex_ltilde", `PFun (binary (fun s (re, ngroups) ->
+                                    let regex = Regex.compile_ocaml re in
+                                    if Str.string_match regex s 0
+                                    then []
+                                    else let rec accum_matches l (i : int) =
+                                           if i = 0
+                                           then (Value.box_string (Str.matched_group 0 s)) :: l
+                                           else try let m = Str.matched_group i s in
+                                                    accum_matches ((Value.box_string m) :: l) (i - 1)
+                                                with NotFound _ -> accum_matches ((Value.box_string "") :: l) (i - 1)
+                                         in
+                                         accum_matches [] ngroups)
+                                  Value.unbox_string Linksregex.Regex.ofLinksNGroups Value.box_list)
+      ; "%regex_stilde", `PFun (binary (fun s r ->
+                                    let open Regex in
+                                    match r with
+                                    | Replace (l, t) ->
+                                       let regex = Regex.compile_ocaml l in
+                                       Utility.decode_escapes (Str.replace_first regex t s)
+                                    | _ -> assert false)
+                                  Value.unbox_string Linksregex.Regex.ofLinks Value.box_string)
+      (* Strings. *)
+      ; "%str_char_at", `PFun (binary (fun s i ->
+                                   try s.[i] with
+                                   | Invalid_argument _ -> raise (runtime_error "charAt: invalid index"))
+                                 Value.unbox_string Value.unbox_int Value.box_char)
+      ; "%str_sub", `PFun (ternary (fun s start len ->
+                               try String.sub s start len with
+                               | Invalid_argument _ -> raise (runtime_error "strsub: invalid arguments"))
+                             Value.unbox_string Value.unbox_int Value.unbox_int Value.box_string)
+      ; "%str_len", `PFun (unary String.length Value.unbox_string Value.box_int)
+      ; "%str_escape", `PFun (unary String.escaped Value.unbox_string Value.box_string)
+      ; "%str_unescape", `PFun (unary Scanf.unescaped Value.unbox_string Value.box_string)
+      ; "%str_contains", `PFun (binary String.contains Value.unbox_string Value.unbox_char Value.box_bool)
+      ; "%str_implode", `PFun (unary StringUtils.implode (Value.unbox_list ->- (List.map Value.unbox_char)) Value.box_string)
+      ; "%str_explode", `PFun (unary StringUtils.explode Value.unbox_string ((List.map Value.box_char) ->- Value.box_list))
+      (* Unsafe. *)
+      ; "%unsafe_pickle_cont", `PFun (unary Serialisation.MarshalSerialiser.Value.save id Value.box_string)
+      ; "%unsafe_cast", `PFun (unary id id id)
+                         (* Misc. *)
+      ; "%random", `PFun (nullary (fun () -> Random.float 1.0) Value.box_float)
+      ; "%environment", `PDataFun (fun req_data _ ->
+                            let cgi_params = RequestData.get_cgi_parameters req_data in
+                            let makestrpair (x1, x2) =
+                              Value.box_record [ ("1", Value.box_string x1); ("2", Value.box_string x2) ]
+                            in
+                            let is_internal s = Str.string_match (Str.regexp "^_") s 0 in
+                            Value.box_list (List.map makestrpair (List.filter (not -<- is_internal -<- fst) cgi_params)))
+      ; "%debug", `PFun (unary (fun s -> Debug.print s; []) Value.unbox_string Value.box_record)
+      ; "%print", `PFun (unary (fun s -> print_string s; flush stdout; []) Value.unbox_string Value.box_record)
+      ; "%javascript", `Bool false
+      ; "%error", `PFun (unary (fun s -> raise (runtime_error s)) Value.unbox_string (fun _ -> assert false))
+      ; "%gensym", (let next = ref (-1) in
+                    `PFun (nullary (fun () -> incr next; !next) Value.box_int))
+      (* Sockets. *)
+      ; "%socket_connect", `PFun (binary (fun server port ->
+                                      try
+                                        let server_addr =
+                                          try  Unix.inet_addr_of_string server
+                                          with Failure _ ->
+                                            (Unix.gethostbyname server).Unix.h_addr_list.(0)
+                                        in
+                                        let sockaddr = Unix.ADDR_INET(server_addr, port) in
+                                        let domain = Unix.domain_of_sockaddr sockaddr in
+                                        let sock = Unix.socket domain Unix.SOCK_STREAM 0 in
+                                        Unix.connect sock sockaddr;
+                                        Unix.set_nonblock sock;
+                                        `Variant ("Just", Value.box_socket (Unix.in_channel_of_descr sock, Unix.out_channel_of_descr sock))
+                                      with _ -> `Variant ("Nothing", `Record []))
+                                    Value.unbox_string Value.unbox_int id)
+      ; "%socket_write", `PFun (binary (fun message (_, outc) -> output_string outc message; flush outc; []) Value.unbox_string Value.unbox_socket Value.box_record)
+      ; "%socket_read", `PFun (unary (fun (inc, _) ->
+                                  try let r = input_line inc in
+                                      `Variant ("Just", Value.box_string r)
+                                  with Sys_blocked_io ->
+                                    `Variant ("Nothing", `Record []))
+                                Value.unbox_socket id)
+      ; "%socket_close", `PFun (unary (fun (inc, _) -> Unix.shutdown (Unix.descr_of_in_channel inc) Unix.SHUTDOWN_SEND; []) Value.unbox_socket Value.box_record)
+      ; "%crypt_hash", `PFun (unary (fun s -> Bcrypt.(string_of_hash (hash s))) Value.unbox_string Value.box_string)
+      ; "%crypt_verify", `PFun (binary (fun s s' -> Bcrypt.verify s (Bcrypt.hash_of_string s')) Value.unbox_string Value.unbox_string Value.box_bool)
+      (* CLI. *)
+      ; "%cli_get_args", `PFun (nullary Settings.get_rest_arguments ((List.map Value.box_string) ->- Value.box_list))
+      |]
     in
-    let tbl = Hashtbl.create 256 in
-    List.iter
+    let tbl = Hashtbl.create (Array.length implementations) in
+    Array.iter
       (fun (prim_name, impl) ->
         Hashtbl.add tbl prim_name impl)
       implementations;

@@ -224,7 +224,7 @@ alien javascript {
 # Server time.
 alien builtin {
   serverTime             server : () ~> Int  = "%server_time";
-  serverTimeMilliseconds server : () ~> Int  = "%server_time_milliseconds";
+  serverTimeMilliseconds server : () ~> Int  = "%server_time_ms";
 }
 
 # Time.
