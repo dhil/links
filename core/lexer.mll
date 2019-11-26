@@ -186,8 +186,8 @@ rule lex ctxt nl = parse
   | "-@"                                { LOLLI }
   | "~@"                                { SQUIGLOLLI }
   | "=>"                                { FATRARROW }
-  | "-."                                { MINUSDOT }
   | '-'                                 { MINUS }
+  | "-."                                { MINUSDOT }
   | '('                                 { LPAREN }
   | ')'                                 { RPAREN }
   | "{|"                                { ctxt#push_lexer (lex ctxt nl); LBRACEBAR }

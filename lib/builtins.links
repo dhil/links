@@ -88,8 +88,7 @@ alien builtin {
 
 # Exit.
 alien builtin exit : (a) ~> b = "%exit";
-alien builtin sysexit : (Int) ~> a;
-alien show : (a) ~> String;
+alien builtin sysexit : (Int) ~> a = "%sysexit";
 
 # Process related operations.
 alien builtin {
@@ -272,6 +271,7 @@ alien builtin {
 alien builtin {
   chatAt      : (String, Int) ~> Char        = "%str_char_at";
   strsub      : (String, Int, Int) ~> String = "%str_sub";
+  strlen      : (String) ~> Int              = "%str_len";
   strescape   : (String) ~> String           = "%str_escape";
   strunescape : (String) ~> String           = "%str_unescape";
   strContains : (String) ~> String           = "%str_contains";
@@ -297,6 +297,7 @@ alien builtin {
   javascript        : Bool            = "%javascript";
   error             : (String) ~> a   = "%error";
   gensym server     : () -> Int       = "%gensym";
+  show              : (a) -> String   = "%show";
 }
 
 # Game library.

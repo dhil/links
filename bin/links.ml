@@ -95,16 +95,17 @@ let main () =
   let file_list = Settings.get_anonymous_arguments () in
   let to_evaluate = Settings.get to_evaluate in
 
-  let context = Driver.Phases.bootstrap () in
-  let context' = Driver.Phases.load_prelude context in
-  let context'' =
-    for_each context' process_expr to_evaluate
-  in
-  let context''' =
-    for_each context'' process_file file_list
+  let context =
+    handle_errors
+      (lazy (let context = Driver.Phases.bootstrap () in
+             let context' = Driver.Phases.load_prelude context in
+             let context'' =
+               for_each context' process_expr to_evaluate
+             in
+             for_each context'' process_file file_list))
   in
   match file_list, to_evaluate with
-  | [], [] -> Repl.interact context'''
+  | [], [] -> Repl.interact context
   | _, _ -> ()
 
 let _ =
