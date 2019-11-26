@@ -60,7 +60,7 @@ alien builtin {
   >= : (a, a) -> Bool = "%rel_poly_ge";
 }
 
-# Concrete equality functions.
+# Client side equality functions.
 alien javascript {
   intEq    client : (Int   , Int)     -> Bool = "intEq";
   stringEq client : (String, String)  -> Bool = "stringEq";
@@ -88,6 +88,8 @@ alien builtin {
 
 # Exit.
 alien builtin exit : (a) ~> b = "%exit";
+alien builtin sysexit : (Int) ~> a;
+alien show : (a) ~> String;
 
 # Process related operations.
 alien builtin {

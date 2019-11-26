@@ -100,8 +100,29 @@ module Builtins = struct
       | [x] -> box (impl (unbox x))
       | _ -> raise (internal_error "arity error in unary operation")
     in
+    let binary impl unboxl unboxr box = function
+      | [x; y] -> box (impl (unboxl x) (unboxr y))
+      | _ -> raise (internal_error "arity error in binary operation")
+    in
+    let nullary impl box = function
+      | [] -> box (impl ())
+      | _ -> raise (internal_error "arity error in nullary operation")
+    in
     let float_fn impl =
       unary impl Value.unbox_float Value.box_float
+    in
+    let string_to_xml : Value.t -> Value.t = function
+      | `String s -> `List [`XML (Value.Text s)]
+      | _ -> raise (runtime_error "non-string value passed to xml conversion routine")
+    in
+    let string_of_int'
+      = unary string_of_int Value.unbox_int Value.box_string
+    in
+    let string_of_float''
+      = unary string_of_float' Value.unbox_float Value.box_string
+    in
+    let not_implemented name
+      = unary (fun _ -> raise (runtime_error (Printf.sprintf "The %s function has not yet been implemented on the server." name))) (fun _ -> assert false) (fun x -> x )
     in
     let implementations =
       [ (* Integer operations. *)
@@ -136,8 +157,58 @@ module Builtins = struct
       ; "%rel_poly_le"    , `PFun (binop' less_or_equal Value.box_bool)
       ; "%rel_poly_ge"    , `PFun (binop' (flip less_or_equal) Value.box_bool)
       (* Conversion functions *)
-      ; "%conv_int_to_string", `PFun (unary string_of_int Value.unbox_int Value.box_string)
+      ; "%conv_int_to_string", `PFun string_of_int'
       ; "%conv_int_to_float" , `PFun (unary float_of_int Value.unbox_int Value.box_float)
+      ; "%conv_int_to_xml"   , `PFun (string_of_int' ->- string_to_xml)
+
+      ; "%conv_float_to_int"    , `PFun (unary int_of_float Value.unbox_float Value.box_int)
+      ; "%conv_float_to_string" , `PFun string_of_float''
+      ; "%conv_float_to_xml"    , `PFun (string_of_float'' ->- string_to_xml)
+
+      ; "%conv_string_to_int"   , `PFun (unary int_of_string Value.unbox_string Value.box_int)
+      ; "%conv_string_to_float" , `PFun (unary float_of_string Value.unbox_string Value.box_float)
+
+      (* System primitives. *)
+      ; "%exit"   , `Continuation Value.Continuation.empty
+      ; "%sysexit", `PFun (unary exit Value.unbox_int (fun _ -> assert false))
+      ; "%show"   , `PFun (unary Value.string_of_value (fun x -> x) Value.box_string)
+
+      (* Process operations. *)
+      (* The functions: Send, recv
+         spawn{At,Client,Angel,AngelAt,Wait,Wait'} are currently
+         implemented by the interpreter. *)
+      ; "%proc_self"     , `PFun (nullary Proc.get_current_pid (fun pid -> Value.box_pid (`ServerPid pid)))
+      ; "%proc_here"     , `PFun (nullary (fun () -> `ServerSpawnLoc) Value.box_spawn_loc)
+      ; "%proc_there"    , `PDataFun (fun req_data _ ->
+                               let client_id = RequestData.get_client_id req_data in
+                               Value.box_spawn_loc (`ClientSpawnLoc client_id))
+      ; "%proc_have_mail", `PFun (not_implemented "haveMail")
+      ; "%proc_sleep"    , `PFun (not_implemented "sleep")
+      (* Session functions are implemented by the interpreter. *)
+      (* Access point functions are implemented by the interpreter. *)
+      ; "%list_nil", `List []
+      ; "%list_cons", `PFun (binary (fun x xs -> x :: xs) (fun x -> x) Value.unbox_list Value.box_list)
+      ; "%list_concat", `PFun (binop (@) Value.unbox_list Value.box_list)
+      ; "%list_hd"    , `PFun (unary List.hd Value.unbox_list (fun x -> x))
+      ; "%list_tl"    , `PFun (unary List.tl Value.unbox_list Value.box_list)
+      ; "%list_length", `PFun (unary List.length Value.unbox_list Value.box_int)
+      ; "%list_take"  , `PFun (binary ListUtils.take Value.unbox_int Value.unbox_list Value.box_list)
+      ; "%list_drop"  , `PFun (binary ListUtils.drop Value.unbox_int Value.unbox_list Value.box_list)
+      ; "%list_max"   , `PFun (unary (function
+                                   | [] ->
+                                      `Variant ("None", `Record [])
+                                   | x :: xs ->
+                                      `Variant ("Some", List.fold_left
+                                                          (fun x y -> if less x y then y else x) x xs))
+                                 Value.unbox_list (fun x -> x))
+      ; "%list_min"   , `PFun (unary (function
+                                   | [] ->
+                                      `Variant ("None", `Record [])
+                                   | x :: xs ->
+                                      `Variant ("Some", List.fold_left
+                                                          (fun x y -> if less x y then x else y) x xs))
+                                 Value.unbox_list (fun x -> x))
+      ;
       ]
     in
     let tbl = Hashtbl.create 256 in
