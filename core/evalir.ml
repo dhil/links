@@ -342,7 +342,7 @@ module Builtins = struct
                               let resp_headers = RequestData.get_http_response_headers req_data in
                               RequestData.set_http_response_headers req_data (("Location", url) :: resp_headers);
                               RequestData.set_http_response_code req_data 302;
-                              `Record [])
+                              Value.unit)
                            (* Database. *)
       ; "%db_get_config", `PFun (nullary (fun () ->
                                      let args = Utility.from_option "" (Settings.get Database.connection_info) in
@@ -509,14 +509,14 @@ struct
     eval_error "Attempting to %s %s (need %s instead)" action (Value.string_of_value value) expected
 
   let db_connect : Value.t -> Value.database * string = fun db ->
-    let driver = Value.unbox_string (Value.project "driver" db)
-    and name = Value.unbox_string (Value.project "name" db)
-    and args = Value.unbox_string (Value.project "args" db) in
+    let driver = Value.unbox_string (Value.project "driver" db) in
+    let name = Value.unbox_string (Value.project "name" db) in
+    let args = Value.unbox_string (Value.project "args" db) in
     let params =
-      (if args = "" then name
-       else name ^ ":" ^ args)
+      if String.equal args "" then name
+      else Printf.sprintf "%s:%s" name args
     in
-      Value.db_connect driver params
+    Value.db_connect driver params
 
   let lookup_fun_def f =
     match lookup_fun f with
@@ -530,7 +530,9 @@ struct
              small *)
           Some (`FunctionPtr (f, None))
         | Location.Client ->
-          Some (`ClientFunction (Js.var_name_binder (f, finfo)))
+           let name = Js.var_name_binder (f, finfo) in
+           Some (`ClientFunction (Value.primitive_desc name name))
+        | Location.Native -> assert false
       end
     | _ -> assert false
 
@@ -678,43 +680,44 @@ struct
           apply_cont cont env (`AccessPointID (`ServerAccessPoint apid))
   and apply (cont : continuation) env : Value.t * Value.t list -> result =
     let invoke_session_exception () =
-      special env cont (DoOperation (Value.session_exception_operation,
-        [], `Not_typed)) in
-    function
+      special env cont (DoOperation (Value.session_exception_operation, [], `Not_typed))
+    in function
     | `FunctionPtr (f, fvs), ps ->
-      let (_finfo, (xs, body), z, _location) = find_fun f in
-      let env =
-        match z, fvs with
-        | None, None            -> env
-        | Some z, Some fvs -> Value.Env.bind z (fvs, Scope.Local) env
-        | _, _ -> assert false in
-
-      (* extend env with arguments *)
-      let env = List.fold_right2 (fun x p -> Value.Env.bind x (p, Scope.Local)) xs ps env in
-      computation_yielding env cont body
-    | `PrimitiveFunction ("registerEventHandlers",_), [hs] ->
-      let key = EventHandlers.register hs in
-      apply_cont cont env (`String (string_of_int key))
-    (* start of mailbox stuff *)
-    | `PrimitiveFunction ("Send",_), [pid; msg] ->
-        let unboxed_pid = Value.unbox_pid pid in
-        (try
-           match unboxed_pid with
-           (* Send a message to a process which lives on the server *)
-           | `ServerPid serv_pid ->
-              Lwt.return @@ Mailbox.send_server_message msg serv_pid
-           (* Send a message to a process which lives on another client *)
-           | `ClientPid (client_id, process_id) ->
-              Mailbox.send_client_message msg client_id process_id
-         with
-           UnknownProcessID id ->
-           Debug.print (
-               "Couldn't deliver message because destination process " ^
-                 (ProcessTypes.ProcessID.to_string id) ^ " has no mailbox.");
-           Lwt.return ()) >>= fun _ ->
-        apply_cont cont env (`Record [])
-    | `PrimitiveFunction ("spawnAt",_), [loc; func] ->
-        begin match loc with
+       let (_finfo, (xs, body), z, _location) = find_fun f in
+       let env =
+         match z, fvs with
+         | None, None            -> env
+         | Some z, Some fvs -> Value.Env.bind z (fvs, Scope.Local) env
+         | _, _ -> assert false in
+       (* extend env with arguments *)
+       let env = List.fold_right2 (fun x p -> Value.Env.bind x (p, Scope.Local)) xs ps env in
+       computation_yielding env cont body
+    | `PrimitiveFunction desc, args ->
+       let name = Value.primfn_user_name desc in
+       begin match name, args with
+       | "registerEventHandlers", [hs] ->
+          let key = EventHandlers.register hs in
+          apply_cont cont env (`String (string_of_int key))
+       (* start of mailbox stuff *)
+       | "Send", [pid; msg] ->
+          let unboxed_pid = Value.unbox_pid pid in
+          (try
+             match unboxed_pid with
+             (* Send a message to a process which lives on the server *)
+             | `ServerPid serv_pid ->
+                Lwt.return @@ Mailbox.send_server_message msg serv_pid
+             (* Send a message to a process which lives on another client *)
+             | `ClientPid (client_id, process_id) ->
+                Mailbox.send_client_message msg client_id process_id
+           with
+             UnknownProcessID id ->
+             Debug.print (
+                 "Couldn't deliver message because destination process " ^
+                   (ProcessTypes.ProcessID.to_string id) ^ " has no mailbox.");
+             Lwt.return ()) >>= (fun _ ->
+            apply_cont cont env Value.unit)
+       | "spawnAt", [loc; func] ->
+          begin match loc with
           | `SpawnLocation (`ClientSpawnLoc client_id) ->
              Proc.create_client_process client_id func >>= fun new_pid ->
              apply_cont cont env (`Pid (`ClientPid (client_id, new_pid)))
@@ -725,248 +728,253 @@ struct
                (fun () -> apply_cont K.(frame &> empty) env func) >>= fun new_pid ->
              apply_cont cont env (`Pid (`ServerPid new_pid))
           | _ -> assert false
-        end
-    | `PrimitiveFunction ("spawnAngelAt",_), [loc; func] ->
-        begin match loc with
-        | `SpawnLocation (`ClientSpawnLoc client_id) ->
-           Proc.create_client_process client_id func >>= fun new_pid ->
-           apply_cont cont env (`Pid (`ClientPid (client_id, new_pid)))
-        | `SpawnLocation (`ServerSpawnLoc) ->
-           let var = Var.dummy_var in
-           let frame = K.Frame.make Scope.Local var Value.Env.empty ([], Apply (Variable var, [])) in
-           Proc.create_process true
-             (fun () -> apply_cont K.(frame &> empty) env func) >>= fun new_pid ->
-           apply_cont cont env (`Pid (`ServerPid new_pid))
-        | _ -> assert false
-        end
-    | `PrimitiveFunction ("spawnWait", _), [func] ->
-        let our_pid = Proc.get_current_pid () in
-        (* Create the new process *)
-        let var = Var.dummy_var in
-        let frame = K.Frame.make Scope.Local var Value.Env.empty ([], Apply (Variable var, [])) in
-        Proc.create_spawnwait_process our_pid
-          (fun () -> apply_cont K.(frame &> empty) env func) >>= fun child_pid ->
-        (* Now, we need to block this process until the spawned process has evaluated to a value.
-         * The idea here is that we have a second function, spawnWait', which grabs the result
-         * from proc.ml. *)
-        let fresh_var = Var.fresh_raw_var () in
-        let extended_env =
-          Value.Env.bind fresh_var (Value.box_pid (`ServerPid child_pid), Scope.Local) env in
-        let grab_frame =
-          K.Frame.of_expr extended_env
-                          (Lib.prim_appln "spawnWait'" [Variable fresh_var]) in
+          end
+       | "spawnAngelAt", [loc; func] ->
+          begin match loc with
+          | `SpawnLocation (`ClientSpawnLoc client_id) ->
+             Proc.create_client_process client_id func >>= fun new_pid ->
+             apply_cont cont env (`Pid (`ClientPid (client_id, new_pid)))
+          | `SpawnLocation (`ServerSpawnLoc) ->
+             let var = Var.dummy_var in
+             let frame = K.Frame.make Scope.Local var Value.Env.empty ([], Apply (Variable var, [])) in
+             Proc.create_process true
+               (fun () -> apply_cont K.(frame &> empty) env func) >>= fun new_pid ->
+             apply_cont cont env (`Pid (`ServerPid new_pid))
+          | _ -> assert false
+          end
+       | "spawnWait", [func] ->
+          let our_pid = Proc.get_current_pid () in
+          (* Create the new process *)
+          let var = Var.dummy_var in
+          let frame = K.Frame.make Scope.Local var Value.Env.empty ([], Apply (Variable var, [])) in
+          Proc.create_spawnwait_process our_pid
+            (fun () -> apply_cont K.(frame &> empty) env func) >>= fun child_pid ->
+          (* Now, we need to block this process until the spawned
+             process has evaluated to a value.  The idea here is that
+             we have a second function, spawnWait', which grabs the
+             result from proc.ml. *)
+          let fresh_var = Var.fresh_raw_var () in
+          let extended_env =
+            Value.Env.bind fresh_var (Value.box_pid (`ServerPid child_pid), Scope.Local) env in
+          let grab_frame =
+            K.Frame.of_expr extended_env
+              (Lib.prim_appln "spawnWait'" [Variable fresh_var]) in
 
-        (* Now, check to see whether we already have the result; if so, we can
-         * grab and continue. Otherwise, we need to block. *)
-        begin
-          match Proc.get_spawnwait_result child_pid with
+          (* Now, check to see whether we already have the result; if
+             so, we can grab and continue. Otherwise, we need to
+             block. *)
+          begin
+            match Proc.get_spawnwait_result child_pid with
             | Some v -> apply_cont cont env v
             | None ->
-                Proc.block (fun () -> apply_cont K.(grab_frame &> cont) env (`Record []))
-        end
-    | `PrimitiveFunction ("spawnWait'", _), [child_pid] ->
-        let unboxed_pid = Value.unbox_pid child_pid in
-        begin
-        match unboxed_pid with
-          | `ServerPid server_pid ->
-              let v = OptionUtils.val_of @@ Proc.get_spawnwait_result server_pid in
-              apply_cont cont env v
-          | _ -> assert false
-        end
-    | `PrimitiveFunction ("recv",_), [] ->
-        (* If there are any messages, take the first one and apply the
-           continuation to it.  Otherwise, block the process (put its
-           continuation in the blocked_processes table) and let the
-           scheduler choose a different thread.  *)
-        begin match Mailbox.pop_message () with
-          Some message ->
-           Debug.print("delivered message.");
-           apply_cont cont env message
-        | None ->
-           let recv_frame = K.Frame.of_expr env (Lib.prim_appln "recv" []) in
-           Proc.block (fun () -> apply_cont K.(recv_frame &> cont) env (`Record []))
-        end
-    (* end of mailbox stuff *)
-    (* start of session stuff *)
-    | `PrimitiveFunction ("new", _), [] ->
-        apply_access_point cont env `ServerSpawnLoc
-    | `PrimitiveFunction ("newAP", _), [loc] ->
-        let unboxed_loc = Value.unbox_spawn_loc loc in
-        apply_access_point cont env unboxed_loc
-    | `PrimitiveFunction ("newClientAP", _), [] ->
-        (* Really this should be desugared properly into "there"... *)
-        let client_id = RequestData.get_client_id @@ Value.Env.request_data env in
-        apply_access_point cont env (`ClientSpawnLoc client_id)
-    | `PrimitiveFunction ("newServerAP", _), [] ->
-        apply_access_point cont env `ServerSpawnLoc
-    | `PrimitiveFunction ("accept", _), [ap] ->
-      let ap = Value.unbox_access_point ap in
-      begin
-        match ap with
-          | `ClientAccessPoint _ ->
-              (* TODO: Work out the semantics of this *)
-              raise (internal_error "Cannot *yet* accept on a client AP on the server")
-          | `ServerAccessPoint apid ->
-              Session.accept apid >>= fun ((_, c) as ch, blocked) ->
-              let boxed_channel = Value.box_channel ch in
-              Debug.print ("Accepting: " ^ (Value.string_of_value boxed_channel));
-              if blocked then
-                  (* block my end of the channel *)
-                  (Session.block c (Proc.get_current_pid ());
-                   Proc.block (fun () -> apply_cont cont env boxed_channel))
-              else
-                (* other end will have been unblocked in proc *)
+               Proc.block (fun () -> apply_cont K.(grab_frame &> cont) env Value.unit)
+          end
+       | "spawnWait'", [child_pid] ->
+          let unboxed_pid = Value.unbox_pid child_pid in
+          begin
+            match unboxed_pid with
+            | `ServerPid server_pid ->
+               let v = OptionUtils.val_of @@ Proc.get_spawnwait_result server_pid in
+               apply_cont cont env v
+            | _ -> assert false
+          end
+       | "recv", [] ->
+          (* If there are any messages, take the first one and apply
+             the continuation to it.  Otherwise, block the process
+             (put its continuation in the blocked_processes table) and
+             let the scheduler choose a different thread.  *)
+          begin match Mailbox.pop_message () with
+            Some message ->
+             Debug.print("delivered message.");
+             apply_cont cont env message
+          | None ->
+             let recv_frame = K.Frame.of_expr env (Lib.prim_appln "recv" []) in
+             Proc.block (fun () -> apply_cont K.(recv_frame &> cont) env Value.unit)
+          end
+       (* end of mailbox stuff *)
+       (* start of session stuff *)
+       | "new", [] ->
+          apply_access_point cont env `ServerSpawnLoc
+       | "newAP", [loc] ->
+          let unboxed_loc = Value.unbox_spawn_loc loc in
+          apply_access_point cont env unboxed_loc
+       | "newClientAP", [] ->
+          (* Really this should be desugared properly into "there"... *)
+          let client_id = RequestData.get_client_id @@ Value.Env.request_data env in
+          apply_access_point cont env (`ClientSpawnLoc client_id)
+       | "newServerAP", [] ->
+          apply_access_point cont env `ServerSpawnLoc
+       | "accept", [ap] ->
+          let ap = Value.unbox_access_point ap in
+          begin
+            match ap with
+            | `ClientAccessPoint _ ->
+               (* TODO: Work out the semantics of this *)
+               raise (internal_error "Cannot *yet* accept on a client AP on the server")
+            | `ServerAccessPoint apid ->
+               Session.accept apid >>= fun ((_, c) as ch, blocked) ->
+               let boxed_channel = Value.box_channel ch in
+               Debug.print ("Accepting: " ^ (Value.string_of_value boxed_channel));
+               if blocked then
+                 (* block my end of the channel *)
+                 (Session.block c (Proc.get_current_pid ());
+                  Proc.block (fun () -> apply_cont cont env boxed_channel))
+               else
+                 (* other end will have been unblocked in proc *)
+                 apply_cont cont env boxed_channel
+          end
+       | "request", [ap] ->
+          let ap = Value.unbox_access_point ap in
+          begin
+            match ap with
+            | `ClientAccessPoint _ ->
+               (* TODO: Work out the semantics of this *)
+               raise (internal_error "Cannot *yet* request from a client-spawned AP on the server")
+            | `ServerAccessPoint apid ->
+               Session.request apid >>= fun ((_, c) as ch, blocked) ->
+               let boxed_channel = Value.box_channel ch in
+               if blocked then
+                 (* block my end of the channel *)
+                 (Session.block c (Proc.get_current_pid ());
+                  Proc.block (fun () -> apply_cont cont env boxed_channel))
+               else
+                 (* Otherwise, other end will have been unblocked in
+                    proc.ml, return new channel EP *)
                 apply_cont cont env boxed_channel
-      end
-    | `PrimitiveFunction ("request", _), [ap] ->
-      let ap = Value.unbox_access_point ap in
-      begin
-        match ap with
-          | `ClientAccessPoint _ ->
-              (* TODO: Work out the semantics of this *)
-              raise (internal_error "Cannot *yet* request from a client-spawned AP on the server")
-          | `ServerAccessPoint apid ->
-              Session.request apid >>= fun ((_, c) as ch, blocked) ->
-              let boxed_channel = Value.box_channel ch in
-              if blocked then
-                (* block my end of the channel *)
-                (Session.block c (Proc.get_current_pid ());
-                Proc.block (fun () -> apply_cont cont env boxed_channel))
-              else
-                (* Otherwise, other end will have been unblocked in proc.ml,
-                 * return new channel EP *)
-                apply_cont cont env boxed_channel
-      end
-    | `PrimitiveFunction ("send", _), [v; chan] ->
-      let open Session in
-      Debug.print ("sending: " ^ Value.string_of_value v ^ " to channel: " ^ Value.string_of_value chan);
-      let unboxed_chan = Value.unbox_channel chan in
-      let outp = Session.send_port unboxed_chan in
-      Session.send_from_local v outp >>= fun res ->
-        begin
-          match res with
+          end
+       | "send", [v; chan] ->
+          let open Session in
+          Debug.print ("sending: " ^ Value.string_of_value v ^ " to channel: " ^ Value.string_of_value chan);
+          let unboxed_chan = Value.unbox_channel chan in
+          let outp = Session.send_port unboxed_chan in
+          Session.send_from_local v outp >>= fun res ->
+          begin
+            match res with
             | SendOK -> apply_cont cont env chan
             | SendPartnerCancelled ->
-                (* If send fails, we need to cancel all carried channels *)
-                let contained_channels = Value.get_contained_channels v in
-                List.fold_left
-                  (fun acc c -> acc >>= fun _ -> Session.cancel c)
-                  (Lwt.return ()) contained_channels >>= fun _ ->
-                apply_cont cont env chan
-        end
-    | `PrimitiveFunction ("receive", _), [chan] ->
-      begin
-        let open Session in
-        Debug.print("receiving from channel: " ^ Value.string_of_value chan);
-        let unboxed_chan = Value.unbox_channel chan in
-        let peer_ep = Session.send_port unboxed_chan in
-        let block () =
-          (* Here, we have to extend the environment with a fresh variable
-           * representing the channel, since we can't create an IR application
-           * involving a Value.t (only an Ir.value).
-           * This *should* be safe, but still feels a bit unsatisfactory.
-           * It would be nice to refine this further. *)
-          let fresh_var = Var.fresh_raw_var () in
-          let extended_env = Value.Env.bind fresh_var (chan, Scope.Local) env in
-          let grab_frame = K.Frame.of_expr extended_env (Lib.prim_appln "receive" [Variable fresh_var]) in
-          let inp = (snd unboxed_chan) in
-          Session.block inp (Proc.get_current_pid ());
-          Proc.block (fun () -> apply_cont K.(grab_frame &> cont) env (`Record [])) in
+               (* If send fails, we need to cancel all carried channels *)
+               let contained_channels = Value.get_contained_channels v in
+               List.fold_left
+                 (fun acc c -> acc >>= fun _ -> Session.cancel c)
+                 (Lwt.return ()) contained_channels >>= fun _ ->
+               apply_cont cont env chan
+          end
+       | "receive", [chan] ->
+          begin
+            let open Session in
+            Debug.print("receiving from channel: " ^ Value.string_of_value chan);
+            let unboxed_chan = Value.unbox_channel chan in
+            let peer_ep = Session.send_port unboxed_chan in
+            let block () =
+              (* Here, we have to extend the environment with a fresh
+                 variable representing the channel, since we can't
+                 create an IR application involving a Value.t (only an
+                 Ir.value).  This *should* be safe, but still feels a
+                 bit unsatisfactory.  It would be nice to refine this
+                 further. *)
+              let fresh_var = Var.fresh_raw_var () in
+              let extended_env = Value.Env.bind fresh_var (chan, Scope.Local) env in
+              let grab_frame = K.Frame.of_expr extended_env (Lib.prim_appln "receive" [Variable fresh_var]) in
+              let inp = (snd unboxed_chan) in
+              Session.block inp (Proc.get_current_pid ());
+              Proc.block (fun () -> apply_cont K.(grab_frame &> cont) env Value.unit)
+            in
+            let throw_or_block () =
+              if Settings.get (Basicsettings.Sessions.exceptions_enabled) then
+                invoke_session_exception ()
+              else block () in
 
-        let throw_or_block () =
-          if Settings.get (Basicsettings.Sessions.exceptions_enabled) then
-            invoke_session_exception ()
-          else block () in
-
-        if Session.is_endpoint_cancelled peer_ep then
-          throw_or_block ()
-        else
-          match Session.receive unboxed_chan with
-            | ReceiveOK v ->
-              Debug.print ("grabbed: " ^ Value.string_of_value v);
-              apply_cont cont env (Value.box_pair v chan)
-            | ReceiveBlocked -> block ()
-            | ReceivePartnerCancelled ->
-              Session.cancel unboxed_chan >>= fun _ ->
+            if Session.is_endpoint_cancelled peer_ep then
               throw_or_block ()
-        end
-    | `PrimitiveFunction ("link", _), [chanl; chanr] ->
-        let unblock p =
-          match Session.unblock p with
-          | Some pid -> (*Debug.print("unblocked: "^string_of_int p); *)
-                        Proc.awaken pid
-          | None     -> () in
-        Debug.print ("linking channels: " ^ Value.string_of_value chanl ^ " and: " ^ Value.string_of_value chanr);
-        let (out1, in1) = Value.unbox_channel chanl in
-        let (out2, in2) = Value.unbox_channel chanr in
-        Session.link (out1, in1) (out2, in2);
-        unblock out1;
-        unblock out2;
-        apply_cont cont env (`Record [])
-    | `PrimitiveFunction ("cancel", _), [chan] ->
-        Session.cancel (Value.unbox_channel chan) >>= fun _ ->
-        apply_cont cont env (`Record [])
-    | `PrimitiveFunction ("close", _), [chan] ->
-        Session.close (Value.unbox_channel chan);
-        apply_cont cont env (`Record [])
-    (* end of session stuff *)
-    | `PrimitiveFunction ("unsafeAddRoute", _), [pathv; handler; error_handler] ->
-       let path = Value.unbox_string pathv in
-       let is_dir_handler = String.length path > 0 && path.[String.length path - 1] = '/' in
-       let path = if String.length path == 0 || path.[0] <> '/' then "/" ^ path else path in
-       let path =
-         match Settings.get (Webserver_types.internal_base_url) with
-         | None -> path
-         | Some base_url ->
-            let base_url = Utility.strip_slashes base_url in
-            "/" ^ base_url ^ path
-       in
-       Webs.add_route is_dir_handler path (Right {Webs.request_handler = (env, handler); Webs.error_handler = (env, error_handler)});
-       apply_cont cont env (`Record [])
-    | `PrimitiveFunction ("addStaticRoute", _), [uriv; pathv; mime_typesv] ->
-       if not (!allow_static_routes) then
-         eval_error "Attempt to add a static route after they have been disabled";
-       let uri = Value.unbox_string uriv in
-       let uri = if String.length uri == 0 || uri.[0] <> '/' then "/" ^ uri else uri in
-       let uri =
-         match Webs.get_internal_base_url () with
-         | None -> uri
-         | Some base_uri ->
-            let base_uri = Utility.strip_slashes base_uri in
-            "/" ^ base_uri ^ uri
-       in
-       let path = Value.unbox_string pathv in
-       let mime_types = List.map (fun v -> let (x, y) = Value.unbox_pair v in (Value.unbox_string x, Value.unbox_string y)) (Value.unbox_list mime_typesv) in
-       Webs.add_route true uri (Left (path, mime_types));
-       apply_cont cont env (`Record [])
-    | `PrimitiveFunction ("servePages", _), [] ->
-       if not (Settings.get (dynamic_static_routes)) then
-         allow_static_routes := false;
-       begin
-         Webs.start env >>= fun () ->
-         apply_cont cont env (`Record [])
+            else
+              match Session.receive unboxed_chan with
+              | ReceiveOK v ->
+                 Debug.print ("grabbed: " ^ Value.string_of_value v);
+                 apply_cont cont env (Value.box_pair v chan)
+              | ReceiveBlocked -> block ()
+              | ReceivePartnerCancelled ->
+                 Session.cancel unboxed_chan >>= fun _ ->
+                 throw_or_block ()
+          end
+       | "link", [chanl; chanr] ->
+          let unblock p =
+            match Session.unblock p with
+            | Some pid -> (*Debug.print("unblocked: "^string_of_int p); *)
+               Proc.awaken pid
+            | None     -> () in
+          Debug.print ("linking channels: " ^ Value.string_of_value chanl ^ " and: " ^ Value.string_of_value chanr);
+          let (out1, in1) = Value.unbox_channel chanl in
+          let (out2, in2) = Value.unbox_channel chanr in
+          Session.link (out1, in1) (out2, in2);
+          unblock out1;
+          unblock out2;
+          apply_cont cont env Value.unit
+       | "cancel", [chan] ->
+          Session.cancel (Value.unbox_channel chan) >>= fun _ ->
+          apply_cont cont env Value.unit
+       | "close", [chan] ->
+          Session.close (Value.unbox_channel chan);
+          apply_cont cont env Value.unit
+       (* end of session stuff *)
+       | "unsafeAddRoute", [pathv; handler; error_handler] ->
+          let path = Value.unbox_string pathv in
+          let is_dir_handler = String.length path > 0 && path.[String.length path - 1] = '/' in
+          let path = if String.length path == 0 || path.[0] <> '/' then "/" ^ path else path in
+          let path =
+            match Settings.get (Webserver_types.internal_base_url) with
+            | None -> path
+            | Some base_url ->
+               let base_url = Utility.strip_slashes base_url in
+               "/" ^ base_url ^ path
+          in
+          Webs.add_route is_dir_handler path (Right {Webs.request_handler = (env, handler); Webs.error_handler = (env, error_handler)});
+          apply_cont cont env Value.unit
+       | "addStaticRoute", [uriv; pathv; mime_typesv] ->
+          if not (!allow_static_routes) then
+            eval_error "Attempt to add a static route after they have been disabled";
+          let uri = Value.unbox_string uriv in
+          let uri = if String.length uri == 0 || uri.[0] <> '/' then "/" ^ uri else uri in
+          let uri =
+            match Webs.get_internal_base_url () with
+            | None -> uri
+            | Some base_uri ->
+               let base_uri = Utility.strip_slashes base_uri in
+               "/" ^ base_uri ^ uri
+          in
+          let path = Value.unbox_string pathv in
+          let mime_types = List.map (fun v -> let (x, y) = Value.unbox_pair v in (Value.unbox_string x, Value.unbox_string y)) (Value.unbox_list mime_typesv) in
+          Webs.add_route true uri (Left (path, mime_types));
+          apply_cont cont env Value.unit
+       | "servePages", [] ->
+          if not (Settings.get (dynamic_static_routes)) then
+            allow_static_routes := false;
+          begin
+            Webs.start env >>= fun () ->
+            apply_cont cont env Value.unit
+          end
+       | "serveWebsockets", [] ->
+          Webs.set_accepting_websocket_requests true;
+          apply_cont cont env Value.unit
+       (*****************)
+       (* | `PrimitiveFunction (n,None), args ->
+        *    apply_cont cont env (Lib.apply_pfun n args (Value.Env.request_data env)) *)
+       | _, _ ->
+          let fn = Builtins.find name in
+          let result = Builtins.apply fn (Value.Env.request_data env) args in
+          apply_cont cont env result
+    (* | `PrimitiveFunction (_, Some code), args ->
+     *    apply_cont cont env (Lib.apply_pfun_by_code code args (Value.Env.request_data env)) *)
        end
-    | `PrimitiveFunction ("serveWebsockets", _), [] ->
-        Webs.set_accepting_websocket_requests true;
-        apply_cont cont env (`Record [])
-    (*****************)
-    (* | `PrimitiveFunction (n,None), args ->
-     *    apply_cont cont env (Lib.apply_pfun n args (Value.Env.request_data env)) *)
-    | `PrimitiveFunction (name, None), args ->
-       let fn = Builtins.find name in
-       let result = Builtins.apply fn (Value.Env.request_data env) args in
-       apply_cont cont env result
-    | `PrimitiveFunction (_, Some code), args ->
-       apply_cont cont env (Lib.apply_pfun_by_code code args (Value.Env.request_data env))
-    | `ClientFunction name, args ->
-        let req_data = Value.Env.request_data env in
-        client_call req_data name cont args
+    | `ClientFunction desc, args ->
+       let name = Value.primfn_object_name desc in
+       let req_data = Value.Env.request_data env in
+       client_call req_data name cont args
     | `Continuation c,      [p] -> apply_cont c env p
     | `Continuation _,       _  ->
        eval_error "Continuation applied to multiple (or zero) arguments"
     | `Resumption r, vs ->
        resume env cont r vs
-    | `Alien, _ -> eval_error "Cannot make alien call on the server.";
+    (* | `Alien, _ -> eval_error "Cannot make alien call on the server."; *)
     | v, _ -> type_error ~action:"apply" "function" v
   and resume env (cont : continuation) (r : resumption) vs =
     Proc.yield (fun () -> K.Eval.resume ~env cont r vs)
@@ -994,16 +1002,20 @@ struct
          | Alien { binder; language; location; object_name } ->
             let var = Var.var_of_binder binder in
             let scope = Var.scope_of_binder binder in
+            let desc =
+              let user_name = Var.name_of_binder binder in
+              Value.primitive_desc user_name object_name
+            in
             let open ForeignLanguage in
             begin match language with
             | JavaScript ->
-               let env' = Value.Env.bind var (`ClientFunction object_name, scope) env in
+               let env' = Value.Env.bind var (`ClientFunction desc, scope) env in
                computation env' cont (bs, tailcomp)
             | Builtin when Location.is_client location ->
-               let env' = Value.Env.bind var (`ClientFunction object_name, scope) env in
+               let env' = Value.Env.bind var (`ClientFunction desc, scope) env in
                computation env' cont (bs, tailcomp)
             | Builtin ->
-               let env' = Value.Env.bind var (`PrimitiveFunction (object_name, None), scope) env in
+               let env' = Value.Env.bind var (`PrimitiveFunction desc, scope) env in
                computation env' cont (bs, tailcomp)
             end
          | Module _ -> raise (internal_error "Not implemented interpretation of modules yet")
@@ -1226,24 +1238,24 @@ struct
           value env source >>= fun source ->
           value env rows >>= fun rows ->
           match source, rows with
-          | `Table _, `List [] ->  apply_cont cont env (`Record [])
+          | `Table _, `List [] ->  apply_cont cont env Value.unit
           | `Table ((db, _params), table_name, _, _), rows ->
               let (field_names,vss) = Value.row_columns_values db rows in
               Debug.print ("RUNNING INSERT QUERY:\n" ^ (db#make_insert_query(table_name, field_names, vss)));
               let () = ignore (Database.execute_insert (table_name, field_names, vss) db) in
-              apply_cont cont env (`Record [])
+              apply_cont cont env Value.unit
           | _ -> raise (internal_error "insert row into non-database")
         end
-  (* FIXME:
+    (* FIXME:
 
-     Choose a semantics for InsertReturning.
+       Choose a semantics for InsertReturning.
 
-     Currently it is well-defined if exactly one row is inserted, but
-     is not necessarily well-defined otherwise.
+       Currently it is well-defined if exactly one row is inserted,
+       but is not necessarily well-defined otherwise.
 
-     Perhaps the easiest course of action is to restrict it to the
-     case of inserting a single row.
-  *)
+       Perhaps the easiest course of action is to restrict it to the
+       case of inserting a single row.
+     *)
     | InsertReturning (source, rows, returning) ->
         begin
           value env source >>= fun source ->
@@ -1275,7 +1287,7 @@ struct
       let update_query =
         Query.compile_update db env ((Var.var_of_binder xb, table, field_types), where, body) in
       let () = ignore (Database.execute_command update_query db) in
-        apply_cont cont env (`Record [])
+        apply_cont cont env Value.unit
     | Delete ((xb, source), where) ->
         value env source >>= fun source ->
         begin
@@ -1290,7 +1302,7 @@ struct
       let delete_query =
         Query.compile_delete db env ((Var.var_of_binder xb, table, field_types), where) in
       let () = ignore (Database.execute_command delete_query db) in
-        apply_cont cont env (`Record [])
+        apply_cont cont env Value.unit
     | CallCC f ->
        value env f >>= fun f ->
        apply cont env (f, [`Continuation cont])
@@ -1338,7 +1350,7 @@ struct
       Debug.print ("selecting: " ^ name ^ " from: " ^ Value.string_of_value chan);
       let ch = Value.unbox_channel chan in
       let (outp, _inp) = ch in
-      Session.send_from_local (Value.box_variant name (Value.box_unit ())) outp >>= fun _ ->
+      Session.send_from_local (Value.box_variant name Value.unit) outp >>= fun _ ->
       OptionUtils.opt_iter Proc.awaken (Session.unblock outp);
       apply_cont cont env chan
     | Choice (v, cases) ->
@@ -1353,13 +1365,12 @@ struct
              K.Frame.of_expr env (Special (Choice (v, cases)))
           in
              Session.block inp (Proc.get_current_pid ());
-             Proc.block (fun () -> apply_cont K.(choice_frame &> cont) env (`Record [])) in
-
+             Proc.block (fun () -> apply_cont K.(choice_frame &> cont) env Value.unit)
+        in
         match Session.receive unboxed_chan with
           | ReceiveOK v ->
             let label = fst @@ Value.unbox_variant v in
             Debug.print ("chose label: " ^ label);
-
               begin
                 match StringMap.lookup label cases with
                 | Some ((var,_), body) ->

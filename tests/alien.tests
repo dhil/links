@@ -1,31 +1,40 @@
 Alien declaration below toplevel
-if (true) { alien javascript "foo.js" foo : () ~> (); foo() } else { () }
+if (true) { alien javascript "foo.js" foo : () ~> () = "foobar"; foo() } else { () }
 stderr : @.*
 exit : 1
 
 Alien blocks below toplevel
-if (true) { alien javascript "foo.js" { foo : () ~> (); } foo() } else { () }
+if (true) { alien javascript "foo.js" { foo : () ~> () = "foobar"; } foo() } else { () }
 stderr : @.*
 exit : 1
 
 Alien functions may be evaluated in the interpreter
-alien javascript "fun.js" f : () ~> (); id(f)
+alien javascript "fun.js" f : () ~> () = "g"; id(f)
 stdout : alien : () ~> ()
 
 Alien values may be evaluated in the interpreter
-alien javascript "val.js" x : (); id(x)
+alien javascript "val.js" x : () = "x"; id(x)
 stdout : alien : ()
 
 Alien functions may not be applied in the interpreter
-alien javascript "fun.js" f : () ~> (); f()
+alien javascript "fun.js" f : () ~> () = "f"; f()
 exit : 1
 stderr : @.*Cannot make alien call on the server\..*
 
-Alien binders cannot contain primes
-alien javascript "" f' : () -> ();
-exit : 1
-stderr : @.*
+Alien binders can contain primes
+alien javascript "" f' : () -> () = "";
+stdout : () : ()
 
 Alien type variables can contain primes
 alien javascript "" f : (a', b') -> c';
 stdout : () : ()
+
+Alien operator
+alien javascript ++ : (a, a) -> a = "concat";
+stdout : () : ()
+
+Client side alien
+alien javascript unsafeCoerce client : (a) -> b = "unsafe_coerce";
+
+Server side alien
+alien javascript unsafeCoerce server : (a) -> b = "unsafe_coerce";

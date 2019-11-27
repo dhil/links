@@ -2,12 +2,12 @@ open CommonTypes
 open List
 
 (*open Value*)
-open Types
+(* open Types *)
 open Utility
-open Proc
+(* open Proc *)
 
 (* Error functions *)
-let runtime_error msg = raise (Errors.runtime_error msg)
+(* let runtime_error msg = raise (Errors.runtime_error msg) *)
 
 let internal_error message =
   Errors.internal_error ~filename:"lib.ml" ~message
@@ -28,7 +28,7 @@ let alias_env : Types.tycon_environment = DefaultAliases.alias_env
 let alias_env : Types.tycon_environment =
   AliasEnv.bind "Regex" (`Alias ([], (DesugarDatatypes.read ~aliases:alias_env Linksregex.Regex.datatype))) alias_env
 
-let datatype = DesugarDatatypes.read ~aliases:alias_env
+(* let datatype = DesugarDatatypes.read ~aliases:alias_env *)
 
 type primitive =
 [ Value.t
@@ -38,148 +38,164 @@ type pure = PURE | IMPURE
 
 type located_primitive = [ `Client | `Server of primitive | primitive ]
 
-let mk_binop_fn impl unbox_fn constr = function
-    | [x; y] -> constr (impl (unbox_fn x) (unbox_fn y))
-    | _ -> raise (internal_error "arity error in integer operation")
-
-let int_op impl pure : located_primitive * Types.datatype * pure =
-  (`PFun (fun _ -> mk_binop_fn impl Value.unbox_int (fun x -> `Int x))),
-  datatype "(Int, Int) -> Int",
-  pure
-
-let float_op impl pure : located_primitive * Types.datatype * pure =
-  (`PFun (fun _ -> mk_binop_fn impl Value.unbox_float (fun x -> `Float x))),
-  datatype "(Float, Float) -> Float",
-  pure
-
-let string_op impl pure : located_primitive * Types.datatype * pure =
-  (`PFun (fun _ -> mk_binop_fn impl Value.unbox_string (fun x -> `String x))),
-  datatype "(String, String) -> String",
-  pure
-
-let conversion_op' ~unbox ~conv ~(box :'a->Value.t): Value.t list -> Value.t = function
-    | [x] -> box (conv (unbox x))
-    | _ -> assert false
-
-let conversion_op ~from ~unbox ~conv ~(box :'a->Value.t) ~into pure : located_primitive * Types.datatype * pure =
-  ((`PFun (fun _ x -> conversion_op' ~unbox:unbox ~conv:conv ~box:box x) : located_primitive),
-   (let q, r = Types.fresh_row_quantifier (lin_any, res_any) in
-      (`ForAll ([q], `Function (make_tuple_type [from], r, into)) : Types.datatype)),
-   pure)
-
-let string_to_xml : Value.t -> Value.t = function
-  | `String s -> `List [`XML (Value.Text s)]
-  | _ -> raise (runtime_type_error "non-string value passed to xml conversion routine")
-
-(* The following functions expect 1 argument. Assert false otherwise. *)
-let float_fn fn pure =
-  (`PFun (fun _ args ->
-      match args with
-        | [c] -> (Value.box_float (fn (Value.unbox_float c)))
-        | _ -> assert false),
-   datatype "(Float) -> Float",
-  pure)
+(* let mk_binop_fn impl unbox_fn constr = function
+ *     | [x; y] -> constr (impl (unbox_fn x) (unbox_fn y))
+ *     | _ -> raise (internal_error "arity error in integer operation")
+ * 
+ * let int_op impl pure : located_primitive * Types.datatype * pure =
+ *   (`PFun (fun _ -> mk_binop_fn impl Value.unbox_int (fun x -> `Int x))),
+ *   datatype "(Int, Int) -> Int",
+ *   pure
+ * 
+ * let float_op impl pure : located_primitive * Types.datatype * pure =
+ *   (`PFun (fun _ -> mk_binop_fn impl Value.unbox_float (fun x -> `Float x))),
+ *   datatype "(Float, Float) -> Float",
+ *   pure
+ * 
+ * let string_op impl pure : located_primitive * Types.datatype * pure =
+ *   (`PFun (fun _ -> mk_binop_fn impl Value.unbox_string (fun x -> `String x))),
+ *   datatype "(String, String) -> String",
+ *   pure
+ * 
+ * let conversion_op' ~unbox ~conv ~(box :'a->Value.t): Value.t list -> Value.t = function
+ *     | [x] -> box (conv (unbox x))
+ *     | _ -> assert false
+ * 
+ * let conversion_op ~from ~unbox ~conv ~(box :'a->Value.t) ~into pure : located_primitive * Types.datatype * pure =
+ *   ((`PFun (fun _ x -> conversion_op' ~unbox:unbox ~conv:conv ~box:box x) : located_primitive),
+ *    (let q, r = Types.fresh_row_quantifier (lin_any, res_any) in
+ *       (`ForAll ([q], `Function (make_tuple_type [from], r, into)) : Types.datatype)),
+ *    pure)
+ * 
+ * let string_to_xml : Value.t -> Value.t = function
+ *   | `String s -> `List [`XML (Value.Text s)]
+ *   | _ -> raise (runtime_type_error "non-string value passed to xml conversion routine")
+ * 
+ * (\* The following functions expect 1 argument. Assert false otherwise. *\)
+ * let char_test_op fn pure =
+ *   (`PFun (fun _ args ->
+ *       match args with
+ *         | [c] -> (`Bool (fn (Value.unbox_char c)))
+ *         | _ -> assert false),
+ *    datatype "(Char) ~> Bool",
+ *    pure)
+ * 
+ * let char_conversion fn pure =
+ *   (`PFun (fun _ args ->
+ *       match args with
+ *         | [c] -> (Value.box_char (fn (Value.unbox_char c)))
+ *         | _ -> assert false),
+ *    datatype "(Char) -> Char",
+ *    pure)
+ * 
+ * let float_fn fn pure =
+ *   (`PFun (fun _ args ->
+ *       match args with
+ *         | [c] -> (Value.box_float (fn (Value.unbox_float c)))
+ *         | _ -> assert false),
+ *    datatype "(Float) -> Float",
+ *   pure) *)
 
 (* Functions which also take the request data as an argument --
  * for example those which set cookies, change the headers, etc. *)
-let p1D fn =
-  `PFun (fun req_data args ->
-      match args with
-        | ([a]) -> fn a req_data
-        | _ -> assert false)
+(* let p1D fn =
+ *   `PFun (fun req_data args ->
+ *       match args with
+ *         | ([a]) -> fn a req_data
+ *         | _ -> assert false)
+ * 
+ * let p2D fn =
+ *   `PFun (fun req_data args ->
+ *       match args with
+ *         | [a; b] -> fn a b req_data
+ *         | _ -> assert false)
+ * 
+ * let p3D fn =
+ *   `PFun (fun req_data args ->
+ *       match args with
+ *         | [a;b;c] -> fn a b c req_data
+ *         | _ -> assert false)
+ * 
+ * let p1 fn = p1D (fun x _ -> fn x)
+ * let p2 fn = p2D (fun x y _ -> fn x y)
+ * let p3 fn = p3D (fun x y z _ -> fn x y z) *)
 
-let p2D fn =
-  `PFun (fun req_data args ->
-      match args with
-        | [a; b] -> fn a b req_data
-        | _ -> assert false)
-
-let p3D fn =
-  `PFun (fun req_data args ->
-      match args with
-        | [a;b;c] -> fn a b c req_data
-        | _ -> assert false)
-
-let p1 fn = p1D (fun x _ -> fn x)
-let p2 fn = p2D (fun x y _ -> fn x y)
-let p3 fn = p3D (fun x y z _ -> fn x y z)
-
-let rec equal l r =
-  match l, r with
-    | `Bool l  , `Bool r   -> l = r
-    | `Int l   , `Int r    -> l = r
-    | `Float l , `Float r  -> l = r
-    | `Char l  , `Char r   -> l = r
-    | `String l, `String r -> l = r
-    | `Record lfields, `Record rfields ->
-        let rec one_equal_all = (fun alls (ref_label, ref_result) ->
-                                   match alls with
-                                     | [] -> false
-                                     | (label, result) :: _ when label = ref_label -> equal result ref_result
-                                     | _ :: alls -> one_equal_all alls (ref_label, ref_result)) in
-          List.for_all (one_equal_all rfields) lfields && List.for_all (one_equal_all lfields) rfields
-    | `Variant (llabel, lvalue), `Variant (rlabel, rvalue) -> llabel = rlabel && equal lvalue rvalue
-    | `List (l), `List (r) -> equal_lists l r
-    | l, r ->
-        runtime_error
-          (Printf.sprintf "Comparing %s with %s which either does not make sense or isn't implemented."
-            (Value.string_of_value l) (Value.string_of_value r))
-and equal_lists l r =
-  match l,r with
-    | [], [] -> true
-    | (l::ls), (r::rs) -> equal l r && equal_lists ls rs
-    | _,_ -> false
-
-
-let rec less l r =
-  match l, r with
-    | `Bool l, `Bool r   -> l < r
-    | `Int l, `Int r     -> l < r
-    | `Float l, `Float r -> l < r
-    | `Char l, `Char r -> l < r
-    | `String l, `String r -> l < r
-      (* Compare fields in lexicographic order of labels *)
-    | `Record lf, `Record rf ->
-        let order = sort (fun x y -> compare (fst x) (fst y)) in
-        let lv, rv = map snd (order lf), map snd (order rf) in
-        let rec compare_list = function
-          | [] -> false
-          | (l,r)::_ when less l r -> true
-          | (l,r)::_ when less r l -> false
-          | _::rest                -> compare_list rest in
-          compare_list (combine lv rv)
-    | `List (l), `List (r) -> less_lists (l,r)
-    | l, r ->  runtime_error ("Cannot yet compare "^ Value.string_of_value l ^" with "^ Value.string_of_value r)
-and less_lists = function
-  | _, [] -> false
-  | [], (_::_) -> true
-  | (l::_), (r::_) when less l r -> true
-  | (l::_), (r::_) when less r l -> false
-  | (_::l), (_::r) -> less_lists (l, r)
-
-let less_or_equal l r = less l r || equal l r
-
-let add_attribute : Value.t * Value.t -> Value.t -> Value.t =
-  let rec filter = fun name -> function
-    | [] -> []
-    | Value.Attr (s, _) :: nodes when s = name -> filter name nodes
-    | Value.NsAttr (ns, s, _) :: nodes when ns ^ ":" ^ s = name -> filter name nodes
-    | node :: nodes -> node :: filter name nodes
-  in
-  fun (name,value) ->
-    let name = Value.unbox_string name
-    and value = Value.unbox_string value
-    in let new_attr = match String.split_on_char ':' name with
-          | [ n ] -> Value.Attr(n, value)
-          | [ ns; n ] -> Value.NsAttr(ns, n, value)
-          | _ -> runtime_error ("Attribute-name con only contain one colon for namespacing. Multiple found: " ^ name)
-    in function
-    | `XML (Value.Node (tag, children))       -> `XML (Value.Node (tag, new_attr :: filter name children))
-    | `XML (Value.NsNode (ns, tag, children)) -> `XML (Value.NsNode (ns, tag, new_attr :: filter name children))
-    | r -> raise (runtime_type_error ("cannot add attribute to " ^ Value.string_of_value r))
-
-let add_attributes : (Value.t * Value.t) list -> Value.t -> Value.t =
-  List.fold_right add_attribute
+(* let rec equal l r =
+ *   match l, r with
+ *     | `Bool l  , `Bool r   -> l = r
+ *     | `Int l   , `Int r    -> l = r
+ *     | `Float l , `Float r  -> l = r
+ *     | `Char l  , `Char r   -> l = r
+ *     | `String l, `String r -> l = r
+ *     | `Record lfields, `Record rfields ->
+ *         let rec one_equal_all = (fun alls (ref_label, ref_result) ->
+ *                                    match alls with
+ *                                      | [] -> false
+ *                                      | (label, result) :: _ when label = ref_label -> equal result ref_result
+ *                                      | _ :: alls -> one_equal_all alls (ref_label, ref_result)) in
+ *           List.for_all (one_equal_all rfields) lfields && List.for_all (one_equal_all lfields) rfields
+ *     | `Variant (llabel, lvalue), `Variant (rlabel, rvalue) -> llabel = rlabel && equal lvalue rvalue
+ *     | `List (l), `List (r) -> equal_lists l r
+ *     | l, r ->
+ *         runtime_error
+ *           (Printf.sprintf "Comparing %s with %s which either does not make sense or isn't implemented."
+ *             (Value.string_of_value l) (Value.string_of_value r))
+ * and equal_lists l r =
+ *   match l,r with
+ *     | [], [] -> true
+ *     | (l::ls), (r::rs) -> equal l r && equal_lists ls rs
+ *     | _,_ -> false
+ * 
+ * 
+ * let rec less l r =
+ *   match l, r with
+ *     | `Bool l, `Bool r   -> l < r
+ *     | `Int l, `Int r     -> l < r
+ *     | `Float l, `Float r -> l < r
+ *     | `Char l, `Char r -> l < r
+ *     | `String l, `String r -> l < r
+ *       (\* Compare fields in lexicographic order of labels *\)
+ *     | `Record lf, `Record rf ->
+ *         let order = sort (fun x y -> compare (fst x) (fst y)) in
+ *         let lv, rv = map snd (order lf), map snd (order rf) in
+ *         let rec compare_list = function
+ *           | [] -> false
+ *           | (l,r)::_ when less l r -> true
+ *           | (l,r)::_ when less r l -> false
+ *           | _::rest                -> compare_list rest in
+ *           compare_list (combine lv rv)
+ *     | `List (l), `List (r) -> less_lists (l,r)
+ *     | l, r ->  runtime_error ("Cannot yet compare "^ Value.string_of_value l ^" with "^ Value.string_of_value r)
+ * and less_lists = function
+ *   | _, [] -> false
+ *   | [], (_::_) -> true
+ *   | (l::_), (r::_) when less l r -> true
+ *   | (l::_), (r::_) when less r l -> false
+ *   | (_::l), (_::r) -> less_lists (l, r)
+ * 
+ * let less_or_equal l r = less l r || equal l r
+ * 
+ * let add_attribute : Value.t * Value.t -> Value.t -> Value.t =
+ *   let rec filter = fun name -> function
+ *     | [] -> []
+ *     | Value.Attr (s, _) :: nodes when s = name -> filter name nodes
+ *     | Value.NsAttr (ns, s, _) :: nodes when ns ^ ":" ^ s = name -> filter name nodes
+ *     | node :: nodes -> node :: filter name nodes
+ *   in
+ *   fun (name,value) ->
+ *     let name = Value.unbox_string name
+ *     and value = Value.unbox_string value
+ *     in let new_attr = match String.split_on_char ':' name with
+ *           | [ n ] -> Value.Attr(n, value)
+ *           | [ ns; n ] -> Value.NsAttr(ns, n, value)
+ *           | _ -> runtime_error ("Attribute-name con only contain one colon for namespacing. Multiple found: " ^ name)
+ *     in function
+ *     | `XML (Value.Node (tag, children))       -> `XML (Value.Node (tag, new_attr :: filter name children))
+ *     | `XML (Value.NsNode (ns, tag, children)) -> `XML (Value.NsNode (ns, tag, new_attr :: filter name children))
+ *     | r -> raise (runtime_type_error ("cannot add attribute to " ^ Value.string_of_value r))
+ * 
+ * let add_attributes : (Value.t * Value.t) list -> Value.t -> Value.t =
+ *   List.fold_right add_attribute *)
 
 let env : (string * (located_primitive * Types.datatype * pure)) list = [
   (* "+", int_op (+) PURE; *)
@@ -1625,8 +1641,8 @@ let primitive_stub (name : string) : Value.t =
         begin
           match primitive_by_code var with
             | Some (#Value.t as r) -> r
-            | Some _ -> `PrimitiveFunction (name,Some var)
-            | None -> `ClientFunction name
+            | Some _ -> assert false (* `PrimitiveFunction (name,Some var) *)
+            | None -> assert false (* `ClientFunction name *)
         end
     | None -> assert false
 
@@ -1635,8 +1651,8 @@ let primitive_stub_by_code (var : Var.var) : Value.t =
   let name = Env.Int.find var venv in
   match primitive_by_code var with
   | Some (#Value.t as r) -> r
-  | Some _ -> `PrimitiveFunction (name,Some var)
-  | None -> `ClientFunction name
+  | Some _ -> assert false (* `PrimitiveFunction (name,Some var) *)
+  | None -> assert false(* `ClientFunction name *)
 
 
 (* jcheney: added to expose lookup by var *)

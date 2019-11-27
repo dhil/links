@@ -1,7 +1,7 @@
 
-val equal : Value.t -> Value.t -> bool
-val less : Value.t -> Value.t -> bool
-val less_or_equal : Value.t -> Value.t -> bool
+(* val equal : Value.t -> Value.t -> bool
+ * val less : Value.t -> Value.t -> bool
+ * val less_or_equal : Value.t -> Value.t -> bool *)
 
 type primitive
 

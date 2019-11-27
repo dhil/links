@@ -77,7 +77,7 @@ let rec jsonize_value' : Value.t -> Yojson.Basic.t =
     `Assoc entries
   | `ClientDomRef i ->
       `Assoc [("_domRefKey", `String (string_of_int i))]
-  | `ClientFunction name -> `Assoc [("func", `String name)]
+  | `ClientFunction desc -> `Assoc [("func", `String (Value.primfn_object_name desc))]
   | #Value.primitive_value as p -> jsonize_primitive p
   | `Variant (label, value) ->
       `Assoc [("_label", `String label); ("_value", jsonize_value' value)]
@@ -105,7 +105,7 @@ let rec jsonize_value' : Value.t -> Yojson.Basic.t =
         [("_clientSpawnLoc", ClientID.to_json client_id)]
   | `SpawnLocation (`ServerSpawnLoc) ->
       `Assoc [("_serverSpawnLoc", `List [])]
-  | `Alien -> raise (Errors.runtime_error "Can't jsonize alien")
+  (* | `Alien -> raise (Errors.runtime_error "Can't jsonize alien") *)
 and jsonize_primitive : Value.primitive_value -> Yojson.Basic.t  = function
   | `Bool value -> `Bool value
   | `Int value -> `Int value

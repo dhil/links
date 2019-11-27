@@ -218,9 +218,9 @@ type t = [
 | `Lens of Lens.Value.t
 | `Variant of string * t
 | `FunctionPtr of (Ir.var * t option)
-| `PrimitiveFunction of string * Var.var option
+| `PrimitiveFunction of primitive_fun_desc
 | `ClientDomRef of int
-| `ClientFunction of string
+| `ClientFunction of primitive_fun_desc
 | `Continuation of continuation
 | `Resumption of resumption
 | `Pid of dist_pid
@@ -228,17 +228,23 @@ type t = [
 | `SessionChannel of chan
 | `Socket of in_channel * out_channel
 | `SpawnLocation of spawn_location
-| `Alien
-]
+  ]
+and primitive_fun_desc = { prim_object_name: string; prim_user_name: string }
 and continuation = t Continuation.t
 and resumption = t Continuation.resumption
 and env = t Env.t
     [@@deriving show]
 
+val primfn_user_name : primitive_fun_desc -> string
+val primfn_object_name : primitive_fun_desc -> string
+val primitive_desc : string -> string -> primitive_fun_desc
+
 type delegated_chan = (chan * (t list))
 
 val project : string -> t -> t
 val untuple : t -> t list
+
+val unit : t
 
 val box_bool : 'a -> [> `Bool of 'a ]
 val unbox_bool : t -> bool

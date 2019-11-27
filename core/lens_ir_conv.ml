@@ -77,7 +77,7 @@ module Env = struct
 
   let expression_of_value value =
     match value with
-    | `PrimitiveFunction (f, _) -> IrValue.Primitive f
+    | `PrimitiveFunction desc -> IrValue.Primitive (Value.primfn_user_name desc)
     | `FunctionPtr (f, fvs) -> find_fun (f, fvs)
     | _ ->
         let pv = Lens_value_conv.lens_phrase_value_of_value value in

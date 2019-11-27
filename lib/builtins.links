@@ -141,8 +141,8 @@ alien builtin {
 }
 
 # infixr 5 ::;
-# sig :: : (a, [a]) -> [a]
-# op x :: xs { cons(x, xs) }
+#sig :: : (a, [a]) -> [a]
+#op x :: xs { cons(x, xs) }
 
 # XML.
 alien builtin {

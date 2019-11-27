@@ -109,12 +109,12 @@ module Compressible = struct
       | `Record of (string * compressed_t) list
       | `Variant of string * compressed_t
       | `FunctionPtr of (Ir.var * compressed_t option)
-      | `PrimitiveFunction of string
+      | `PrimitiveFunction of string * string
       | `ClientDomRef of int
-      | `ClientFunction of string
+      | `ClientFunction of string * string
       | `Continuation of K.compressed_t
       | `Resumption of K.compressed_r
-      | `Alien ]
+      (* | `Alien *) ]
       [@@deriving yojson]
 
     let compress_primitive_value : primitive_value -> [>compressed_primitive_value]=
@@ -137,9 +137,9 @@ module Compressible = struct
       | `Variant (name, v) -> `Variant (name, compress v)
       | `FunctionPtr(x, fvs) ->
          `FunctionPtr (x, Utility.opt_map compress fvs)
-      | `PrimitiveFunction (f, _op) -> `PrimitiveFunction f
+      | `PrimitiveFunction desc -> `PrimitiveFunction Value.(primfn_user_name desc, primfn_object_name desc)
       | `ClientDomRef i -> `ClientDomRef i
-      | `ClientFunction f -> `ClientFunction f
+      | `ClientFunction desc -> `ClientFunction Value.(primfn_user_name desc, primfn_object_name desc)
       | `Continuation cont -> `Continuation (K.compress cont)
       | `Resumption r -> `Resumption (K.compress_r r)
       | `Pid _ -> assert false (* mmmmm *)
@@ -147,7 +147,7 @@ module Compressible = struct
       | `SessionChannel _ -> assert false (* mmmmm *)
       | `AccessPointID _ -> assert false (* mmmmm *)
       | `SpawnLocation _sl -> assert false (* wheeee! *)
-      | `Alien -> `Alien
+      (* | `Alien -> `Alien *)
 
     let decompress_primitive : compressed_primitive_value -> [> primitive_value] = function
       | #primitive_value_basis as v -> v
@@ -172,12 +172,12 @@ module Compressible = struct
       | `Record fields -> `Record (List.map (fun (name, v) -> (name, decompress v)) fields)
       | `Variant (name, v) -> `Variant (name, decompress v)
       | `FunctionPtr (x, fvs) -> `FunctionPtr (x, Utility.opt_map decompress fvs)
-      | `PrimitiveFunction f -> `PrimitiveFunction (f,None)
+      | `PrimitiveFunction (uname, oname) -> `PrimitiveFunction Value.(primitive_desc uname oname)
       | `ClientDomRef i -> `ClientDomRef i
-      | `ClientFunction f -> `ClientFunction f
+      | `ClientFunction (uname, oname) -> `ClientFunction Value.(primitive_desc uname oname)
       | `Continuation cont -> `Continuation (K.decompress ~globals cont)
       | `Resumption res -> `Resumption (K.decompress_r ~globals res)
-      | `Alien -> `Alien
+      (* | `Alien -> `Alien *)
   end
 
   module Continuation(F : COMPRESSIBLE_FRAME)(E : COMPRESSIBLE_ENVIRONMENT) : COMPRESSIBLE_CONTINUATION = struct

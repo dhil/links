@@ -322,7 +322,9 @@ let handle previous_context current_context = function
                 | Location.Server | Location.Unknown ->
                    `FunctionPtr (var, None)
                 | Location.Client ->
-                   `ClientFunction (Js.var_name_binder (var, finfo))
+                   let name = Js.var_name_binder (var, finfo) in
+                   `ClientFunction (Value.primitive_desc name name)
+                | Location.Native -> assert false
               in
               let t = Var.info_type finfo in v, t
            | _ -> assert false

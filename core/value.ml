@@ -730,9 +730,9 @@ type t = [
 | `Record of (string * t) list
 | `Variant of string * t
 | `FunctionPtr of (Ir.var * t option)
-| `PrimitiveFunction of string * Var.var option
+| `PrimitiveFunction of primitive_fun_desc
 | `ClientDomRef of int
-| `ClientFunction of string
+| `ClientFunction of primitive_fun_desc
 | `Continuation of continuation
 | `Resumption of resumption
 | `Pid of dist_pid
@@ -740,12 +740,17 @@ type t = [
 | `SessionChannel of chan
 | `Socket of in_channel * out_channel
 | `SpawnLocation of spawn_location
-| `Alien
 ]
+and primitive_fun_desc = { prim_object_name: string; prim_user_name: string }
 and continuation = t Continuation.t
 and resumption = t Continuation.resumption
 and env = t Env.t
   [@@deriving show]
+
+let primfn_user_name { prim_user_name; _ } = prim_user_name
+let primfn_object_name { prim_object_name; _ } = prim_object_name
+let primitive_desc prim_user_name prim_object_name =
+  { prim_user_name; prim_object_name }
 
 type delegated_chan = (chan * (t list))
 
@@ -777,8 +782,8 @@ let rec p_value (ppf : formatter) : t -> 'a = function
   | `List l -> fprintf ppf "[@[<hov 0>";
                p_list_elements ppf l
   | `ClientDomRef i -> fprintf ppf "%i" i
-  | `ClientFunction _n -> fprintf ppf "fun"
-  | `PrimitiveFunction (name, _op) -> fprintf ppf "%s" name
+  | `ClientFunction desc
+  | `PrimitiveFunction desc -> fprintf ppf "%s" (primfn_user_name desc)
   | `Variant (label, `Record []) -> fprintf ppf "@{<constructor>%s@}" label
   (* avoid duplicate parenthesis for Foo(a = 5, b = 3) *)
   | `Variant (label, (`Record _ as value)) -> fprintf ppf "@{<constructor>%s@}@[%a@]" label p_value value
@@ -810,7 +815,7 @@ let rec p_value (ppf : formatter) : t -> 'a = function
      fprintf ppf "Server access point %s" (AccessPointID.to_string apid)
   | `Pid (`ServerPid i) -> fprintf ppf "Pid Server (%s)" (ProcessID.to_string i)
   | `Pid (`ClientPid (cid, i)) -> fprintf ppf "Pid Client num %s, process %s" (ClientID.to_string cid) (ProcessID.to_string i)
-  | `Alien -> fprintf ppf "alien"
+  (* | `Alien -> fprintf ppf "alien" *)
 and p_record_fields ppf = function
   | [] -> fprintf ppf ""
   | [(l, v)] -> fprintf ppf "@[@{<recordlabel>%a@} = %a@]"
@@ -947,6 +952,9 @@ let untuple : t -> t list =
     | `Record fields -> aux 1 [] fields
     | _ -> assert false
 
+(** Unit value. *)
+let unit : t = `Record []
+
 (** {1 Boxing and unboxing of primitive types} *)
 let box_bool b = `Bool b
 and unbox_bool : t -> bool   = function
@@ -987,7 +995,7 @@ and unbox_record : t -> (string * t) list = function
   | `Record fields -> fields
   | v -> raise (type_error "record" v)
 and box_unit : unit -> t
-  = fun () -> `Record []
+  = fun () -> unit
 and unbox_unit : t -> unit = function
   | `Record [] -> ()
   | v -> raise (type_error "unit" v)
