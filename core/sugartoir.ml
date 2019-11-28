@@ -805,58 +805,58 @@ struct
           | Var x -> cofv (lookup_var x)
           | FreezeVar x -> cofv (lookup_var x)
           | RangeLit (low, high) ->
-              I.apply (instantiate_mb "intRange", [ev low; ev high])
+              I.apply (instantiate_mb "intRange", [ev low; ev high]) (* TODO FIXME unhygienic. *)
           | ListLit ([], Some t) ->
-              cofv (instantiate "Nil" [`Type t])
+              cofv (instantiate "nil" [`Type t]) (* TODO FIXME unhygienic. *)
           | ListLit (e::es, Some t) ->
-              cofv (I.apply_pure(instantiate "Cons" [`Type t; `Row eff],
+             cofv (I.apply_pure(instantiate "cons" [`Type t; `Row eff], (* TODO FIXME unhygienic. *)
                                  [ev e; ev (WithPos.make ~pos (ListLit (es, Some t)))]))
           | Escape (bndr, body) when Binder.has_type bndr ->
              let k  = Binder.to_name bndr in
              let kt = Binder.to_type bndr in
              I.escape ((kt, k, Scope.Local), eff, fun v -> eval (extend [k] [(v, kt)] env) body)
-          | Section Section.Minus | FreezeSection Section.Minus -> cofv (lookup_var "-")
-          | Section Section.FloatMinus | FreezeSection Section.FloatMinus -> cofv (lookup_var "-.")
-          | Section (Section.Name name) | FreezeSection (Section.Name name) -> cofv (lookup_var name)
+          | Section Section.Minus | FreezeSection Section.Minus -> cofv (lookup_var "-") (* TODO FIXME unhygienic. *)
+          | Section Section.FloatMinus | FreezeSection Section.FloatMinus -> cofv (lookup_var "-.") (* TODO FIXME unhygienic. *)
+          | Section (Section.Name name) | FreezeSection (Section.Name name) -> cofv (lookup_var name) (* TODO FIXME unhygienic. *)
           | Conditional (p, e1, e2) ->
               I.condition (ev p, ec e1, ec e2)
           | InfixAppl ((tyargs, BinaryOp.Name ((">" | ">=" | "==" | "<" | "<=" | "<>") as op)), e1, e2) ->
-              cofv (I.apply_pure (instantiate op tyargs, [ev e1; ev e2]))
+              cofv (I.apply_pure (instantiate op tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.Name "++"), e1, e2) ->
-              cofv (I.apply_pure (instantiate "Concat" tyargs, [ev e1; ev e2]))
+              cofv (I.apply_pure (instantiate "concat" tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.Name "!"), e1, e2) ->
-              I.apply (instantiate "Send" tyargs, [ev e1; ev e2])
+              I.apply (instantiate "process_send" tyargs, [ev e1; ev e2])
           | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) when Lib.is_pure_primitive n ->
-              cofv (I.apply_pure (instantiate n tyargs, [ev e1; ev e2]))
+              cofv (I.apply_pure (instantiate n tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) ->
-              I.apply (instantiate n tyargs, [ev e1; ev e2])
+              I.apply (instantiate n tyargs, [ev e1; ev e2]) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.Cons), e1, e2) ->
-              cofv (I.apply_pure (instantiate "Cons" tyargs, [ev e1; ev e2]))
+              cofv (I.apply_pure (instantiate "cons" tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.FloatMinus), e1, e2) ->
-              cofv (I.apply_pure (instantiate "-." tyargs, [ev e1; ev e2]))
+              cofv (I.apply_pure (instantiate "-." tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.Minus), e1, e2) ->
-              cofv (I.apply_pure (instantiate "-" tyargs, [ev e1; ev e2]))
+              cofv (I.apply_pure (instantiate "-" tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
           | InfixAppl ((_tyargs, BinaryOp.And), e1, e2) ->
               (* IMPORTANT: we compile boolean expressions to
                  conditionals in order to faithfully capture
                  short-circuit evaluation *)
-              I.condition (ev e1, ec e2, cofv (I.constant (Constant.Bool false)))
+              I.condition (ev e1, ec e2, cofv (I.constant (Constant.Bool false))) (* TODO FIXME unhygienic. *)
           | InfixAppl ((_tyargs, BinaryOp.Or), e1, e2) ->
-              I.condition (ev e1, cofv (I.constant (Constant.Bool true)), ec e2)
+              I.condition (ev e1, cofv (I.constant (Constant.Bool true)), ec e2) (* TODO FIXME unhygienic. *)
           | UnaryAppl ((_tyargs, UnaryOp.Minus), e) ->
-              cofv (I.apply_pure(instantiate_mb "negate", [ev e]))
+              cofv (I.apply_pure(instantiate_mb "negate", [ev e])) (* TODO FIXME unhygienic. *)
           | UnaryAppl ((_tyargs, UnaryOp.FloatMinus), e) ->
-              cofv (I.apply_pure(instantiate_mb "negatef", [ev e]))
+              cofv (I.apply_pure(instantiate_mb "negatef", [ev e])) (* TODO FIXME unhygienic. *)
           | UnaryAppl ((tyargs, UnaryOp.Name n), e) when Lib.is_pure_primitive n ->
-              cofv (I.apply_pure(instantiate n tyargs, [ev e]))
+              cofv (I.apply_pure(instantiate n tyargs, [ev e])) (* TODO FIXME unhygienic. *)
           | UnaryAppl ((tyargs, UnaryOp.Name n), e) ->
-              I.apply (instantiate n tyargs, [ev e])
-          | FnAppl ({node=Var f; _}, es) when Lib.is_pure_primitive f ->
+              I.apply (instantiate n tyargs, [ev e]) (* TODO FIXME unhygienic. *)
+          | FnAppl ({node=Var f; _}, es) when Lib.is_pure_primitive f ->  (* TODO FIXME unhygienic. *)
               cofv (I.apply_pure (I.var (lookup_name_and_type f env), evs es))
           | FnAppl ({node=TAppl ({node=Var f; _}, tyargs); _}, es)
-               when Lib.is_pure_primitive f ->
+               when Lib.is_pure_primitive f -> (* TODO FIXME unhygienic. *)
               cofv (I.apply_pure (instantiate f (List.map (snd ->- val_of) tyargs), evs es))
-          | FnAppl (e, es) when is_pure_primitive e ->
+          | FnAppl (e, es) when is_pure_primitive e -> (* TODO FIXME unhygienic. *)
               cofv (I.apply_pure (ev e, evs es))
           | FnAppl (e, es) ->
               I.apply (ev e, evs es)
@@ -1004,9 +1004,9 @@ struct
               I.table_handle (ev db, ev name, ev keys, (readtype, writetype, neededtype))
           | Xml (tag, attrs, attrexp, children) ->
                if tag = "#" then
-                 cofv (I.concat (instantiate "Nil"
+                 cofv (I.concat (instantiate "nil"  (* TODO FIXME unhygienic. *)
                                    [`Type (`Primitive Primitive.XmlItem)],
-                                 instantiate "Concat"
+                                 instantiate "concat"  (* TODO FIXME unhygienic. *)
                                    [ `Type (`Primitive Primitive.XmlItem)
                                    ; `Row eff],
                                  List.map ev children))
@@ -1017,7 +1017,7 @@ struct
                                         children) in
                   begin match attrexp with
                   | None   -> cofv body
-                  | Some e -> cofv (I.apply_pure (instantiate_mb "addAttributes",
+                  | Some e -> cofv (I.apply_pure (instantiate_mb "addAttributes",  (* TODO FIXME unhygienic. *)
                                                  [body; ev e]))
                   end
           | TextNode name ->

@@ -15,8 +15,8 @@ let internal_error message =
 
 let type_section env =
   let open Section in function
-  | Minus -> TyEnv.find "-" env
-  | FloatMinus -> TyEnv.find "-."env
+  | Minus -> TyEnv.find "-" env  (* TODO FIXME unhygienic. *)
+  | FloatMinus -> TyEnv.find "-."env  (* TODO FIXME unhygienic. *)
   | Project label ->
       let ab, a = Types.fresh_type_quantifier (lin_any, res_any) in
       let rhob, (fields, rho, _) = Types.fresh_row_quantifier (lin_any, res_any) in
@@ -29,15 +29,15 @@ let type_section env =
 
 let type_unary_op env tycon_env =
   let datatype = DesugarDatatypes.read ~aliases:tycon_env in function
-    | UnaryOp.Minus      -> datatype "(Int) -> Int"
-    | UnaryOp.FloatMinus -> datatype "(Float) -> Float"
+    | UnaryOp.Minus      -> datatype "(Int) -> Int"      (* TODO FIXME unhygienic. *)
+    | UnaryOp.FloatMinus -> datatype "(Float) -> Float"  (* TODO FIXME unhygienic. *)
     | UnaryOp.Name n     -> TyEnv.find n env
 
 let type_binary_op env tycon_env =
   let open BinaryOp in
   let datatype = DesugarDatatypes.read ~aliases:tycon_env in function
-  | Minus        -> TyEnv.find "-" env
-  | FloatMinus   -> TyEnv.find "-." env
+  | Minus        -> TyEnv.find "-" env  (* TODO FIXME unhygienic. *)
+  | FloatMinus   -> TyEnv.find "-." env  (* TODO FIXME unhygienic. *)
   | RegexMatch flags ->
       let nativep  = List.exists ((=) RegexNative)  flags
       and listp    = List.exists ((=) RegexList)    flags
@@ -50,8 +50,8 @@ let type_binary_op env tycon_env =
 
   | And
   | Or           -> datatype "(Bool,Bool) -> Bool"
-  | Cons         -> TyEnv.find "Cons" env
-  | Name "++"    -> TyEnv.find "Concat" env
+  | Cons         -> TyEnv.find "cons" env  (* TODO FIXME unhygienic. *)
+  | Name "++"    -> TyEnv.find "concat" env  (* TODO FIXME unhygienic. *)
   | Name ">"
   | Name ">="
   | Name "=="

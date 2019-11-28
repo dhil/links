@@ -192,14 +192,14 @@ struct
   let lookup_effects (_nenv, _tenv, eff) = eff
 
   let nil env t : value =
-    TApp (Variable (lookup_name "Nil" env),
+    TApp (Variable (lookup_name "nil" env),  (* TODO FIXME unhygienic. *)
            [`Type t])
 
   let list_head env t : value -> tail_computation = fun v ->
     let eff = lookup_effects env in
       Apply
         (TApp
-           (Variable (lookup_name "hd" env),
+           (Variable (lookup_name "hd" env),  (* TODO FIXME unhygienic. *)
             [`Type t; `Row eff]),
          [v])
 
@@ -207,7 +207,7 @@ struct
     let eff = lookup_effects env in
       Apply
         (TApp
-           (Variable (lookup_name "tl" env),
+           (Variable (lookup_name "tl" env),  (* TODO FIXME unhygienic. *)
             [`Type t; `Row eff]),
          [v])
 end

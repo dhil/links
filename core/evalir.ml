@@ -192,8 +192,8 @@ module Builtins = struct
       (* Session functions are implemented by the interpreter. *)
       (* Access point functions are implemented by the interpreter. *)
       (* List operations. *)
-      ; "%list_nil", `List []
-      ; "%list_cons", `PFun (binary (fun x xs -> x :: xs) id Value.unbox_list Value.box_list)
+      ; "%list_nil"   , `List []
+      ; "%list_cons"  , `PFun (binary (fun x xs -> x :: xs) id Value.unbox_list Value.box_list)
       ; "%list_concat", `PFun (binop (@) Value.unbox_list Value.box_list)
       ; "%list_hd"    , `PFun (unary List.hd Value.unbox_list id)
       ; "%list_tl"    , `PFun (unary List.tl Value.unbox_list Value.box_list)
@@ -693,13 +693,12 @@ struct
        let env = List.fold_right2 (fun x p -> Value.Env.bind x (p, Scope.Local)) xs ps env in
        computation_yielding env cont body
     | `PrimitiveFunction desc, args ->
-       let name = Value.primfn_user_name desc in
-       begin match name, args with
+       begin match (Value.primfn_user_name desc), args with (* TODO FIXME match on object name. *)
        | "registerEventHandlers", [hs] ->
           let key = EventHandlers.register hs in
           apply_cont cont env (`String (string_of_int key))
        (* start of mailbox stuff *)
-       | "Send", [pid; msg] ->
+       | "process_send", [pid; msg] ->
           let unboxed_pid = Value.unbox_pid pid in
           (try
              match unboxed_pid with
@@ -959,7 +958,8 @@ struct
        (* | `PrimitiveFunction (n,None), args ->
         *    apply_cont cont env (Lib.apply_pfun n args (Value.Env.request_data env)) *)
        | _, _ ->
-          let fn = Builtins.find name in
+          let object_name = Value.primfn_object_name desc in
+          let fn = Builtins.find object_name in
           let result = Builtins.apply fn (Value.Env.request_data env) args in
           apply_cont cont env result
     (* | `PrimitiveFunction (_, Some code), args ->
@@ -1007,17 +1007,18 @@ struct
               Value.primitive_desc user_name object_name
             in
             let open ForeignLanguage in
-            begin match language with
-            | JavaScript ->
-               let env' = Value.Env.bind var (`ClientFunction desc, scope) env in
-               computation env' cont (bs, tailcomp)
-            | Builtin when Location.is_client location ->
-               let env' = Value.Env.bind var (`ClientFunction desc, scope) env in
-               computation env' cont (bs, tailcomp)
-            | Builtin ->
-               let env' = Value.Env.bind var (`PrimitiveFunction desc, scope) env in
-               computation env' cont (bs, tailcomp)
-            end
+            let env' =
+              match language with
+              | JavaScript ->
+                 Value.Env.bind var (`ClientFunction desc, scope) env
+              | Builtin when Location.is_client location ->
+                 Value.Env.bind var (`ClientFunction desc, scope) env
+              | Builtin when String.equal object_name "%list_nil" ->
+                 Value.Env.bind var (`List [], scope) env
+              | Builtin ->
+                 Value.Env.bind var (`PrimitiveFunction desc, scope) env
+            in
+            computation env' cont (bs, tailcomp)
          | Module _ -> raise (internal_error "Not implemented interpretation of modules yet")
   and tail_computation env (cont : continuation) : Ir.tail_computation -> result = function
     | Ir.Return v   ->

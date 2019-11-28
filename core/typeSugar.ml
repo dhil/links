@@ -1816,8 +1816,8 @@ let type_binary_op pos ctxt =
         end
   | And
   | Or           -> add_empty_usages (datatype "(Bool,Bool) -> Bool")
-  | Cons         -> add_empty_usages (Utils.instantiate ctxt.var_env "Cons")
-  | Name "++"    -> add_empty_usages (Utils.instantiate ctxt.var_env "Concat")
+  | Cons         -> add_empty_usages (Utils.instantiate ctxt.var_env "cons")  (* TODO FIXME unhygienic. *)
+  | Name "++"    -> add_empty_usages (Utils.instantiate ctxt.var_env "concat")  (* TODO FIXME unhygienic. *)
   | Name ">"
   | Name ">="
   | Name "=="
@@ -1829,13 +1829,14 @@ let type_binary_op pos ctxt =
         ([`Type a; `Row eff],
          `Function (Types.make_tuple_type [a; a], eff, `Primitive Primitive.Bool),
          Usage.empty)
-  | Name "!"     -> add_empty_usages (Utils.instantiate ctxt.var_env "Send")
+  | Name "!"     -> add_empty_usages (Utils.instantiate ctxt.var_env "process_send")  (* TODO FIXME unhygienic. *)
   | Name n       ->
      try
        add_usages (Utils.instantiate ctxt.var_env n) (Usage.singleton n)
      with
        Errors.UndefinedVariable _msg ->
        Gripers.die pos (Printf.sprintf "Unknown variable %s." n)
+  | Name n       -> add_usages (Utils.instantiate ctxt.var_env n) (Usage.singleton n)
 
 (* close a pattern type relative to a list of patterns
 

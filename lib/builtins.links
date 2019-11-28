@@ -7,13 +7,13 @@ infixl 7 *;
 infixl 7 /;
 infixr 8 ^;
 alien builtin {
-  +   : (Int, Int) -> Int = "%int_plus";
-  -   : (Int, Int) -> Int = "%int_minus";
-  *   : (Int, Int) -> Int = "%int_mult";
-  /   : (Int, Int) -> Int = "%int_div";
-  ^   : (Int, Int) -> Int = "%int_pow";
-  mod : (Int, Int) -> Int = "%int_mod";
-  negate : (Int) -> Int   = "%int_negate";
+  +      : (Int, Int) -> Int = "%int_plus";
+  -      : (Int, Int) -> Int = "%int_minus";
+  *      : (Int, Int) -> Int = "%int_mult";
+  /      : (Int, Int) -> Int = "%int_div";
+  ^      : (Int, Int) -> Int = "%int_pow";
+  mod    : (Int, Int) -> Int = "%int_mod";
+  negate : (Int)      -> Int = "%int_negate";
 }
 
 # Floating point operations.
@@ -23,12 +23,12 @@ infixl 7 *.;
 infixl 7 /.;
 infixr 8 ^.;
 alien builtin {
-  +.   : (Float, Float) -> Float = "%float_plus";
-  -.   : (Float, Float) -> Float = "%float_minus";
-  *.   : (Float, Float) -> Float = "%float_mult";
-  /.   : (Float, Float) -> Float = "%float_div";
-  ^.   : (Float, Float) -> Float = "%float_pow";
-  negatef : (Float) -> Float     = "%float_negate";
+  +.      : (Float, Float) -> Float = "%float_plus";
+  -.      : (Float, Float) -> Float = "%float_minus";
+  *.      : (Float, Float) -> Float = "%float_mult";
+  /.      : (Float, Float) -> Float = "%float_div";
+  ^.      : (Float, Float) -> Float = "%float_pow";
+  negatef : (Float)        -> Float = "%float_negate";
   # Trig.
   floor   : (Float) -> Float     = "%float_floor";
   ceiling : (Float) -> Float     = "%float_ceiling";

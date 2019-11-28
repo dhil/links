@@ -611,7 +611,7 @@ perhaps_exps:
 | loption(exps)                                                { $1 }
 
 unary_expression:
-| MINUS unary_expression                                       { unary_appl ~ppos:$loc UnaryOp.Minus      $2 }
+| MINUS unary_expression                                       { unary_appl ~ppos:$loc UnaryOp.Minus $2 }
 | MINUSDOT unary_expression                                    { unary_appl ~ppos:$loc UnaryOp.FloatMinus $2 }
 | OPERATOR unary_expression                                    { unary_appl ~ppos:$loc (UnaryOp.Name $1)  $2 }
 | postfix_expression | constructor_expression                  { $1 }
