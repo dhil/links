@@ -183,9 +183,11 @@ let iter_row (iter_func : string -> field_spec -> unit) row  =
   let (field_spec_map, _, _) = fst (unwrap_row row) in
   Utility.StringMap.iter iter_func field_spec_map
 
-let is_function_type t = match concrete_type t with
-  | `Lolli (_, _, _)
-  | `Function (_, _, _) -> true
+let rec is_function_type ?(overstep_quantifiers=false) t =
+  match concrete_type t with
+  | `Lolli (_, _, _) | `Function (_, _, _) -> true
+  | `ForAll (_, t) when overstep_quantifiers ->
+     is_function_type t
   | _ -> false
 
 let is_thunk_type t =

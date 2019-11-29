@@ -137,9 +137,9 @@ module Compressible = struct
       | `Variant (name, v) -> `Variant (name, compress v)
       | `FunctionPtr(x, fvs) ->
          `FunctionPtr (x, Utility.opt_map compress fvs)
-      | `PrimitiveFunction desc -> `PrimitiveFunction Value.(primfn_user_name desc, primfn_object_name desc)
+      | `PrimitiveFunction desc -> `PrimitiveFunction Value.Primitive.(user_friendly_name desc, object_name desc)
       | `ClientDomRef i -> `ClientDomRef i
-      | `ClientFunction desc -> `ClientFunction Value.(primfn_user_name desc, primfn_object_name desc)
+      | `ClientFunction desc -> `ClientFunction Value.Primitive.(user_friendly_name desc, object_name desc)
       | `Continuation cont -> `Continuation (K.compress cont)
       | `Resumption r -> `Resumption (K.compress_r r)
       | `Pid _ -> assert false (* mmmmm *)
@@ -172,9 +172,9 @@ module Compressible = struct
       | `Record fields -> `Record (List.map (fun (name, v) -> (name, decompress v)) fields)
       | `Variant (name, v) -> `Variant (name, decompress v)
       | `FunctionPtr (x, fvs) -> `FunctionPtr (x, Utility.opt_map decompress fvs)
-      | `PrimitiveFunction (uname, oname) -> `PrimitiveFunction Value.(primitive_desc uname oname)
+      | `PrimitiveFunction (uname, oname) -> `PrimitiveFunction Value.Primitive.(make ~user_friendly_name:uname ~object_name:oname ())
       | `ClientDomRef i -> `ClientDomRef i
-      | `ClientFunction (uname, oname) -> `ClientFunction Value.(primitive_desc uname oname)
+      | `ClientFunction (uname, oname) -> `ClientFunction Value.Primitive.(make ~user_friendly_name:uname ~object_name:oname ())
       | `Continuation cont -> `Continuation (K.decompress ~globals cont)
       | `Resumption res -> `Resumption (K.decompress_r ~globals res)
       (* | `Alien -> `Alien *)

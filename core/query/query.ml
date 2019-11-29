@@ -555,7 +555,7 @@ struct
       | `Variant (name, v) -> Variant (name, expression_of_value env v)
       | `XML xmlitem -> XML xmlitem
       | `FunctionPtr (f, fvs) -> find_fun env (f, fvs)
-      | `PrimitiveFunction desc -> Primitive (Value.primfn_user_name desc)
+      | `PrimitiveFunction desc -> Primitive (Value.Primitive.user_friendly_name desc)
       | v ->
           raise (internal_error (Printf.sprintf
               "Cannot convert value %s to expression" (Value.string_of_value v)))

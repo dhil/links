@@ -11,7 +11,7 @@ val inject_type  : string -> Types.datatype -> Types.datatype
 val return_type  : ?overstep_quantifiers:bool -> Types.datatype -> Types.datatype
 val arg_types    : ?overstep_quantifiers:bool -> Types.datatype -> Types.datatype list
 val effect_row   : ?overstep_quantifiers:bool -> Types.datatype -> Types.row
-val is_function_type : Types.datatype -> bool
+val is_function_type : ?overstep_quantifiers:bool -> Types.datatype -> bool
 val is_thunk_type : Types.datatype -> bool
 val is_builtin_effect : string -> bool
 val element_type : ?overstep_quantifiers:bool -> Types.datatype -> Types.datatype

@@ -453,6 +453,10 @@ module Builtins = struct
     tbl
 
   let find name = Hashtbl.find builtins name
+  let find_value name =
+    match Hashtbl.find builtins name with
+    | #Value.t as v -> v
+    | _ -> raise (internal_error (Printf.sprintf "%s is not a primitive value." name))
 end
 
 let lookup_fun = Tables.lookup Tables.fun_defs
@@ -531,7 +535,7 @@ struct
           Some (`FunctionPtr (f, None))
         | Location.Client ->
            let name = Js.var_name_binder (f, finfo) in
-           Some (`ClientFunction (Value.primitive_desc name name))
+           Some (`ClientFunction (Value.Primitive.make ~user_friendly_name:name ~object_name:name ()))
         | Location.Native -> assert false
       end
     | _ -> assert false
@@ -693,7 +697,7 @@ struct
        let env = List.fold_right2 (fun x p -> Value.Env.bind x (p, Scope.Local)) xs ps env in
        computation_yielding env cont body
     | `PrimitiveFunction desc, args ->
-       begin match (Value.primfn_user_name desc), args with (* TODO FIXME match on object name. *)
+       begin match (Value.Primitive.user_friendly_name desc), args with (* TODO FIXME match on object name. *)
        | "registerEventHandlers", [hs] ->
           let key = EventHandlers.register hs in
           apply_cont cont env (`String (string_of_int key))
@@ -958,7 +962,7 @@ struct
        (* | `PrimitiveFunction (n,None), args ->
         *    apply_cont cont env (Lib.apply_pfun n args (Value.Env.request_data env)) *)
        | _, _ ->
-          let object_name = Value.primfn_object_name desc in
+          let object_name = Value.Primitive.object_name desc in
           let fn = Builtins.find object_name in
           let result = Builtins.apply fn (Value.Env.request_data env) args in
           apply_cont cont env result
@@ -966,7 +970,7 @@ struct
      *    apply_cont cont env (Lib.apply_pfun_by_code code args (Value.Env.request_data env)) *)
        end
     | `ClientFunction desc, args ->
-       let name = Value.primfn_object_name desc in
+       let name = Value.Primitive.object_name desc in
        let req_data = Value.Env.request_data env in
        client_call req_data name cont args
     | `Continuation c,      [p] -> apply_cont c env p
@@ -1004,7 +1008,7 @@ struct
             let scope = Var.scope_of_binder binder in
             let desc =
               let user_name = Var.name_of_binder binder in
-              Value.primitive_desc user_name object_name
+              Value.Primitive.make ~user_friendly_name:user_name ~object_name ()
             in
             let open ForeignLanguage in
             let env' =
@@ -1013,8 +1017,8 @@ struct
                  Value.Env.bind var (`ClientFunction desc, scope) env
               | Builtin when Location.is_client location ->
                  Value.Env.bind var (`ClientFunction desc, scope) env
-              | Builtin when String.equal object_name "%list_nil" ->
-                 Value.Env.bind var (`List [], scope) env
+              | Builtin when not (TypeUtils.is_function_type ~overstep_quantifiers:true Var.(info_type (info_of_binder binder))) ->
+                 Value.Env.bind var (Builtins.find_value object_name, scope) env
               | Builtin ->
                  Value.Env.bind var (`PrimitiveFunction desc, scope) env
             in

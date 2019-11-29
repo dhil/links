@@ -730,9 +730,9 @@ type t = [
 | `Record of (string * t) list
 | `Variant of string * t
 | `FunctionPtr of (Ir.var * t option)
-| `PrimitiveFunction of primitive_fun_desc
+| `PrimitiveFunction of primitive_desc
 | `ClientDomRef of int
-| `ClientFunction of primitive_fun_desc
+| `ClientFunction of primitive_desc
 | `Continuation of continuation
 | `Resumption of resumption
 | `Pid of dist_pid
@@ -741,16 +741,19 @@ type t = [
 | `Socket of in_channel * out_channel
 | `SpawnLocation of spawn_location
 ]
-and primitive_fun_desc = { prim_object_name: string; prim_user_name: string }
+and primitive_desc = { prim_object_name: string; prim_user_name: string }
 and continuation = t Continuation.t
 and resumption = t Continuation.resumption
 and env = t Env.t
   [@@deriving show]
 
-let primfn_user_name { prim_user_name; _ } = prim_user_name
-let primfn_object_name { prim_object_name; _ } = prim_object_name
-let primitive_desc prim_user_name prim_object_name =
-  { prim_user_name; prim_object_name }
+module Primitive = struct
+  type t = primitive_desc
+  let user_friendly_name { prim_user_name; _ } = prim_user_name
+  let object_name { prim_object_name; _ } = prim_object_name
+  let make ~user_friendly_name ~object_name () =
+    { prim_user_name = user_friendly_name; prim_object_name = object_name }
+end
 
 type delegated_chan = (chan * (t list))
 
@@ -783,7 +786,7 @@ let rec p_value (ppf : formatter) : t -> 'a = function
                p_list_elements ppf l
   | `ClientDomRef i -> fprintf ppf "%i" i
   | `ClientFunction desc
-  | `PrimitiveFunction desc -> fprintf ppf "%s" (primfn_user_name desc)
+  | `PrimitiveFunction desc -> fprintf ppf "%s" (Primitive.user_friendly_name desc)
   | `Variant (label, `Record []) -> fprintf ppf "@{<constructor>%s@}" label
   (* avoid duplicate parenthesis for Foo(a = 5, b = 3) *)
   | `Variant (label, (`Record _ as value)) -> fprintf ppf "@{<constructor>%s@}@[%a@]" label p_value value
