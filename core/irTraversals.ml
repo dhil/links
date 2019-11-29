@@ -484,9 +484,9 @@ struct
                 defs in
             let defs = List.rev defs in
               Rec defs, o
-        | Alien ({ binder; _ } as payload) ->
-            let binder, o = o#binder binder in
-            Alien { payload with binder}, o
+        | Alien alien ->
+            let binder, o = o#binder (Alien.binder alien) in
+            Alien (Alien.modify ~binder alien), o
         | Module (name, defs) ->
             let defs, o =
               match defs with

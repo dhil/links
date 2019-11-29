@@ -32,6 +32,26 @@ type language = string
 type location = CommonTypes.Location.t
   [@@deriving show]
 
+module Alien: sig
+  type kind = Value | Function
+  and t = { binder: binder;
+            kind: kind;
+            language: ForeignLanguage.t;
+            object_name: string;
+            location: location }
+        [@@deriving show]
+
+  val is_function : t -> bool
+  val binder : t -> binder
+  val object_name : t -> string
+  val language : t -> ForeignLanguage.t
+  val location : t -> location
+  val modify : ?binder:binder -> t -> t
+
+  val make_function : binder -> string -> ForeignLanguage.t -> location -> t
+  val make_value : binder -> string -> ForeignLanguage.t -> location -> t
+end
+
 (* INVARIANT: all IR binders have unique names *)
 
 type value =
@@ -64,10 +84,7 @@ and binding =
   | Let        of binder * (tyvar list * tail_computation)
   | Fun        of fun_def
   | Rec        of fun_def list
-  | Alien      of { binder: binder;
-                    language: ForeignLanguage.t;
-                    object_name: string;
-                    location: location }
+  | Alien      of Alien.t
   | Module     of string * binding list option
 and special =
   | Wrong      of Types.datatype

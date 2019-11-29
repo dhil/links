@@ -1232,9 +1232,9 @@ struct
             Rec defs, o
 
 
-        | Alien ({ binder; _ } as payload) ->
-           let x, o = o#binder binder in
-           Alien { payload with binder = x }, o
+        | Alien alien ->
+           let binder, o = o#binder (Alien.binder alien) in
+           Alien (Alien.modify ~binder alien), o
 
         | Module (name, defs) ->
             let defs, o =
@@ -1274,7 +1274,7 @@ struct
                   o#remove_function_closure_binder f)
                 o
                 fundefs
-      | Alien { binder; _ } -> o#remove_binder binder
+      | Alien alien -> o#remove_binder (Alien.binder alien)
       | Module _ -> o
 
     method remove_bindings : binding list -> 'self_type =

@@ -33,6 +33,36 @@ type language = string
 type location = CommonTypes.Location.t
   [@@deriving show]
 
+module Alien = struct
+  type kind = Value | Function
+  and t = { binder: binder;
+            kind: kind;
+            language: ForeignLanguage.t;
+            object_name: string;
+            location: location }
+        [@@deriving show]
+
+  let binder { binder; _ } = binder
+  let is_function { kind; _ } = match kind with
+    | Function -> true
+    | _ -> false
+
+  let object_name { object_name; _ } = object_name
+  let language { language; _ } = language
+  let location { location; _ } = location
+
+  let modify ?binder alien =
+    match binder with
+    | None -> alien
+    | Some binder -> { alien with binder }
+
+  let make_function = fun binder object_name language location ->
+    { binder; kind = Function; language; object_name; location }
+
+  let make_value binder object_name language location =
+    { binder; kind = Value; language; object_name; location }
+end
+
 type value =
   | Constant   of Constant.t
   | Variable   of var
@@ -63,10 +93,7 @@ and binding =
   | Let        of binder * (tyvar list * tail_computation)
   | Fun        of fun_def
   | Rec        of fun_def list
-  | Alien      of { binder: binder;
-                    language: ForeignLanguage.t;
-                    object_name: string;
-                    location: location }
+  | Alien      of Alien.t
   | Module     of string * binding list option
 and special =
   | Wrong      of Types.datatype
@@ -106,8 +133,10 @@ let binding_scope : binding -> scope =
   function
   | Let (b, _)
   | Fun (b, _, _, _)
-  | Rec ((b, _, _, _)::_)
-  | Alien { binder = b; _ } -> Var.scope_of_binder b
+  | Rec ((b, _, _, _)::_) ->
+     Var.scope_of_binder b
+  | Alien alien ->
+     Var.scope_of_binder (Alien.binder alien)
   | Rec []
   | Module _ -> assert false
 

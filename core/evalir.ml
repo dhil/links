@@ -1003,21 +1003,23 @@ struct
             computation env cont (bs, tailcomp)
          | Rec _ ->
             computation env cont (bs, tailcomp)
-         | Alien { binder; language; location; object_name } ->
+         | Alien alien ->
+            let binder = Alien.binder alien in
             let var = Var.var_of_binder binder in
             let scope = Var.scope_of_binder binder in
+            let object_name = Alien.object_name alien in
             let desc =
               let user_name = Var.name_of_binder binder in
               Value.Primitive.make ~user_friendly_name:user_name ~object_name ()
             in
             let open ForeignLanguage in
             let env' =
-              match language with
+              match Alien.language alien with
               | JavaScript ->
                  Value.Env.bind var (`ClientFunction desc, scope) env
-              | Builtin when Location.is_client location ->
+              | Builtin when Location.is_client (Alien.location alien) ->
                  Value.Env.bind var (`ClientFunction desc, scope) env
-              | Builtin when not (TypeUtils.is_function_type ~overstep_quantifiers:true Var.(info_type (info_of_binder binder))) ->
+              | Builtin when not (Alien.is_function alien) ->
                  Value.Env.bind var (Builtins.find_value object_name, scope) env
               | Builtin ->
                  Value.Env.bind var (`PrimitiveFunction desc, scope) env

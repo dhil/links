@@ -335,7 +335,12 @@ struct
 
     let alien_binding (x_info, location, object_name, language) =
       let xb, x = Var.fresh_var x_info in
-      lift_binding (Alien { binder = xb; object_name; language; location }) x
+      let alien =
+        if TypeUtils.is_function_type ~overstep_quantifiers:true (Var.info_type x_info)
+        then Alien.make_function xb object_name language location
+        else Alien.make_value xb object_name language location
+      in
+      lift_binding (Alien alien) x
 
     let value_of_untyped_var (s, t) =
       M.bind s (fun x -> lift (Variable x, t))
@@ -1254,8 +1259,9 @@ struct
                           | Scope.Local ->
                               partition (globals, b::locals, nenv) bs
                       end
-                | Alien { binder; _ }
-                     when Var.Scope.isGlobal (Var.scope_of_binder binder) ->
+                | Alien alien
+                     when Var.Scope.isGlobal (Var.scope_of_binder (Alien.binder alien)) ->
+                   let binder = Alien.binder alien in
                    let f = Var.var_of_binder binder in
                    let f_name = Var.name_of_binder binder in
                     partition (b::locals @ globals, [], Env.String.bind f_name f nenv) bs

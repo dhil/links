@@ -1241,12 +1241,14 @@ end = functor (K : CONTINUATION) -> struct
              varenv fs
          in
          (state, varenv, None, fun code -> LetRec (List.map (generate_function varenv fs) defs, code))
-      | Alien { binder; object_name; language; location = _ } ->
+      | Alien alien ->
+         let object_name = Alien.object_name alien in
+         let binder = Alien.binder alien in
          begin
            let open ForeignLanguage in
            (* TODO(dhil): If the foreign language isn't JavaScript,
               then I think a server-call should be generated. *)
-           match language with
+           match Alien.language alien with
            | JavaScript -> (* Currently, JavaScript functions must live on the client. *)
               let (a, _a_name) = name_binder binder in
               let varenv = VEnv.bind a object_name varenv in
