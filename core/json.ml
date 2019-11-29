@@ -58,7 +58,8 @@ let rec cons_listify : Yojson.Basic.t list -> Yojson.Basic.t = function
 let rec jsonize_value' : Value.t -> Yojson.Basic.t =
   function
   | `Lens _ -> raise (Errors.runtime_error "relational lens serialization not supported")
-  | `PrimitiveFunction _
+  | `PrimitiveFunction desc ->
+     `Assoc [("func", `String (Value.Primitive.object_name desc))]
   | `Resumption _
   | `Continuation _
   | `Socket _
@@ -77,7 +78,7 @@ let rec jsonize_value' : Value.t -> Yojson.Basic.t =
     `Assoc entries
   | `ClientDomRef i ->
       `Assoc [("_domRefKey", `String (string_of_int i))]
-  | `ClientFunction desc -> `Assoc [("func", `String (Value.Primitive.object_name desc))]
+  (* | `ClientFunction desc -> `Assoc [("func", `String (Value.Primitive.object_name desc))] *)
   | #Value.primitive_value as p -> jsonize_primitive p
   | `Variant (label, value) ->
       `Assoc [("_label", `String label); ("_value", jsonize_value' value)]

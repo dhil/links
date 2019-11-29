@@ -525,19 +525,20 @@ struct
   let lookup_fun_def f =
     match lookup_fun f with
     | None -> None
-    | Some (finfo, _, None, location) ->
-      begin
-        match location with
-        | Location.Server | Location.Unknown ->
-          (* TODO: perhaps we should actually use env here - and make
-             sure we only call this function when it is sufficiently
-             small *)
-          Some (`FunctionPtr (f, None))
-        | Location.Client ->
-           let name = Js.var_name_binder (f, finfo) in
-           Some (`ClientFunction (Value.Primitive.make ~user_friendly_name:name ~object_name:name ()))
-        | Location.Native -> assert false
-      end
+    | Some (_finfo, _, None, _) ->
+       Some (`FunctionPtr (f, None))
+      (* begin
+       *   match location with
+       *   | Location.Server | Location.Unknown ->
+       *     (\* TODO: perhaps we should actually use env here - and make
+       *        sure we only call this function when it is sufficiently
+       *        small *\)
+       *     Some (`FunctionPtr (f, None))
+       *   | Location.Client ->
+       *      let name = Js.var_name_binder (f, finfo) in
+       *      Some (`PrimitiveFunction (Value.Primitive.make ~user_friendly_name:name ~object_name:name ()))
+       *   | Location.Native -> assert false
+       * end *)
     | _ -> assert false
 
   let find_fun_def f =
@@ -686,16 +687,25 @@ struct
     let invoke_session_exception () =
       special env cont (DoOperation (Value.session_exception_operation, [], `Not_typed))
     in function
-    | `FunctionPtr (f, fvs), ps ->
-       let (_finfo, (xs, body), z, _location) = find_fun f in
+    | `FunctionPtr (f, fvs), args ->
+       let (_finfo, (xs, body), z, location) = find_fun f in
        let env =
          match z, fvs with
-         | None, None            -> env
-         | Some z, Some fvs -> Value.Env.bind z (fvs, Scope.Local) env
-         | _, _ -> assert false in
-       (* extend env with arguments *)
-       let env = List.fold_right2 (fun x p -> Value.Env.bind x (p, Scope.Local)) xs ps env in
-       computation_yielding env cont body
+         | None, None -> env
+         | Some z, Some fvs ->
+            Value.Env.bind z (fvs, Scope.Local) env
+         | None, Some _ -> raise (internal_error "missing binder for closure environment")
+         | Some _, None -> raise (internal_error "missing closure environment")
+       in
+       if Location.is_client location
+       then client_call (Value.Env.request_data env) (string_of_int f) cont args
+       else let env =
+              (* extend env with arguments *)
+              List.fold_right2
+                (fun x p -> Value.Env.bind x (p, Scope.Local))
+                xs args env
+            in
+            computation_yielding env cont body
     | `PrimitiveFunction desc, args ->
        begin match (Value.Primitive.user_friendly_name desc), args with (* TODO FIXME match on object name. *)
        | "registerEventHandlers", [hs] ->
@@ -963,16 +973,19 @@ struct
         *    apply_cont cont env (Lib.apply_pfun n args (Value.Env.request_data env)) *)
        | _, _ ->
           let object_name = Value.Primitive.object_name desc in
-          let fn = Builtins.find object_name in
-          let result = Builtins.apply fn (Value.Env.request_data env) args in
-          apply_cont cont env result
+          let location = Value.Primitive.location desc in
+          if Location.is_client location
+          then client_call (Value.Env.request_data env) object_name cont args
+          else let fn = Builtins.find object_name in
+               let result = Builtins.apply fn (Value.Env.request_data env) args in
+               apply_cont cont env result
     (* | `PrimitiveFunction (_, Some code), args ->
      *    apply_cont cont env (Lib.apply_pfun_by_code code args (Value.Env.request_data env)) *)
        end
-    | `ClientFunction desc, args ->
-       let name = Value.Primitive.object_name desc in
-       let req_data = Value.Env.request_data env in
-       client_call req_data name cont args
+    (* | `ClientFunction desc, args ->
+     *    let name = Value.Primitive.object_name desc in
+     *    let req_data = Value.Env.request_data env in
+     *    client_call req_data name cont args *)
     | `Continuation c,      [p] -> apply_cont c env p
     | `Continuation _,       _  ->
        eval_error "Continuation applied to multiple (or zero) arguments"
@@ -1015,13 +1028,13 @@ struct
             let open ForeignLanguage in
             let env' =
               match Alien.language alien with
-              | JavaScript ->
-                 Value.Env.bind var (`ClientFunction desc, scope) env
-              | Builtin when Location.is_client (Alien.location alien) ->
-                 Value.Env.bind var (`ClientFunction desc, scope) env
+              (* | JavaScript ->
+               *    Value.Env.bind var (`ClientFunction desc, scope) env
+               * | Builtin when Location.is_client (Alien.location alien) ->
+               *    Value.Env.bind var (`ClientFunction desc, scope) env *)
               | Builtin when not (Alien.is_function alien) ->
                  Value.Env.bind var (Builtins.find_value object_name, scope) env
-              | Builtin ->
+              | _ ->
                  Value.Env.bind var (`PrimitiveFunction desc, scope) env
             in
             computation env' cont (bs, tailcomp)

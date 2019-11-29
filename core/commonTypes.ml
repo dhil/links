@@ -176,6 +176,13 @@ module Location = struct
     | Client -> "client"
     | Server -> "server"
     | Unknown -> "unknown"
+
+  let of_string = function
+    | "client"  -> Client
+    | "server"  -> Server
+    | "native"  -> Native
+    | "unknown" -> Unknown
+    | _ -> raise (Invalid_argument "of_string")
 end
 
 (* Convenient aliases for constructing values *)

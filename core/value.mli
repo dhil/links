@@ -217,10 +217,9 @@ type t = [
 | `Record of (string * t) list
 | `Lens of Lens.Value.t
 | `Variant of string * t
-| `FunctionPtr of (Ir.var * t option)
+| `FunctionPtr of Ir.var * t option
 | `PrimitiveFunction of primitive_desc
 | `ClientDomRef of int
-| `ClientFunction of primitive_desc
 | `Continuation of continuation
 | `Resumption of resumption
 | `Pid of dist_pid
@@ -229,7 +228,7 @@ type t = [
 | `Socket of in_channel * out_channel
 | `SpawnLocation of spawn_location
   ]
-and primitive_desc = { prim_object_name: string; prim_user_name: string }
+and primitive_desc = { prim_loc: Location.t; prim_object_name: string; prim_user_name: string }
 and continuation = t Continuation.t
 and resumption = t Continuation.resumption
 and env = t Env.t
@@ -239,7 +238,8 @@ module Primitive: sig
   type t = primitive_desc
   val user_friendly_name : t -> string
   val object_name : t -> string
-  val make : user_friendly_name:string -> object_name:string -> unit -> t
+  val location : t -> Location.t
+  val make : user_friendly_name:string -> object_name:string -> ?location:Location.t -> unit -> t
 end
 
 type delegated_chan = (chan * (t list))

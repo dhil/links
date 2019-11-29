@@ -140,6 +140,10 @@ alien builtin {
   min    : ([a]) ~> [|Some:a|None:()|] = "%list_min";
 }
 
+infixr 5 ++;
+sig ++ : ([a], [a]) -> [a]
+op xs ++ ys { concat(xs, ys) }
+
 # infixr 5 ::;
 #sig :: : (a, [a]) -> [a]
 #op x :: xs { cons(x, xs) }
