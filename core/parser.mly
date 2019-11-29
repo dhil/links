@@ -402,6 +402,9 @@ alien_entity:
 | COLONCOLON perhaps_location COLON datatype EQ STRING SEMICOLON { let binder = binder ~ppos:$loc($1) "::" in
                                                                    let datatype = datatype $4 in
                                                                    Alien.Entity.make binder datatype $6 $2 }
+| RECEIVE perhaps_location COLON datatype EQ STRING SEMICOLON { let binder = binder ~ppos:$loc($1) "receive" in
+                                                                   let datatype = datatype $4 in
+                                                                   Alien.Entity.make binder datatype $6 $2 }
 
 
 alien_entities:

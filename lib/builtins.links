@@ -82,8 +82,9 @@ alien builtin {
   floatToXml    : (Float) -> Xml    = "%conv_float_to_xml";
 
   # Strings.
-  stringToInt : (String) -> Int = "%conv_string_to_int";
+  stringToInt   : (String) -> Int   = "%conv_string_to_int";
   stringToFloat : (String) -> Float = "%conv_string_to_float";
+  stringToXml   : (String) -> Xml   = "%conv_string_to_xml";
 }
 
 # Exit.
@@ -93,6 +94,7 @@ alien builtin sysexit : (Int) ~> a = "%sysexit";
 # Process related operations.
 alien builtin {
   process_send     : forall a::Type(Any, Any) . (Process({hear:a|_}), a) ~> () = "%proc_send";
+  receive          : forall a::Type(Any, Any), s::Type(Any, Session). (?a.s) ~> (a, s) = "%proc_recv";
   self             : () {hear{a}|_}~> Process({ hear{a} })                     = "%proc_self";
   here             : () ~> Location                                            = "%proc_here";
   there            : () ~> Location                                            = "%proc_there";
@@ -151,6 +153,7 @@ op xs ++ ys { concat(xs, ys) }
 # XML.
 alien builtin {
   childNodes       : (Xml) -> Xml                                 = "%xml_child_nodes";
+  addAttributes    : (Xml, [(String, String)]) -> Xml             = "%xml_add_attributes";
   attribute        : (Xml, String) -> [|Just:String|Nothing|]     = "%xml_attribute";
   makeXml          : (String, [(String, String)], Xml) -> XmlItem = "%xml_make";
   xmlToVariant     : (Xml) ~> mu n.[ [|Text:String | Attr:(String, String) | Node:(String, n) | NsAttr: (String, String, String) | NsNode: (String, String, n) |] ]  = "%xml_to_variant";
@@ -278,7 +281,7 @@ alien builtin {
   strlen      : (String) ~> Int              = "%str_len";
   strescape   : (String) ~> String           = "%str_escape";
   strunescape : (String) ~> String           = "%str_unescape";
-  strContains : (String) ~> String           = "%str_contains";
+  strContains : (String, Char) ~> Bool       = "%str_contains";
   implode     : ([Char]) ~> String           = "%str_implode";
   explode     : (String) ~> [Char]           = "%str_explode";
 }

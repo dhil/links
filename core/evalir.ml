@@ -81,6 +81,29 @@ module Builtins = struct
 
   let less_or_equal l r = less l r || equal l r
 
+  let add_attribute : Value.t * Value.t -> Value.t -> Value.t =
+    let rec filter = fun name ->
+      function
+      | [] -> []
+      | Value.Attr (s, _) :: nodes when s = name -> filter name nodes
+      | Value.NsAttr (ns, s, _) :: nodes when ns ^ ":" ^ s = name -> filter name nodes
+      | node :: nodes -> node :: filter name nodes
+    in
+    fun (name,value) ->
+    let name = Value.unbox_string name
+    and value = Value.unbox_string value
+    in let new_attr = match String.split_on_char ':' name with
+         | [ n ] -> Value.Attr(n, value)
+         | [ ns; n ] -> Value.NsAttr(ns, n, value)
+         | _ -> raise (runtime_error ("Attribute-name con only contain one colon for namespacing. Multiple found: " ^ name))
+       in function
+       | `XML (Value.Node (tag, children))       -> `XML (Value.Node (tag, new_attr :: filter name children))
+       | `XML (Value.NsNode (ns, tag, children)) -> `XML (Value.NsNode (ns, tag, new_attr :: filter name children))
+       | r -> raise (runtime_error ("cannot add attribute to " ^ Value.string_of_value r))
+
+ let add_attributes : (Value.t * Value.t) list -> Value.t -> Value.t =
+   List.fold_right add_attribute
+
   let builtins : (string, t) Hashtbl.t =
     let binop impl unbox box = function
       | [x; y] -> box (impl (unbox x) (unbox y))
@@ -172,6 +195,7 @@ module Builtins = struct
 
       ; "%conv_string_to_int"   , `PFun (unary int_of_string Value.unbox_string Value.box_int)
       ; "%conv_string_to_float" , `PFun (unary float_of_string Value.unbox_string Value.box_float)
+      ; "%conv_string_to_xml"   , `PFun (unary (fun s -> [`XML (Value.Text s)]) Value.unbox_string Value.box_list)
 
       (* System primitives. *)
       ; "%exit"   , `Continuation Value.Continuation.empty
@@ -229,6 +253,12 @@ module Builtins = struct
                                                 | _ -> false)
                                               children
                                          | _ -> raise (internal_error "non-XML given to childNodes")) Value.unbox_list (fun xs -> Value.box_list (List.map Value.box_xml xs)))
+      ; "%xml_add_attributes", `PFun (binary (fun xmlitems attrs ->
+                                          let attrs =
+                                            List.map (fun p -> Value.unbox_pair p) attrs
+                                          in
+                                          List.map (add_attributes attrs) xmlitems)
+                                    Value.unbox_list Value.unbox_list Value.box_list)
       ; "%xml_attribute", `PFun (binary (fun elem attr ->
                                      let find_attr cs =
                                        (try match List.find (function
