@@ -228,7 +228,10 @@ type t = [
 | `Socket of in_channel * out_channel
 | `SpawnLocation of spawn_location
   ]
-and primitive_desc = { prim_loc: Location.t; prim_object_name: string; prim_user_name: string }
+and primitive_desc = { prim_var: Var.var;
+                       prim_loc: Location.t;
+                       prim_object_name: string;
+                       prim_user_name: string }
 and continuation = t Continuation.t
 and resumption = t Continuation.resumption
 and env = t Env.t
@@ -239,7 +242,8 @@ module Primitive: sig
   val user_friendly_name : t -> string
   val object_name : t -> string
   val location : t -> Location.t
-  val make : user_friendly_name:string -> object_name:string -> ?location:Location.t -> unit -> t
+  val var : t -> Var.var
+  val make : var:Var.var -> user_friendly_name:string -> object_name:string -> ?location:Location.t -> unit -> t
 end
 
 type delegated_chan = (chan * (t list))
@@ -248,6 +252,7 @@ val project : string -> t -> t
 val untuple : t -> t list
 
 val unit : t
+val empty_string : t
 
 val box_bool : 'a -> [> `Bool of 'a ]
 val unbox_bool : t -> bool

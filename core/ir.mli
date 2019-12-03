@@ -148,5 +148,7 @@ val string_of_special : special -> string
 val string_of_computation : computation -> string
 val string_of_program : program -> string
 
+val apply_fn : Var.var -> value list -> tail_computation
+
 type eval_fun_def = var_info * (var list * computation) * Var.var option * location
   [@@deriving show]

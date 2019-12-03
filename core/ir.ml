@@ -183,7 +183,8 @@ let string_of_special  = show_special
 let string_of_computation = show_computation
 let string_of_program = show_program
 
-
+let apply_fn : Var.var -> value list -> tail_computation
+  = fun v vs -> Apply (Variable v, vs)
 
 
 type eval_fun_def = var_info * (var list * computation) * Var.var option * location

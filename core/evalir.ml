@@ -386,23 +386,25 @@ module Builtins = struct
       (* Character functions. *)
       ; "%char_ord", `PFun (unary Char.code Value.unbox_char Value.box_int)
       ; "%char_chr", `PFun (unary Char.chr Value.unbox_int Value.box_char)
-                      (* Regexes. *)
+      (* Regexes. *)
       ; "%regex_tilde", `PFun (binary (fun s r ->
                                    let regex = Regex.compile_ocaml r in
                                    Str.string_match regex s 0)
                                  Value.unbox_string Linksregex.Regex.ofLinks Value.box_bool)
-      ; "%regex_ltilde", `PFun (binary (fun s (re, ngroups) ->
+      ; "%regex_ltilde", `PFun (binary (fun string (re, ngroups) ->
                                     let regex = Regex.compile_ocaml re in
-                                    if Str.string_match regex s 0
+                                    if not (Str.string_match regex string 0)
                                     then []
-                                    else let rec accum_matches l (i : int) =
+                                    else let rec accumMatches : Value.t list -> int -> Value.t list
+                                           = fun l i ->
                                            if i = 0
-                                           then (Value.box_string (Str.matched_group 0 s)) :: l
-                                           else try let m = Str.matched_group i s in
-                                                    accum_matches ((Value.box_string m) :: l) (i - 1)
-                                                with NotFound _ -> accum_matches ((Value.box_string "") :: l) (i - 1)
+                                           then (Value.box_string (Str.matched_group 0 string) :: l)
+                                           else try let grp = Value.box_string (Str.matched_group i string) in
+                                                    accumMatches (grp :: l) (i - 1)
+                                                with
+                                                  NotFound _ -> accumMatches (Value.empty_string :: l) (i - 1)
                                          in
-                                         accum_matches [] ngroups)
+                                         accumMatches [] ngroups)
                                   Value.unbox_string Linksregex.Regex.ofLinksNGroups Value.box_list)
       ; "%regex_stilde", `PFun (binary (fun s r ->
                                     let open Regex in
@@ -578,8 +580,8 @@ struct
      IR so we don't have to do this check every time we look up a
      variable *)
   let lookup_var var env =
-    if Lib.is_primitive_var var then Lib.primitive_stub_by_code var
-    else
+    (* if Lib.is_primitive_var var then Lib.primitive_stub_by_code var
+     * else *)
       match lookup_fun_def var with
       | None ->
         Value.Env.find var env
@@ -737,12 +739,13 @@ struct
             in
             computation_yielding env cont body
     | `PrimitiveFunction desc, args ->
-       begin match (Value.Primitive.user_friendly_name desc), args with (* TODO FIXME match on object name. *)
-       | "registerEventHandlers", [hs] ->
+       let fvar = Value.Primitive.var desc in
+       begin match (Value.Primitive.object_name desc), args with
+       | "%register_event_handlers", [hs] ->
           let key = EventHandlers.register hs in
           apply_cont cont env (`String (string_of_int key))
        (* start of mailbox stuff *)
-       | "process_send", [pid; msg] ->
+       | "%proc_send", [pid; msg] ->
           let unboxed_pid = Value.unbox_pid pid in
           (try
              match unboxed_pid with
@@ -759,20 +762,20 @@ struct
                    (ProcessTypes.ProcessID.to_string id) ^ " has no mailbox.");
              Lwt.return ()) >>= (fun _ ->
             apply_cont cont env Value.unit)
-       | "spawnAt", [loc; func] ->
+       | "%proc_spawn_at", [loc; func] ->
           begin match loc with
           | `SpawnLocation (`ClientSpawnLoc client_id) ->
              Proc.create_client_process client_id func >>= fun new_pid ->
              apply_cont cont env (`Pid (`ClientPid (client_id, new_pid)))
-          | `SpawnLocation (`ServerSpawnLoc) ->
+          | `SpawnLocation `ServerSpawnLoc ->
              let var = Var.dummy_var in
-             let frame = K.Frame.make Scope.Local var Value.Env.empty ([], Apply (Variable var, [])) in
+             let frame = K.Frame.make Scope.Local var Value.Env.empty ([], Ir.apply_fn var []) in
              Proc.create_process false
                (fun () -> apply_cont K.(frame &> empty) env func) >>= fun new_pid ->
              apply_cont cont env (`Pid (`ServerPid new_pid))
           | _ -> assert false
           end
-       | "spawnAngelAt", [loc; func] ->
+       | "%proc_spawn_angel_at", [loc; func] ->
           begin match loc with
           | `SpawnLocation (`ClientSpawnLoc client_id) ->
              Proc.create_client_process client_id func >>= fun new_pid ->
@@ -785,7 +788,7 @@ struct
              apply_cont cont env (`Pid (`ServerPid new_pid))
           | _ -> assert false
           end
-       | "spawnWait", [func] ->
+       | "%proc_spawn_wait", [func] ->
           let our_pid = Proc.get_current_pid () in
           (* Create the new process *)
           let var = Var.dummy_var in
@@ -801,8 +804,8 @@ struct
             Value.Env.bind fresh_var (Value.box_pid (`ServerPid child_pid), Scope.Local) env in
           let grab_frame =
             K.Frame.of_expr extended_env
-              (Lib.prim_appln "spawnWait'" [Variable fresh_var]) in
-
+              (Ir.apply_fn fvar [Variable fresh_var]) (* TODO FIXME use a persistent identifier. *)
+          in
           (* Now, check to see whether we already have the result; if
              so, we can grab and continue. Otherwise, we need to
              block. *)
@@ -812,7 +815,7 @@ struct
             | None ->
                Proc.block (fun () -> apply_cont K.(grab_frame &> cont) env Value.unit)
           end
-       | "spawnWait'", [child_pid] ->
+       | "%proc_spawn_wait'", [child_pid] ->
           let unboxed_pid = Value.unbox_pid child_pid in
           begin
             match unboxed_pid with
@@ -821,7 +824,7 @@ struct
                apply_cont cont env v
             | _ -> assert false
           end
-       | "recv", [] ->
+       | "%proc_recv", [] ->
           (* If there are any messages, take the first one and apply
              the continuation to it.  Otherwise, block the process
              (put its continuation in the blocked_processes table) and
@@ -831,23 +834,23 @@ struct
              Debug.print("delivered message.");
              apply_cont cont env message
           | None ->
-             let recv_frame = K.Frame.of_expr env (Lib.prim_appln "recv" []) in
+             let recv_frame = K.Frame.of_expr env (Ir.apply_fn fvar []) in (* TODO FIXME use a persistent identifier. *)
              Proc.block (fun () -> apply_cont K.(recv_frame &> cont) env Value.unit)
           end
        (* end of mailbox stuff *)
        (* start of session stuff *)
-       | "new", [] ->
+       | "%ap_new", [] ->
           apply_access_point cont env `ServerSpawnLoc
-       | "newAP", [loc] ->
+       | "%ap_new_ap", [loc] ->
           let unboxed_loc = Value.unbox_spawn_loc loc in
           apply_access_point cont env unboxed_loc
-       | "newClientAP", [] ->
+       | "%new_client_ap", [] ->
           (* Really this should be desugared properly into "there"... *)
           let client_id = RequestData.get_client_id @@ Value.Env.request_data env in
           apply_access_point cont env (`ClientSpawnLoc client_id)
-       | "newServerAP", [] ->
+       | "%new_server_ap", [] ->
           apply_access_point cont env `ServerSpawnLoc
-       | "accept", [ap] ->
+       | "%ap_accept", [ap] ->
           let ap = Value.unbox_access_point ap in
           begin
             match ap with
@@ -866,7 +869,7 @@ struct
                  (* other end will have been unblocked in proc *)
                  apply_cont cont env boxed_channel
           end
-       | "request", [ap] ->
+       | "%ap_request", [ap] ->
           let ap = Value.unbox_access_point ap in
           begin
             match ap with
@@ -885,7 +888,7 @@ struct
                     proc.ml, return new channel EP *)
                 apply_cont cont env boxed_channel
           end
-       | "send", [v; chan] ->
+       | "%session_send", [v; chan] ->
           let open Session in
           Debug.print ("sending: " ^ Value.string_of_value v ^ " to channel: " ^ Value.string_of_value chan);
           let unboxed_chan = Value.unbox_channel chan in
@@ -902,7 +905,7 @@ struct
                  (Lwt.return ()) contained_channels >>= fun _ ->
                apply_cont cont env chan
           end
-       | "receive", [chan] ->
+       | "%session_recv", [chan] ->
           begin
             let open Session in
             Debug.print("receiving from channel: " ^ Value.string_of_value chan);
@@ -917,7 +920,7 @@ struct
                  further. *)
               let fresh_var = Var.fresh_raw_var () in
               let extended_env = Value.Env.bind fresh_var (chan, Scope.Local) env in
-              let grab_frame = K.Frame.of_expr extended_env (Lib.prim_appln "receive" [Variable fresh_var]) in
+              let grab_frame = K.Frame.of_expr extended_env (Ir.apply_fn fvar [Variable fresh_var]) in (* TODO FIXME use a persistent identifier. *)
               let inp = (snd unboxed_chan) in
               Session.block inp (Proc.get_current_pid ());
               Proc.block (fun () -> apply_cont K.(grab_frame &> cont) env Value.unit)
@@ -939,7 +942,7 @@ struct
                  Session.cancel unboxed_chan >>= fun _ ->
                  throw_or_block ()
           end
-       | "link", [chanl; chanr] ->
+       | "%session_link", [chanl; chanr] ->
           let unblock p =
             match Session.unblock p with
             | Some pid -> (*Debug.print("unblocked: "^string_of_int p); *)
@@ -952,14 +955,14 @@ struct
           unblock out1;
           unblock out2;
           apply_cont cont env Value.unit
-       | "cancel", [chan] ->
+       | "%ap_cancel", [chan] ->
           Session.cancel (Value.unbox_channel chan) >>= fun _ ->
           apply_cont cont env Value.unit
-       | "close", [chan] ->
+       | "%ap_close", [chan] ->
           Session.close (Value.unbox_channel chan);
           apply_cont cont env Value.unit
        (* end of session stuff *)
-       | "unsafeAddRoute", [pathv; handler; error_handler] ->
+       | "%route_add_unsafe", [pathv; handler; error_handler] ->
           let path = Value.unbox_string pathv in
           let is_dir_handler = String.length path > 0 && path.[String.length path - 1] = '/' in
           let path = if String.length path == 0 || path.[0] <> '/' then "/" ^ path else path in
@@ -972,7 +975,7 @@ struct
           in
           Webs.add_route is_dir_handler path (Right {Webs.request_handler = (env, handler); Webs.error_handler = (env, error_handler)});
           apply_cont cont env Value.unit
-       | "addStaticRoute", [uriv; pathv; mime_typesv] ->
+       | "%route_add_static", [uriv; pathv; mime_typesv] ->
           if not (!allow_static_routes) then
             eval_error "Attempt to add a static route after they have been disabled";
           let uri = Value.unbox_string uriv in
@@ -988,19 +991,16 @@ struct
           let mime_types = List.map (fun v -> let (x, y) = Value.unbox_pair v in (Value.unbox_string x, Value.unbox_string y)) (Value.unbox_list mime_typesv) in
           Webs.add_route true uri (Left (path, mime_types));
           apply_cont cont env Value.unit
-       | "servePages", [] ->
+       | "%serve_pages", [] ->
           if not (Settings.get (dynamic_static_routes)) then
             allow_static_routes := false;
           begin
             Webs.start env >>= fun () ->
             apply_cont cont env Value.unit
           end
-       | "serveWebsockets", [] ->
+       | "%serve_websockets", [] ->
           Webs.set_accepting_websocket_requests true;
           apply_cont cont env Value.unit
-       (*****************)
-       (* | `PrimitiveFunction (n,None), args ->
-        *    apply_cont cont env (Lib.apply_pfun n args (Value.Env.request_data env)) *)
        | _, _ ->
           let object_name = Value.Primitive.object_name desc in
           let location = Value.Primitive.location desc in
@@ -1009,19 +1009,12 @@ struct
           else let fn = Builtins.find object_name in
                let result = Builtins.apply fn (Value.Env.request_data env) args in
                apply_cont cont env result
-    (* | `PrimitiveFunction (_, Some code), args ->
-     *    apply_cont cont env (Lib.apply_pfun_by_code code args (Value.Env.request_data env)) *)
        end
-    (* | `ClientFunction desc, args ->
-     *    let name = Value.Primitive.object_name desc in
-     *    let req_data = Value.Env.request_data env in
-     *    client_call req_data name cont args *)
     | `Continuation c,      [p] -> apply_cont c env p
     | `Continuation _,       _  ->
        eval_error "Continuation applied to multiple (or zero) arguments"
     | `Resumption r, vs ->
        resume env cont r vs
-    (* | `Alien, _ -> eval_error "Cannot make alien call on the server."; *)
     | v, _ -> type_error ~action:"apply" "function" v
   and resume env (cont : continuation) (r : resumption) vs =
     Proc.yield (fun () -> K.Eval.resume ~env cont r vs)
@@ -1052,16 +1045,13 @@ struct
             let scope = Var.scope_of_binder binder in
             let object_name = Alien.object_name alien in
             let desc =
+              let location = Alien.location alien in
               let user_name = Var.name_of_binder binder in
-              Value.Primitive.make ~user_friendly_name:user_name ~object_name ()
+              Value.Primitive.make ~var ~user_friendly_name:user_name ~object_name ~location ()
             in
             let open ForeignLanguage in
             let env' =
               match Alien.language alien with
-              (* | JavaScript ->
-               *    Value.Env.bind var (`ClientFunction desc, scope) env
-               * | Builtin when Location.is_client (Alien.location alien) ->
-               *    Value.Env.bind var (`ClientFunction desc, scope) env *)
               | Builtin when not (Alien.is_function alien) ->
                  Value.Env.bind var (Builtins.find_value object_name, scope) env
               | _ ->

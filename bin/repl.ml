@@ -249,15 +249,14 @@ let rec directives : (string * ((Context.t -> string list -> Context.t) * string
          "print the documentation of a given setting") ]
 
 let execute_directive context (name, args) =
-  let context =
-    try
-      let f = fst (assoc name (Lazy.force directives)) in
-      f context args
+  match
+    try Some (fst (assoc name (Lazy.force directives)))
     with NotFound _ ->
       Printf.fprintf stderr "unknown directive : %s\n" name;
-      context
-  in
-  flush stderr; context
+      flush stderr; None
+  with
+  | None -> context
+  | Some f -> f context args
 
 let handle previous_context current_context = function
   | `Definitions _defs ->
@@ -326,7 +325,7 @@ let handle previous_context current_context = function
            (Value.string_of_value v)
            (Types.string_of_datatype t))
        nenv'
-       (); current_context
+       ();        flush stdout; current_context
   | `Expression (datatype, value) ->
      print_value datatype value;
      current_context
@@ -337,7 +336,8 @@ let interact : Context.t -> unit
   = fun context ->
   let module I = Driver.Phases.Interactive in
   let print_error exn =
-    Printf.fprintf stderr "%s\n%!" (Errors.format_exception exn)
+    Printf.fprintf stderr "%s\n" (Errors.format_exception exn);
+    flush stderr
   in
   Settings.set BS.interactive_mode true;
   Printf.printf "%s%!" (val_of (Settings.get welcome_note));

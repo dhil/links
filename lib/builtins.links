@@ -94,12 +94,11 @@ alien builtin sysexit : (Int) ~> a = "%sysexit";
 # Process related operations.
 alien builtin {
   process_send     : forall a::Type(Any, Any) . (Process({hear:a|_}), a) ~> () = "%proc_send";
-  receive          : forall a::Type(Any, Any), s::Type(Any, Session). (?a.s) ~> (a, s) = "%proc_recv";
+  recv             : () {:a|_}~> a                                             = "%proc_recv";
   self             : () {hear{a}|_}~> Process({ hear{a} })                     = "%proc_self";
   here             : () ~> Location                                            = "%proc_here";
   there            : () ~> Location                                            = "%proc_there";
   haveMail         : () {:_|_}~> Bool                                          = "%proc_have_mail";
-  recv             : () {:a|_}~> a                                             = "%proc_recv";
   process_spawn    : (() ~e~@ _) ~> (Process ({ |e }))                         = "%proc_spawn";
   spawn_at         : (Location, () ~e~@ _) ~> Process ({ |e })                 = "%proc_spawn_at";
   spawn_angel      : (() ~e~@ _) ~> Process ({ |e })                           = "%proc_spawn_angel";
@@ -112,7 +111,7 @@ alien builtin {
 # Sessions.
 alien builtin {
   send             : forall a::Type(Any, Any), s::Type(Any, Session). (a, !a.s) ~> s = "%session_send";
-  session_receive  : forall a::Type(Any, Any), s::Type(Any, Session). (?a.s) ~> (a, s) = "%session_recv";
+  receive          : forall a::Type(Any, Any), s::Type(Any, Session). (?a.s) ~> (a, s) = "%session_recv";
   link             : forall s::Type(Any, Session), e::Row(Unl, Any).(s, ~s) ~e~> () = "%session_link";
 }
 
@@ -131,16 +130,16 @@ alien builtin {
 # Lists.
 infixr 5 ++;
 alien builtin {
-  nil    : [a]               = "%list_nil";
-  cons   : (a, [a]) -> [a]   = "%list_cons";
-  ++     : ([a], [a]) -> [a] = "%list_concat";
+  list_nil    : [a]               = "%list_nil";    # TODO drop list_ prefix
+  list_cons   : (a, [a]) -> [a]   = "%list_cons";   # TODO drop list_ prefix
+  ++          : ([a], [a]) -> [a] = "%list_concat";
   hd     : ([a]) ~> a        = "%list_hd";
   tl     : ([a]) ~> [a]      = "%list_tl";
-  length : ([a]) -> Int      = "%list_length";
-  take   : (Int, [a]) ~> [a] = "%list_take";
-  drop   : (Int, [a]) ~> [a] = "%list_drop";
-  max    : ([a]) ~> [|Some:a|None:()|] = "%list_max";
-  min    : ([a]) ~> [|Some:a|None:()|] = "%list_min";
+  length      : ([a]) -> Int      = "%list_length";
+  take        : (Int, [a]) ~> [a] = "%list_take";
+  drop        : (Int, [a]) ~> [a] = "%list_drop";
+  max         : ([a]) ~> [|Some:a|None:()|] = "%list_max";
+  min         : ([a]) ~> [|Some:a|None:()|] = "%list_min";
 }
 # infixr 5 ::;
 #sig :: : (a, [a]) -> [a]
@@ -253,7 +252,7 @@ alien builtin {
 
 # Database.
 alien builtin {
-  asList            : (TableHandle(r, w, n)) {}-> [r]    = "%db_as_list";
+  db_asList         : (TableHandle(r, w, n)) {}-> [r]    = "%db_as_list";
   getDatabaseConfig : () ~> (driver:String, args:String) = "%db_get_config";
 }
 

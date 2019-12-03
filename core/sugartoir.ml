@@ -812,9 +812,9 @@ struct
           | RangeLit (low, high) ->
               I.apply (instantiate_mb "intRange", [ev low; ev high]) (* TODO FIXME unhygienic. *)
           | ListLit ([], Some t) ->
-              cofv (instantiate "nil" [`Type t]) (* TODO FIXME unhygienic. *)
+              cofv (instantiate "list_nil" [`Type t]) (* TODO FIXME unhygienic. *)
           | ListLit (e::es, Some t) ->
-             cofv (I.apply_pure(instantiate "cons" [`Type t; `Row eff], (* TODO FIXME unhygienic. *)
+             cofv (I.apply_pure(instantiate "list_cons" [`Type t; `Row eff], (* TODO FIXME unhygienic. *)
                                  [ev e; ev (WithPos.make ~pos (ListLit (es, Some t)))]))
           | Escape (bndr, body) when Binder.has_type bndr ->
              let k  = Binder.to_name bndr in
@@ -836,7 +836,7 @@ struct
           | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) ->
               I.apply (instantiate n tyargs, [ev e1; ev e2]) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.Cons), e1, e2) ->
-              cofv (I.apply_pure (instantiate "cons" tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
+              cofv (I.apply_pure (instantiate "list_cons" tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.FloatMinus), e1, e2) ->
               cofv (I.apply_pure (instantiate "-." tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.Minus), e1, e2) ->
@@ -1009,7 +1009,7 @@ struct
               I.table_handle (ev db, ev name, ev keys, (readtype, writetype, neededtype))
           | Xml (tag, attrs, attrexp, children) ->
                if tag = "#" then
-                 cofv (I.concat (instantiate "nil"  (* TODO FIXME unhygienic. *)
+                 cofv (I.concat (instantiate "list_nil"  (* TODO FIXME unhygienic. *)
                                    [`Type (`Primitive Primitive.XmlItem)],
                                  instantiate "++"  (* TODO FIXME unhygienic. *)
                                    [ `Type (`Primitive Primitive.XmlItem)

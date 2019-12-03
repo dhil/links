@@ -1,32 +1,32 @@
 Alien declaration below toplevel
-if (true) { alien javascript "foo.js" foo : () ~> () = "foobar"; foo() } else { () }
+if (true) { alien javascript foo : () ~> () = "foobar"; foo() } else { () }
 stderr : @.*
 exit : 1
 
 Alien blocks below toplevel
-if (true) { alien javascript "foo.js" { foo : () ~> () = "foobar"; } foo() } else { () }
+if (true) { alien javascript { foo : () ~> () = "foobar"; } foo() } else { () }
 stderr : @.*
 exit : 1
 
 Alien functions may be evaluated in the interpreter
-alien javascript "fun.js" f : () ~> () = "g"; id(f)
-stdout : alien : () ~> ()
+alien javascript f : () ~> () = "g"; id(f)
+stdout : f : () ~> ()
 
 Alien values may be evaluated in the interpreter
-alien javascript "val.js" x : () = "x"; id(x)
-stdout : alien : ()
+alien javascript x : () = "x"; id(x)
+stdout : x : ()
 
-Alien functions may not be applied in the interpreter
-alien javascript "fun.js" f : () ~> () = "f"; f()
+JavaScript FFI entities are implicitly placed on the client
+alien javascript f : () ~> () = "f"; f()
 exit : 1
-stderr : @.*Cannot make alien call on the server\..*
+stderr : @.*Error: Cannot call client side function 'f' outside of web mode
 
 Alien binders can contain primes
-alien javascript "" f' : () -> () = "";
+alien javascript f' : () -> () = "";
 stdout : () : ()
 
 Alien type variables can contain primes
-alien javascript "" f : (a', b') -> c';
+alien javascript f : (a', b') -> c' = "";
 stdout : () : ()
 
 Alien operator
@@ -35,6 +35,8 @@ stdout : () : ()
 
 Client side alien
 alien javascript unsafeCoerce client : (a) -> b = "unsafe_coerce";
+stdout : () : ()
 
 Server side alien
 alien javascript unsafeCoerce server : (a) -> b = "unsafe_coerce";
+stdout : () : ()

@@ -741,7 +741,10 @@ type t = [
 | `Socket of in_channel * out_channel
 | `SpawnLocation of spawn_location
 ]
-and primitive_desc = { prim_loc: Location.t; prim_object_name: string; prim_user_name: string }
+and primitive_desc = { prim_var: Var.var;
+                       prim_loc: Location.t;
+                       prim_object_name: string;
+                       prim_user_name: string }
 and continuation = t Continuation.t
 and resumption = t Continuation.resumption
 and env = t Env.t
@@ -752,8 +755,11 @@ module Primitive = struct
   let user_friendly_name { prim_user_name; _ } = prim_user_name
   let object_name { prim_object_name; _ } = prim_object_name
   let location { prim_loc; _ } = prim_loc
-  let make ~user_friendly_name ~object_name ?(location=Location.Unknown) () =
-    { prim_user_name = user_friendly_name; prim_object_name = object_name;
+  let var { prim_var; _ } = prim_var
+  let make ~var ~user_friendly_name ~object_name ?(location=Location.Unknown) () =
+    { prim_var = var;
+      prim_user_name = user_friendly_name;
+      prim_object_name = object_name;
       prim_loc = location }
 end
 
@@ -958,6 +964,7 @@ let untuple : t -> t list =
 
 (** Unit value. *)
 let unit : t = `Record []
+let empty_string : t = `String ""
 
 (** {1 Boxing and unboxing of primitive types} *)
 let box_bool b = `Bool b

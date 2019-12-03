@@ -129,7 +129,7 @@ object (o : 'self_type)
                    let w = `Type (TypeUtils.table_write_type t) in
                    let n = `Type (TypeUtils.table_needed_type t) in
 
-                   let e = fn_appl "asList" [r; w; n] [e] in (* TODO FIXME unhygienic *)
+                   let e = fn_appl "db_asList" [r; w; n] [e] in (* TODO FIXME unhygienic *)
                    let var = Utility.gensym ~prefix:"_for_" () in
                    let xb = binder ~ty:t var in
                      o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
