@@ -1,6 +1,7 @@
-alien javascript "/js/domFunctions.js" {
-    domAddStyleClassToRef: (DomNode, String) -> ();
-    domRemoveStyleClassFromRef: (DomNode, String) -> ();
+# run with --jslib js/domFunctions.js
+alien javascript {
+    domAddStyleClassToRef: (DomNode, String) -> () = "domAddStyleClassToRef";
+    domRemoveStyleClassFromRef: (DomNode, String) -> () = "domRemoveStyleClassFromRef";
 }
 
 typename Player = [|Alice|Bob|You|];
@@ -824,7 +825,7 @@ fun main_page(_) {
 sig main: () ~> ()
 fun main() {
     addRoute("/", main_page);
-    addStaticRoute("/js", "js", [("js", "text/javascript")]);
+#    addStaticRoute("/js", "js", [("js", "text/javascript")]);
     servePages()
 }
 

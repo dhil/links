@@ -1,15 +1,16 @@
-alien javascript "/js/canvas.js" {
-    getValueFromSelection: (String) ~> String;
+# run with --jslib js/canvas.js --jslib js/runtime.js
+alien javascript {
+    getValueFromSelection: (String) ~> String = "getValueFromSeelection";
 }
 
-alien javascript "js/runtime.js" {
-    delayExecution: (Int) ~> ();
-    requestAnimationFrame: (() -> (), Int) ~> ();
-    setIntervalForF: (Int, () ~> ()) ~> ();
-    sysEnqueue: (a) ~> ();
-    sysDequeue: () ~> [a];
-    sysQueueLength: () -> Int;
-    delayExecutionOfF: (Int, () ~> ()) ~> ();
+alien javascript {
+    delayExecution: (Int) ~> () = "delayExecution";
+    requestAnimationFrame: (() -> (), Int) ~> () = "requestAnimationFrame";
+    setIntervalForF: (Int, () ~> ()) ~> () = "setIntervalForF";
+    sysEnqueue: (a) ~> () = "sysEnqueue";
+    sysDequeue: () ~> [a] = "sysDequeue";
+    sysQueueLength: () -> Int = "sysQueueLength";
+    delayExecutionOfF: (Int, () ~> ()) ~> () = "delayExecutionOfF";
 }
 
 typename Point = (x:Int, y:Int);

@@ -274,7 +274,7 @@ alien builtin {
 
 # Strings.
 alien builtin {
-  chatAt      : (String, Int) ~> Char        = "%str_char_at";
+  charAt      : (String, Int) ~> Char        = "%str_char_at";
   strsub      : (String, Int, Int) ~> String = "%str_sub";
   strlen      : (String) ~> Int              = "%str_len";
   strescape   : (String) ~> String           = "%str_escape";

@@ -40,7 +40,12 @@ let desugar_alien : 'a. SourceCode.Position.t -> 'a Alien.t -> binding list
 let rec desugar_aliens = function
   | [] -> []
   | b :: bs ->
+     (* Alien declarations may only occur at the top-level... *)
      match node b with
+     | Module { binder; members } -> (* ... however, if using the legacy chaser, they may appear under a module. *)
+        let members = List.concat (desugar_aliens members) in
+        let mod' = SourceCode.WithPos.make ~pos:(pos b) (Module { binder; members }) in
+        [mod'] :: (desugar_aliens bs)
      | AlienBlock alien ->
         let aliens = desugar_alien (pos b) alien in
         aliens :: desugar_aliens bs
@@ -64,8 +69,6 @@ let desugar =
       | sentence -> sentence
   end
 
-let program = desugar#program
-
-(* This has the same problem as the above (c.f. issue #604). *)
-let sentence = desugar#sentence
+let program program = desugar#program program
+let sentence sentence = desugar#sentence sentence
 

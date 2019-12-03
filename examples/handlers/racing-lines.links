@@ -1,16 +1,17 @@
+# run with --jslib js/canvas.js --jslib js/runtime.js
 typename Canvas = ();
-alien javascript "/js/canvas.js" {
-    drawUnit: (Int, Int, String, Canvas) ~> ();
-    drawCustomUnit: (Int, Int, Int, Int, String, Canvas) ~> ();
-    getValueFromSelection: (String) ~> String;
+alien javascript {
+    drawUnit: (Int, Int, String, Canvas) ~> () = "drawUnit";
+    drawCustomUnit: (Int, Int, Int, Int, String, Canvas) ~> () = "drawCustomUnit";
+    getValueFromSelection: (String) ~> String = "getValueFromSelection";
 }
 
-alien javascript "js/runtime.js" {
-    systemYield : ((()) {}~> ()) ~> ();
-    delayExecution: (Int) ~> ();
-    sysEnqueue: (a) ~> ();
-    sysDequeue: () ~> [a];
-    sysQueueLength: () -> Int;
+alien javascript {
+    systemYield : ((()) {}~> ()) ~> () = "systemYield";
+    delayExecution: (Int) ~> () = "delayExecution";
+    sysEnqueue: (a) ~> () = "sysEnqueue";
+    sysDequeue: () ~> [a] = "sysDequeue";
+    sysQueueLength: () -> Int = "sysQueueLength";
 }
 
 
@@ -436,7 +437,7 @@ fun main_page(_){
 sig main: () ~> ()
 fun main() {
     addRoute("/", main_page);
-    addStaticRoute("/js", "js", [("js", "text/javascript")]);
+#    addStaticRoute("/js", "js", [("js", "text/javascript")]);
 
     servePages()
 }

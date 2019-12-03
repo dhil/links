@@ -554,6 +554,7 @@ let desugar_sentence : Sugartypes.sentence -> Sugartypes.sentence
   = fun sentence ->
   let sentence = Chaser.add_dependencies_sentence sentence in
   let sentence = DesugarAliens.sentence sentence in
+  (* Printf.fprintf stderr "Before elaboration:\n%s\n%!" (Sugartypes.show_sentence sentence); *)
   let visitor = desugar ~toplevel:true !renamer !scope in
   let result = visitor#sentence sentence in
   scope := visitor#get_scope; renamer := visitor#get_renamer; result
