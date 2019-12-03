@@ -732,7 +732,6 @@ type t = [
 | `FunctionPtr of Ir.var * t option
 | `PrimitiveFunction of primitive_desc
 | `ClientDomRef of int
-(* | `ClientFunction of primitive_desc *)
 | `Continuation of continuation
 | `Resumption of resumption
 | `Pid of dist_pid
@@ -793,7 +792,6 @@ let rec p_value (ppf : formatter) : t -> 'a = function
   | `List l -> fprintf ppf "[@[<hov 0>";
                p_list_elements ppf l
   | `ClientDomRef i -> fprintf ppf "%i" i
-  (* | `ClientFunction desc *)
   | `PrimitiveFunction desc -> fprintf ppf "%s" (Primitive.user_friendly_name desc)
   | `Variant (label, `Record []) -> fprintf ppf "@{<constructor>%s@}" label
   (* avoid duplicate parenthesis for Foo(a = 5, b = 3) *)

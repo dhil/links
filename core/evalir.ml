@@ -1057,7 +1057,9 @@ struct
               | Builtin when not (Alien.is_function alien) ->
                  Value.Env.bind var (Builtins.find_value object_name, scope) env
               | _ ->
-                 Value.Env.bind var (`PrimitiveFunction desc, scope) env
+                 if Alien.is_function alien
+                 then Value.Env.bind var (`PrimitiveFunction desc, scope) env
+                 else Value.Env.bind var (`PrimitiveFunction desc, scope) env (* TODO produce identity call? *)
             in
             computation env' cont (bs, tailcomp)
          | Module _ -> raise (internal_error "Not implemented interpretation of modules yet")

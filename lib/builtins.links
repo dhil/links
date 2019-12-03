@@ -179,17 +179,18 @@ alien javascript {
   insertBefore       client : (Xml, DomNode) ~> ()       = "insertBefore";
   appendChildren     client : (Xml, DomNode) ~> ()       = "appendChildren";
   replaceNode        client : (Xml, DomNode) ~> ()       = "replaceNode";
-  domInsertBeforeRef client : (DomNode, DomNode) ~> ()   = "domInsertBeforeRef";
-  domAppendChildRef  client : (DomNode, DomNode) ~> ()   = "domAppendChildRef";
+  replaceDocument    client : (Xml, DomNode) ~> ()       = "replaceDocument";
   removeNode         client : (DomNode) ~> ()            = "removeNode";
   cloneNode          client : (DomNode, Bool) ~> DomNode = "cloneNode";
-  domReplaceChildren client : (Xml, DomNode) ~> ()       = "domReplaceChildren";
   swapNodes          client : (DomNode, DomNode) ~> ()   = "swapNodes";
   getDocumentNode    client : () ~> DomNode              = "getDocumentNode";
   getNodeById        client : (String) ~> DomNode        = "getNodeById";
   getValue           client : (DomNode) ~> Xml           = "getValue";
   isNull             client : (DomNode) ~> Bool          = "isNull";
 
+  domInsertBeforeRef client : (DomNode, DomNode) ~> ()   = "domInsertBeforeRef";
+  domAppendChildRef  client : (DomNode, DomNode) ~> ()   = "domAppendChildRef";
+  domReplaceChildren client : (Xml, DomNode) ~> ()       = "domReplaceChildren";
   domGetNodeValueFromRef    client : (DomNode) ~> String             = "domGetNodeValueFromRef";
   domGetTagNameFromRef      client : (DomNode) ~> String             = "domGetTagNameFromRef";
   domGetPropertyFromRef     client : (DomNode, String) ~> String     = "domGetPropertyFromRef";
