@@ -60,8 +60,8 @@ object (o : 'self_type)
 
         let spawn_fun =
           match k with
-          | Demon  -> "spawnAt"
-          | Angel  -> "spawnAngelAt"
+          | Demon  -> "spawn_at"
+          | Angel  -> "spawn_angel_at"
           | Wait   -> assert false in
 
         (* At this point, the location in the funlit doesn't matter -- we'll have an explicit

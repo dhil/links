@@ -129,7 +129,7 @@ object (o : 'self_type)
                    let w = `Type (TypeUtils.table_write_type t) in
                    let n = `Type (TypeUtils.table_needed_type t) in
 
-                   let e = fn_appl "AsList" [r; w; n] [e] in
+                   let e = fn_appl "asList" [r; w; n] [e] in (* TODO FIXME unhygienic *)
                    let var = Utility.gensym ~prefix:"_for_" () in
                    let xb = binder ~ty:t var in
                      o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
@@ -173,7 +173,7 @@ object (o : 'self_type)
             | None, None -> results
             | Some sort, Some sort_type ->
                 let sort_by, sort_type_arg =
-                  "sortByBase", `Row (TypeUtils.extract_row sort_type) in
+                  "sortByBase", `Row (TypeUtils.extract_row sort_type) in (* TODO FIXME unhygienic *)
 
                 let g : phrase =
                   fun_lit ~args:[Types.make_tuple_type [arg_type], eff]
@@ -184,7 +184,7 @@ object (o : 'self_type)
             | _, _ -> assert false in
 
         let e : phrasenode =
-          fn_appl_node "concatMap" [`Type arg_type; `Row eff; `Type elem_type]
+          fn_appl_node "concatMap" [`Type arg_type; `Row eff; `Type elem_type] (* TODO FIXME unhygienic *)
                        [f; results] in
         let o = o#restore_envs envs in
         (o, e, body_type)

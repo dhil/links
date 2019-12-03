@@ -186,13 +186,14 @@ module Phases = struct
     let result =
       Parse.run context filename
       |> Desugar.run
-      |> (fun result ->
-        let context = result.Frontend.context in
-        let venv =
-          Var.varify_env (Lib.nenv, Lib.typing_env.Types.var_env)
-        in
-        let context' = Context.({ context with variable_environment = venv }) in
-        Compile.IR.run Frontend.({ result with context = context' }))
+      (* |> (fun result ->
+       *   let context = result.Frontend.context in
+       *   (\* let venv =
+       *    *   Var.varify_env (Lib.nenv, Lib.typing_env.Types.var_env)
+       *    * in *\)
+       *   let context' = Context.({ context with variable_environment = venv }) in
+       *   Compile.IR.run Frontend.({ result with context = context' })) *)
+      |> Compile.IR.run
       |> Transform.run
     in
     let context', _, _ = Evaluate.run result in

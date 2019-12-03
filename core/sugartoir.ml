@@ -828,7 +828,7 @@ struct
           | InfixAppl ((tyargs, BinaryOp.Name ((">" | ">=" | "==" | "<" | "<=" | "<>") as op)), e1, e2) ->
               cofv (I.apply_pure (instantiate op tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.Name "++"), e1, e2) ->
-              cofv (I.apply_pure (instantiate "concat" tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
+              cofv (I.apply_pure (instantiate "++" tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.Name "!"), e1, e2) ->
               I.apply (instantiate "process_send" tyargs, [ev e1; ev e2])
           | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) when Lib.is_pure_primitive n ->
@@ -1011,7 +1011,7 @@ struct
                if tag = "#" then
                  cofv (I.concat (instantiate "nil"  (* TODO FIXME unhygienic. *)
                                    [`Type (`Primitive Primitive.XmlItem)],
-                                 instantiate "concat"  (* TODO FIXME unhygienic. *)
+                                 instantiate "++"  (* TODO FIXME unhygienic. *)
                                    [ `Type (`Primitive Primitive.XmlItem)
                                    ; `Row eff],
                                  List.map ev children))

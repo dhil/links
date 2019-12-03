@@ -129,10 +129,11 @@ alien builtin {
 }
 
 # Lists.
+infixr 5 ++;
 alien builtin {
   nil    : [a]               = "%list_nil";
   cons   : (a, [a]) -> [a]   = "%list_cons";
-  concat : ([a], [a]) -> [a] = "%list_concat";
+  ++     : ([a], [a]) -> [a] = "%list_concat";
   hd     : ([a]) ~> a        = "%list_hd";
   tl     : ([a]) ~> [a]      = "%list_tl";
   length : ([a]) -> Int      = "%list_length";
@@ -141,11 +142,6 @@ alien builtin {
   max    : ([a]) ~> [|Some:a|None:()|] = "%list_max";
   min    : ([a]) ~> [|Some:a|None:()|] = "%list_min";
 }
-
-infixr 5 ++;
-sig ++ : ([a], [a]) -> [a]
-op xs ++ ys { concat(xs, ys) }
-
 # infixr 5 ::;
 #sig :: : (a, [a]) -> [a]
 #op x :: xs { cons(x, xs) }
