@@ -502,13 +502,13 @@ struct
       Some
       begin
         match Var.name_of_binder (f, finfo) with
-        | "concatMap" ->
+        | "concatMap" -> (* TODO FIXME unhygienic. *)
           Q.Primitive "ConcatMap"
-        | "map" ->
+        | "map" -> (* TODO FIXME unhygienic. *)
           Q.Primitive "Map"
-        | "empty" ->
+        | "empty" -> (* TODO FIXME unhygienic. *)
           Q.Primitive "Empty"
-        | "sortByBase" ->
+        | "sortByBase" -> (* TODO FIXME unhygienic. *)
           Q.Primitive "SortBy"
         | _ ->
           begin
@@ -867,11 +867,11 @@ struct
             bind env (x, arg)) xs args env in
         (* Debug.print("Applied"); *)
           norm_comp env body
-    | Q.Primitive "Cons", [x; xs] ->
+    | Q.Primitive "Cons", [x; xs] -> (* TODO FIXME unhygienic. *)
         Q.reduce_concat [Q.Singleton x; xs]
-    | Q.Primitive "Concat", ([_xs; _ys] as l) ->
+    | Q.Primitive "Concat", ([_xs; _ys] as l) -> (* TODO FIXME unhygienic. *)
         Q.reduce_concat l
-    | Q.Primitive "ConcatMap", [f; xs] ->
+    | Q.Primitive "ConcatMap", [f; xs] -> (* TODO FIXME unhygienic. *)
         begin
           match f with
             | Q.Closure (([x], body), closure_env) ->
@@ -889,7 +889,7 @@ struct
                     (xs, fun v -> Q.Singleton (norm_comp (bind env (x, v)) body))
             | _ -> assert false
         end
-    | Q.Primitive "SortBy", [f; xs] ->
+    | Q.Primitive "SortBy", [f; xs] -> (* TODO FIXME unhygienic. *)
         begin
           match xs with
             | Q.Concat [] -> Q.Concat []
@@ -921,13 +921,13 @@ struct
                       | _ -> assert false
                   end
         end
-    | Q.Primitive "not", [v] ->
+    | Q.Primitive "not", [v] -> (* TODO FIXME unhygienic. *)
       Q.reduce_not (v)
-    | Q.Primitive "&&", [v; w] ->
+    | Q.Primitive "&&", [v; w] -> (* TODO FIXME unhygienic. *)
       Q.reduce_and (v, w)
-    | Q.Primitive "||", [v; w] ->
+    | Q.Primitive "||", [v; w] -> (* TODO FIXME unhygienic. *)
       Q.reduce_or (v, w)
-    | Q.Primitive "==", [v; w] ->
+    | Q.Primitive "==", [v; w] -> (* TODO FIXME unhygienic. *)
       Q.reduce_eq (v, w)
     | Q.Primitive f, args ->
         Q.Apply (Q.Primitive f, args)
