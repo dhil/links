@@ -153,8 +153,10 @@ module Builtins = struct
     in
     let id x = x in
     let implementations =
-      [| (* Integer operations. *)
-        "%int_plus"  , `PFun (int_op (+))
+      [| (* Boolean operations. *)
+        "%bool_not"  , `PFun (unary not Value.unbox_bool Value.box_bool)
+        (* Integer operations. *)
+      ; "%int_plus"  , `PFun (int_op (+))
       ; "%int_minus" , `PFun (int_op (-))
       ; "%int_mult"  , `PFun (int_op ( * ))
       ; "%int_div"   , `PFun (int_op (/))

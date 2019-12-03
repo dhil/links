@@ -599,9 +599,9 @@ struct
       ([x, xs], [], Q.Singleton (eta_expand_var (x, field_types)))
 
   let reduce_artifacts = function
-  | Q.Apply (Q.Primitive "stringToXml", [u]) ->
+  | Q.Apply (Q.Primitive "stringToXml", [u]) -> (* TODO FIXME unhygienic *)
     Q.Singleton (Q.XML (Value.Text (Q.unbox_string u)))
-  | Q.Apply (Q.Primitive "AsList", [xs]) -> xs
+  | Q.Apply (Q.Primitive "db_asList", [xs]) -> xs (* TODO FIXME unhygienic *)
   | u -> u
 
   let check_policies_compatible env_policy block_policy =
@@ -628,7 +628,7 @@ struct
             | Q.Var (x, field_types) ->
                 (* eta-expand record variables *)
                 eta_expand_var (x, field_types)
-            | Q.Primitive "Nil" -> Q.nil
+            | Q.Primitive "list_nil" -> Q.nil
             (* We could consider detecting and eta-expand tables here.
                The only other possible sources of table values would
                be `Special or built-in functions that return table
@@ -741,8 +741,8 @@ struct
                    ". This should have been closure-converted."))
               | Rec _ ->
                   query_error "Recursive function"
-              | Alien _ -> (* just skip it *)
-                  computation env (bs, tailcomp)
+              | Alien _ ->
+                 computation env (bs, tailcomp)
               | Module _ -> raise (internal_error "Not implemented modules yet")
           end
   and tail_computation env : Ir.tail_computation -> Q.t = let open Ir in function
@@ -867,9 +867,9 @@ struct
             bind env (x, arg)) xs args env in
         (* Debug.print("Applied"); *)
           norm_comp env body
-    | Q.Primitive "Cons", [x; xs] -> (* TODO FIXME unhygienic. *)
+    | Q.Primitive "list_cons", [x; xs] -> (* TODO FIXME unhygienic. *)
         Q.reduce_concat [Q.Singleton x; xs]
-    | Q.Primitive "Concat", ([_xs; _ys] as l) -> (* TODO FIXME unhygienic. *)
+    | Q.Primitive "++", ([_xs; _ys] as l) -> (* TODO FIXME unhygienic. *)
         Q.reduce_concat l
     | Q.Primitive "ConcatMap", [f; xs] -> (* TODO FIXME unhygienic. *)
         begin

@@ -1,5 +1,8 @@
 ## Declarations of Links builtins.
 
+# Booleans.
+alien builtin not : (Bool) -> Bool = "%bool_not";
+
 # Integer arithmetic operations.
 infixl 6 +;
 #infixl 6 -; # Minus is hard-coded in the parser for now.
@@ -368,8 +371,4 @@ alien builtin {
 
 # CLI.
 alien builtin getArgs : () ~> [String] = "%cli_get_args";
-
-# Booleans.
-sig not : (Bool) -> Bool
-fun not(b) { if (b) false else true }
 
