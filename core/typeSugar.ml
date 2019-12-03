@@ -1836,7 +1836,6 @@ let type_binary_op pos ctxt =
      with
        Errors.UndefinedVariable _msg ->
        Gripers.die pos (Printf.sprintf "Unknown variable %s." n)
-  | Name n       -> add_usages (Utils.instantiate ctxt.var_env n) (Usage.singleton n)
 
 (* close a pattern type relative to a list of patterns
 

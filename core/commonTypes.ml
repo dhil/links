@@ -180,7 +180,6 @@ module Location = struct
   let of_string = function
     | "client"  -> Client
     | "server"  -> Server
-    | "native"  -> Native
     | "unknown" -> Unknown
     | _ -> raise (Invalid_argument "of_string")
 end
