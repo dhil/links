@@ -223,3 +223,81 @@ module Untyped = struct
     let sentence' = wrap_linear_handlers#sentence sentence in
     return state sentence'
 end
+
+module PatchBuiltinsTypeSignatures = struct
+  open Sugartypes.Datatype
+  let session_fail =
+    let empty = Variant ([], Closed) in
+    ("SessionFail", Present (SourceCode.WithPos.dummy empty))
+
+  let inject = function
+    | Function (dom, (fields, var), cod) ->
+       Function (dom, (session_fail :: fields, var), cod)
+    | Lolli (dom, (fields, var), cod) ->
+       Lolli (dom, (session_fail :: fields, var), cod)
+    | _ -> assert false
+
+  let inject1 = function
+    | Function (x :: dom, eff, cod) ->
+       let x' = map ~f:inject x in
+       Function (x' :: dom, eff, cod)
+    | Lolli (x :: dom, eff, cod) ->
+       let x' = map ~f:inject x in
+       Lolli (x' :: dom, eff, cod)
+    | _ -> assert false
+
+  let inject2 = function
+    | Function (x :: y :: dom, eff, cod) ->
+       let y' = map ~f:inject y in
+       Function (x :: y' :: dom, eff, cod)
+    | Lolli (x :: y :: dom, eff, cod) ->
+       let y' = map ~f:inject y in
+       Lolli (x :: y' :: dom, eff, cod)
+    | _ -> assert false
+
+  let targets =
+    [ "%proc_spawn", inject1
+    ; "%proc_spawn_at", inject2
+    ; "%proc_spawn_client", inject1
+    ; "%proc_spawn_angel", inject1
+    ; "%proc_spawn_angel_at", inject2 ]
+
+  let patch : type a. a Alien.t -> a Alien.t
+    = fun alien ->
+    let patch : Alien.Entity.t -> Alien.Entity.t
+      = fun entity ->
+      let object_name = Alien.Entity.object_name entity in
+      try
+        let transform = List.assoc object_name targets in
+        let (raw_type, dt) = Alien.Entity.datatype entity in
+        let raw_type' = SourceCode.WithPos.map ~f:transform raw_type in
+        Alien.Entity.modify ~datatype:(raw_type', dt) entity
+      with Notfound.NotFound _ -> entity
+    in
+    match Alien.language alien with
+    | ForeignLanguage.Builtin ->
+       let declarations =
+         List.map patch (Alien.declarations alien)
+       in
+       Alien.modify ~declarations alien
+    | _ -> alien
+
+
+  let patch_type_sigs =
+    object inherit SugarTraversals.map as super
+
+      method! binding b =
+        let open SourceCode.WithPos in
+        match node b with
+        | Foreign alien ->
+           let alien' = Foreign (patch alien) in
+           make ~pos:(pos b) alien'
+        | AlienBlock alien ->
+           let alien' = AlienBlock (patch alien) in
+           make ~pos:(pos b) alien'
+        | _ -> super#binding b
+    end
+
+  let program program =
+    patch_type_sigs#program program
+end

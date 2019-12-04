@@ -617,8 +617,6 @@ struct
        fun req_data name cont args ->
          if not(Settings.get Basicsettings.web_mode) then
            raise (Errors.client_call_outside_webmode name);
-         (*if not(Proc.singlethreaded()) then
-           raise (internal_error "Remaining procs on server at client call!"); *)
          Debug.print("Making client call to " ^ name);
   (*        Debug.print("Call package: "^serialize_call_to_client (cont, name, args)); *)
          let call_package =
@@ -1059,7 +1057,7 @@ struct
               | _ ->
                  if Alien.is_function alien
                  then Value.Env.bind var (`PrimitiveFunction desc, scope) env
-                 else Value.Env.bind var (`PrimitiveFunction desc, scope) env (* TODO produce identity call? *)
+                 else raise (runtime_error "alien ground values are unsupported.")
             in
             computation env' cont (bs, tailcomp)
          | Module _ -> raise (internal_error "Not implemented interpretation of modules yet")

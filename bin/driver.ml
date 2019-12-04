@@ -160,6 +160,10 @@ module Phases = struct
     let filename = val_of (Settings.get builtins_file) in
     let result =
       Parse.run context filename
+      |> (fun result ->
+        let program = result.Loader.program_ in
+        let program' = DesugarSessionExceptions.PatchBuiltinsTypeSignatures.program program in
+        Loader.({ result with program_ = program' }))
       |> Desugar.run
       |> (fun result ->
         let context = result.Frontend.context in

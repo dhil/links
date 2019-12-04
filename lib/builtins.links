@@ -218,7 +218,7 @@ alien javascript {
   getToElement              client : (Event) ~> DomNode              = "getToElement";
   getTime                   client : (Event) ~> Int                  = "getTime";
   getCharCode               client : (Event) ~> Int                  = "getCharCode";
-  event                     client : Event                           = "event";
+  getEvent                  client : ()      ~> Event                = "getCurrentEvent";
   # Forms.
   getInputValue             client : (String) ~> String              = "getInputValue";
   # Time.
@@ -372,4 +372,3 @@ alien builtin {
 
 # CLI.
 alien builtin getArgs : () ~> [String] = "%cli_get_args";
-
