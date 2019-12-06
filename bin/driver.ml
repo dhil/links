@@ -165,22 +165,29 @@ module Phases = struct
         let program' = DesugarSessionExceptions.PatchBuiltinsTypeSignatures.program program in
         Loader.({ result with program_ = program' }))
       |> Desugar.run
-      |> (fun result ->
-        let context = result.Frontend.context in
-        let venv =
-          Var.varify_env (Lib.nenv, Lib.typing_env.Types.var_env)
-        in
-        let context' = Context.({ context with variable_environment = venv }) in
-        Compile.IR.run Frontend.({ result with context = context' }))
+      (* |> (fun result ->
+       *   let context = result.Frontend.context in
+       *   let venv =
+       *     Var.varify_env (Lib.nenv, Lib.typing_env.Types.var_env)
+       *   in
+       *   let context' = Context.({ context with variable_environment = venv }) in
+       *   Compile.IR.run Frontend.({ result with context = context' })) *)
+      |> Compile.IR.run
       |> Transform.run
     in
     let context', _, _ = Evaluate.run result in
     let nenv = Context.name_environment context' in
     let tenv = Context.typing_environment context' in
     let venv = Var.varify_env (nenv, tenv.Types.var_env) in
+    let primitive_vars' =
+      Env.String.fold
+        (fun _name var vars -> IntSet.add var vars)
+        nenv IntSet.empty
+    in
     (* Return the 'initial' compiler context. *)
     Debug.print_l (lazy "Bootstrapped");
-    Context.({ context' with variable_environment = venv })
+    Context.({ context' with variable_environment = venv;
+                             primitive_vars = primitive_vars' })
 
   (* Loads the prelude. *)
   let load_prelude : Context.t -> Context.t

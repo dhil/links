@@ -8,6 +8,7 @@ infixl 6 +;
 #infixl 6 -; # Minus is hard-coded in the parser for now.
 infixl 7 *;
 infixl 7 /;
+infixl 7 `mod`;
 infixr 8 ^;
 alien builtin {
   +      : (Int, Int) -> Int = "%int_plus";
@@ -179,7 +180,7 @@ alien javascript {
   insertBefore       client : (Xml, DomNode) ~> ()       = "insertBefore";
   appendChildren     client : (Xml, DomNode) ~> ()       = "appendChildren";
   replaceNode        client : (Xml, DomNode) ~> ()       = "replaceNode";
-  replaceDocument    client : (Xml, DomNode) ~> ()       = "replaceDocument";
+  replaceDocument    client : (Xml) ~> ()       = "replaceDocument";
   removeNode         client : (DomNode) ~> ()            = "removeNode";
   cloneNode          client : (DomNode, Bool) ~> DomNode = "cloneNode";
   swapNodes          client : (DomNode, DomNode) ~> ()   = "swapNodes";
@@ -360,8 +361,8 @@ alien builtin {
 
 # Serve.
 alien builtin {
-  servePages     server : () ~> () = "%serve_pages";
-  serveWebsocket server : () ~> () = "%serve_websockets";
+  servePages      server : () ~> () = "%serve_pages";
+  serveWebsockets server : () ~> () = "%serve_websockets";
 }
 
 # Crypt.

@@ -598,11 +598,15 @@ struct
     let field_types = Q.field_types_of_list xs in
       ([x, xs], [], Q.Singleton (eta_expand_var (x, field_types)))
 
-  let reduce_artifacts = function
-  | Q.Apply (Q.Primitive "stringToXml", [u]) -> (* TODO FIXME unhygienic *)
-    Q.Singleton (Q.XML (Value.Text (Q.unbox_string u)))
-  | Q.Apply (Q.Primitive "db_asList", [xs]) -> xs (* TODO FIXME unhygienic *)
-  | u -> u
+  let reduce_artifacts : Q.t -> Q.t
+    = fun q ->
+    let q' = match q with
+      | Q.Apply (Q.Primitive "stringToXml", [u]) -> (* TODO FIXME unhygienic *)
+         Q.Singleton (Q.XML (Value.Text (Q.unbox_string u)))
+      | Q.Apply (Q.Primitive "db_asList", [xs]) -> xs (* TODO FIXME unhygienic *)
+      | u -> u
+    in
+    q'
 
   let check_policies_compatible env_policy block_policy =
     let open QueryPolicy in

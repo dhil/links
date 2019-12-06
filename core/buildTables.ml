@@ -261,7 +261,7 @@ end
 let program state program =
   let open IrTransform in
   let tenv = Context.variable_environment (context state) in
-  let globals = state.primitive_vars in
+  let globals = Context.primitive_vars (context state) in
   FunDefs.program Tables.fun_defs program;
   ScopesAndContDefs.primitives Tables.scopes;
   ScopesAndContDefs.program tenv Tables.scopes Tables.cont_defs program;

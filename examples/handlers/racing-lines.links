@@ -1,8 +1,7 @@
 # run with --jslib js/canvas.js --jslib js/runtime.js
-typename Canvas = ();
 alien javascript {
-    drawUnit: (Int, Int, String, Canvas) ~> () = "drawUnit";
-    drawCustomUnit: (Int, Int, Int, Int, String, Canvas) ~> () = "drawCustomUnit";
+    drawUnit: (Int, Int, String, Context2D) ~> () = "drawUnit";
+    drawCustomUnit: (Int, Int, Int, Int, String, Context2D) ~> () = "drawCustomUnit";
     getValueFromSelection: (String) ~> String = "getValueFromSelection";
 }
 

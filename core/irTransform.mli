@@ -1,5 +1,4 @@
 type state = { context: Context.t;
-               primitive_vars: Utility.IntSet.t;
                datatype: Types.datatype }
 
 type result = Result of { state: state;

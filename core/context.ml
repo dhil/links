@@ -4,6 +4,7 @@ type t =
   { typing_environment: Types.typing_environment; (* TODO remove. *)
     name_environment: Ir.var Env.String.t;        (* TODO remove. *)
     value_environment: Value.env;
+    primitive_vars: Utility.IntSet.t; (* TODO remove *)
     variable_environment: Types.datatype Env.Int.t; (* TODO remove. *)
     source_code: SourceCode.source_code;          (* TODO remove. *)
     ffi_files: string list;                      (* TODO remove. *)
@@ -16,6 +17,7 @@ let empty =
     variable_environment = Env.Int.empty;
     name_environment = Env.String.empty;
     value_environment = Value.Env.empty;
+    primitive_vars = Utility.IntSet.empty;
     source_code = empty_code;
     ffi_files = [];
     operator_table = None }
@@ -27,3 +29,4 @@ let source_code { source_code; _ } = source_code
 let variable_environment { variable_environment; _ } = variable_environment
 let ffi_files { ffi_files; _ } = ffi_files
 let operator_table { operator_table; _ } = operator_table
+let primitive_vars { primitive_vars; _ } = primitive_vars

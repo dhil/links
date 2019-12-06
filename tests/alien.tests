@@ -12,9 +12,10 @@ Alien functions may be evaluated in the interpreter
 alien javascript f : () ~> () = "g"; id(f)
 stdout : f : () ~> ()
 
-Alien values may be evaluated in the interpreter
+Alien values may not be evaluated in the interpreter
 alien javascript x : () = "x"; id(x)
-stdout : x : ()
+stderr : @.* Runtime error: alien ground values are unsupported.
+exit : 1
 
 JavaScript FFI entities are implicitly placed on the client
 alien javascript f : () ~> () = "f"; f()

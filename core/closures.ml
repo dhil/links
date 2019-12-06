@@ -56,10 +56,8 @@ struct
             List.fold_left
               (fun o q ->
                 let tv = Quantifier.to_var q in
-                o#register_type_var tv
-              )
-              o
-              typevars
+                o#register_type_var tv)
+              o typevars
           else
             o
         else
@@ -135,7 +133,8 @@ struct
           | Query (_, _, _, t)
           | DoOperation (_, _, t) ->
             o#typ (`Type t)
-          | _ -> o in
+          | _ -> o
+        in
         o#super_special s
 
 
@@ -189,9 +188,12 @@ struct
                   (x, (o#lookup_type x, "fv_" ^ string_of_int x, Scope.Local))::zs)
                 (o#get_free_term_vars)
                 []) in
-        (* We are only interested in free variables of the function that actually have a binder "above".
-           This prevents breaking the value restriction. Since the currently bound type variables may be hidden
-           begind multiple calls of o#reset, we access the stack collecting bound variable environments shadowed by a call of o#reset *)
+        (* We are only interested in free variables of the function
+           that actually have a binder "above".  This prevents
+           breaking the value restriction. Since the currently bound
+           type variables may be hidden behind multiple calls of
+           o#reset, we access the stack collecting bound variable
+           environments shadowed by a call of o#reset *)
         let free_typevars =
             Types.TypeVarSet.fold
                 (fun tvar qlist -> match query_boundvars_stack tvar o#get_bound_type_vars_stack with
@@ -202,8 +204,8 @@ struct
         {termvars = free_binders ; typevars = free_typevars}
 
 
-      method! binding =
-        function
+      method! binding = function
+        | (Alien _) as b -> (b, o)
         | (Let (_, (quantifiers, _))) as b->
           let o = List.fold_left (fun o q -> o#quantifier q) o quantifiers in
           let (b, o) = o#super_binding b in
@@ -695,7 +697,7 @@ let name = "closure_conversion"
 
 let program state program =
   let open IrTransform in
-  let globals = state.primitive_vars in
+  let globals = Context.primitive_vars (context state) in
   let tenv = Context.variable_environment (context state) in
   let program' = Globalise.program program in
   let fenv = ClosureVars.program tenv globals program' in

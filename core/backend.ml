@@ -159,7 +159,7 @@ let program context' datatype program =
     T.program state program
   in
   let initial_state =
-    IrTransform.{ datatype; context = context'; primitive_vars = Lib.primitive_vars }
+    IrTransform.{ datatype; context = context' }
   in
   let IrTransform.(Result { program; state = { context; datatype; _ } }) =
     Array.fold_left apply (IrTransform.return initial_state program) pipeline
