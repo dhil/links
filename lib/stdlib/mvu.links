@@ -6,18 +6,19 @@ open import MvuSubscriptions;
 open import MvuCommands;
 
 # Needed to ensure that virtual-dom is open
+# link with --endpoint /lib --jslib lib/virtual-dom.js --jslib lib/vdom.js
 module VirtualDom {
-  alien javascript "/lib/virtual-dom.js" {
-    dummy : ();
+  alien javascript {
+    dummy client : () = "dummy";
   }
 }
 
 # Loads the "vdom.js" file, exposes runDom and updateDom.
 module VDom {
-  alien javascript "/lib/vdom.js" {
-    runDom : forall a :: Type(Any, Any), e :: Row .
-      (String, HTML(a), AP(?a.End), Sub(a)) ~e~> ();
-    updateDom : forall a :: Type(Any, Any), e :: Row . (HTML(a), Sub(a)) ~e~> ();
+  alien javascript {
+    runDom client : forall a :: Type(Any, Any), e :: Row .
+      (String, HTML(a), AP(?a.End), Sub(a)) ~e~> () = "runDom";
+    updateDom client : forall a :: Type(Any, Any), e :: Row . (HTML(a), Sub(a)) ~e~> () = "updateDom";
   }
 }
 

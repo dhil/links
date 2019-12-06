@@ -124,7 +124,7 @@ let _print_substmap subst =
   Debug.print ("Substmap\n:" ^ IntMap.show (fun fmt num -> Format.pp_print_int fmt num) subst)
 
 (* TYPE EQUALITY *)
-
+module EnvS = Env.String (* Temporary hack, see bottom of this file. *)
 module Env = Env.Int
 
 type type_eq_context = {
@@ -450,7 +450,7 @@ struct
   let info_type (t, _, _) = t
 
 
-  let checker tyenv =
+  let checker tyenv nenv =
   object (o)
     inherit IrTraversals.Transform.visitor(tyenv) as super
 
@@ -557,8 +557,11 @@ struct
             let rec is_pure_function = function
               | TApp (v, _)
               | TAbs (_, v) -> is_pure_function v
-              | Variable var when Lib.is_primitive_var var -> Lib.is_pure_primitive (Lib.primitive_name var)
-              | _ -> false in
+              | Variable var ->
+                 let name = Env.find var nenv in
+                 Builtins.is_pure_primitive name (* TODO FIXME unhygienic. *)
+              | _ -> false
+            in
 
             let (f, ft, o) = o#value f in
             let (args, argument_types, o) = o#list (fun o -> o#value) args in
@@ -1288,11 +1291,19 @@ struct
 
   let name = "ir_typechecker"
 
+  (* Temporary hack used when checking whether a variable is a pure
+     primitive. Necessary until the hygienic names patch is ready. *)
+  let invert_nenv env =
+    EnvS.fold
+      (fun name var env -> Env.bind var name env)
+      env Env.empty
+
   let program state program =
     let open IrTransform in
     let tenv = Context.variable_environment (context state) in
+    let nenv = Context.name_environment (context state) in
     let check =
-      lazy (let program', _, _ = (checker tenv)#program program in program')
+      lazy (let program', _, _ = (checker tenv (invert_nenv nenv))#program program in program')
     in
     let program'' = handle_ir_type_error check program (SProg program) in
     return state program''

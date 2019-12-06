@@ -102,7 +102,7 @@ let rec directives : (string * ((Context.t -> string list -> Context.t) * string
       [ "directives",
         (perform (fun _ ->
              iter (fun (n, (_, h)) -> Printf.fprintf stderr " @%-20s : %s\n" n h)
-               (Lazy.force directives)),
+               (Lazy.force directives); flush stderr),
          "list available directives");
 
         "settings",
@@ -127,7 +127,8 @@ let rec directives : (string * ((Context.t -> string list -> Context.t) * string
                  let t = Env.String.find n Lib.type_env in
                  Printf.fprintf stderr " %-16s : %s\n"
                    n (Types.string_of_datatype t))
-               (Env.String.domain Lib.type_env)),
+               (Env.String.domain Lib.type_env);
+           flush stderr),
          "list builtin functions and values");
 
         "quit",
@@ -147,6 +148,7 @@ let rec directives : (string * ((Context.t -> string list -> Context.t) * string
                 (Types.string_of_datatype t))
             (StringSet.diff (Env.String.domain typeenv)
                (Env.String.domain Lib.type_env));
+          flush stderr;
           context),
          "display the current type environment");
 
@@ -162,6 +164,7 @@ let rec directives : (string * ((Context.t -> string list -> Context.t) * string
                 (Module_hacks.Name.prettify k)
                 (Types.string_of_tycon_spec s))
             (StringSet.diff (Env.String.domain tycon_env) (Env.String.domain Lib.typing_env.Types.tycon_env));
+          flush stderr;
           context),
          "display the current type alias environment");
 
@@ -185,7 +188,7 @@ let rec directives : (string * ((Context.t -> string list -> Context.t) * string
                 in
                 Printf.fprintf stderr " %-16s : %s\n"
                   name ty)
-            nenv ();
+            nenv (); flush stderr;
           context),
          "display the current value environment");
 
@@ -233,7 +236,7 @@ let rec directives : (string * ((Context.t -> string list -> Context.t) * string
                          Printf.fprintf stderr " %s : %s\n" id ttype
                        end with _ -> ())
                    (Env.String.domain tenv)
-                 ; context),
+                 ; flush stderr; context),
          "search for functions that match the given type");
 
         "help",
@@ -244,6 +247,7 @@ let rec directives : (string * ((Context.t -> string list -> Context.t) * string
                  print_setting_description stderr (Settings.Reflection.reflect setting_name)
                with Settings.Unknown_setting setting_name ->
                  Printf.fprintf stderr "Unknown setting '%s'\n%!" setting_name);
+              flush stderr;
            | _ -> prerr_endline "syntax: @help setting");
           context),
          "print the documentation of a given setting") ]
@@ -336,11 +340,12 @@ let interact : Context.t -> unit
   = fun context ->
   let module I = Driver.Phases.Interactive in
   let print_error exn =
-    Printf.fprintf stderr "%s\n" (Errors.format_exception exn);
+    Printf.fprintf stderr "%s\n%!" (Errors.format_exception exn);
     flush stderr
   in
   Settings.set BS.interactive_mode true;
   Printf.printf "%s%!" (val_of (Settings.get welcome_note));
+  flush stdout;
   let rec loop context =
     Parse.Readline.prepare_prompt ps1;
     match I.readline ps1 context with
