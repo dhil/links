@@ -85,6 +85,8 @@ struct
        right children
 end
 
+let _ = ignore (Endpoint.get_all ())
+  
 module rec Webserver : WEBSERVER =
 struct
 

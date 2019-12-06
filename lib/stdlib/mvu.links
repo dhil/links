@@ -6,13 +6,14 @@ open import MvuSubscriptions;
 open import MvuCommands;
 
 # Needed to ensure that virtual-dom is open
-# link with --endpoint /lib --jslib lib/virtual-dom.js --jslib lib/vdom.js
-module VirtualDom {
-  alien javascript {
-    dummy client : () = "dummy";
-  }
-}
+# link with --endpoint /lib --jslib lib/virtual-dom.js
+# module VirtualDom {
+#   alien javascript {
+#     dummy client : () {}-> () = "dummy";
+#   }
+# }
 
+# link with --endpoint /lib --jslib lib/vdom.js
 # Loads the "vdom.js" file, exposes runDom and updateDom.
 module VDom {
   alien javascript {
