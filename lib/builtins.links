@@ -34,14 +34,15 @@ alien builtin {
   ^.      : (Float, Float) -> Float = "%float_pow";
   negatef : (Float)        -> Float = "%float_negate";
   # Trig.
-  floor   : (Float) -> Float     = "%float_floor";
-  ceiling : (Float) -> Float     = "%float_ceiling";
-  cos     : (Float) -> Float     = "%float_cos";
-  sin     : (Float) -> Float     = "%float_sin";
-  tan     : (Float) -> Float     = "%float_tan";
-  log     : (Float) -> Float     = "%float_log";
-  log10   : (Float) -> Float     = "%float_log10";
-  sqrt    : (Float) -> Float     = "%float_sqrt";
+  floor   : (Float) -> Float  = "%float_floor";
+  ceiling : (Float) -> Float  = "%float_ceiling";
+  cos     : (Float) -> Float  = "%float_cos";
+  sin     : (Float) -> Float  = "%float_sin";
+  tan     : (Float) -> Float  = "%float_tan";
+  log     : (Float) -> Float  = "%float_log";
+  log10   : (Float) -> Float  = "%float_log10";
+  exp     : (Float) -> Float  = "%float_exp";
+  sqrt    : (Float) -> Float  = "%float_sqrt";
 }
 
 # String concatenation.
