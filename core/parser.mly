@@ -375,7 +375,6 @@ declaration:
 | fun_declaration | nofun_declaration                          { $1 }
 
 nofun_declaration:
-| alien_block                                                  { $1 }
 | alien_declaration                                            { $1 }
 | FIXITY UINTEGER? op SEMICOLON                                { let precedence = from_option default_fixity $2 in
                                                                  let node = Infix { name = WithPos.node $3; precedence; assoc = $1 } in

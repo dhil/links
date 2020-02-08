@@ -5,7 +5,7 @@ alien builtin not : (Bool) -> Bool = "%bool_not";
 
 # Integer arithmetic operations.
 infixl 6 +;
-#infixl 6 -; # Minus is hard-coded in the parser for now.
+#infixl 6 -; # Minus is hard-coded for now.
 infixl 7 *;
 infixl 7 /;
 infixl 7 `mod`;
@@ -22,7 +22,7 @@ alien builtin {
 
 # Floating point operations.
 infixl 6 +.;
-#infixl 6 -.; # Float minus is hard-coded in the parser for now.
+#infixl 6 -.; # Float minus is hard-coded for now.
 infixl 7 *.;
 infixl 7 /.;
 infixr 8 ^.;
