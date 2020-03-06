@@ -1829,7 +1829,7 @@ let type_binary_op pos ctxt =
         ([`Type a; `Row eff],
          `Function (Types.make_tuple_type [a; a], eff, `Primitive Primitive.Bool),
          Usage.empty)
-  | Name "!"     -> add_empty_usages (Utils.instantiate ctxt.var_env "process_send")  (* TODO FIXME unhygienic. *)
+  | Name "!"     -> add_empty_usages (Utils.instantiate ctxt.var_env "!")  (* TODO FIXME unhygienic. *)
   | Name n       ->
      try
        add_usages (Utils.instantiate ctxt.var_env n) (Usage.singleton n)

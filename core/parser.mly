@@ -385,24 +385,37 @@ fixity_declaration:
 | FIXITY UINTEGER? op SEMICOLON                                { let precedence = from_option default_fixity $2 in
                                                                  let node = Infix { name = WithPos.node $3; precedence; assoc = $1 } in
                                                                  with_pos $loc node }
-| FIXITY UINTEGER? COLONCOLON SEMICOLON                        { let precedence = from_option default_fixity $2 in
-                                                                 let node = Infix { name = "::"; precedence; assoc = $1 } in
+| FIXITY UINTEGER? fixity_special SEMICOLON                    { let precedence = from_option default_fixity $2 in
+                                                                 let node = Infix { name = $3; precedence; assoc = $1 } in
                                                                  with_pos $loc node }
 
+fixity_special:
+| COLONCOLON      { "::" }
+| BANG            { "!" }
+
+attribute_list:
+| LBRACKET separated_nonempty_list(COMMA, VARIABLE) RBRACKET { $2 }
+
+alien_binder:
+| VARIABLE   { binder ~ppos:$loc($1) $1 }
+| sigop      { binder ~ppos:$loc($1) (WithPos.node $1) }
+| COLONCOLON { binder ~ppos:$loc($1) "::" }
+| RECEIVE    { binder ~ppos:$loc($1) "receive" }
+| BANG       { binder ~ppos:$loc($1) "!" }
+| SPAWN      { binder ~ppos:$loc($1) "spawn" }
+| SPAWNAT    { binder ~ppos:$loc($1) "spawnAt" }
+| SPAWNCLIENT { binder ~ppos:$loc($1) "spawnClient" }
+| SPAWNANGEL  { binder ~ppos:$loc($1) "spawnAngel" }
+| SPAWNANGELAT  { binder ~ppos:$loc($1) "spawnAngelAt" }
+| SPAWNWAIT   { binder ~ppos:$loc($1) "spawnWait" }
+
+
 alien_entity:
-| VARIABLE perhaps_location COLON datatype EQ STRING SEMICOLON { let binder = binder ~ppos:$loc($1) $1 in
-                                                                 let datatype = datatype $4 in
-                                                                 Alien.Entity.make binder datatype $6 $2 }
-| sigop perhaps_location COLON datatype EQ STRING SEMICOLON    { let sigop = $1 in
-                                                                 let binder = binder ~ppos:$loc($1) (WithPos.node sigop) in
-                                                                 let datatype = datatype $4 in
-                                                                 Alien.Entity.make binder datatype $6 $2 }
-| COLONCOLON perhaps_location COLON datatype EQ STRING SEMICOLON { let binder = binder ~ppos:$loc($1) "::" in
-                                                                   let datatype = datatype $4 in
-                                                                   Alien.Entity.make binder datatype $6 $2 }
-| RECEIVE perhaps_location COLON datatype EQ STRING SEMICOLON { let binder = binder ~ppos:$loc($1) "receive" in
-                                                                   let datatype = datatype $4 in
-                                                                   Alien.Entity.make binder datatype $6 $2 }
+| alien_binder perhaps_location COLON datatype
+            EQ STRING loption(attribute_list) SEMICOLON
+                                                             { let datatype = datatype $4 in
+                                                               let binder = Binder.set_attributes $1 $7 in
+                                                               Alien.Entity.make binder datatype $6 $2 }
 
 
 alien_entities:

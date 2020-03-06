@@ -1,7 +1,7 @@
 ## Declarations of Links builtins.
 
 # Booleans.
-alien builtin not : (Bool) -> Bool = "%bool_not";
+alien builtin not : (Bool) -> Bool = "%bool_not" [directstyle,primitive];
 
 # Integer arithmetic operations.
 infixl 6 +;
@@ -11,13 +11,13 @@ infixl 7 /;
 infixl 7 `mod`;
 infixr 8 ^;
 alien builtin {
-  +      : (Int, Int) -> Int = "%int_plus";
-  -      : (Int, Int) -> Int = "%int_minus";
-  *      : (Int, Int) -> Int = "%int_mult";
-  /      : (Int, Int) -> Int = "%int_div";
-  ^      : (Int, Int) -> Int = "%int_pow";
-  mod    : (Int, Int) -> Int = "%int_mod";
-  negate : (Int)      -> Int = "%int_negate";
+  +      : (Int, Int) -> Int = "%int_plus"   [directstyle,primitive];
+  -      : (Int, Int) -> Int = "%int_minus"  [directstyle,primitive];
+  *      : (Int, Int) -> Int = "%int_mult"   [directstyle,primitive];
+  /      : (Int, Int) -> Int = "%int_div"    [directstyle,primitive];
+  ^      : (Int, Int) -> Int = "%int_pow"    [directstyle,primitive];
+  mod    : (Int, Int) -> Int = "%int_mod"    [directstyle,primitive];
+  negate : (Int)      -> Int = "%int_negate" [directstyle];
 }
 
 # Floating point operations.
@@ -27,27 +27,27 @@ infixl 7 *.;
 infixl 7 /.;
 infixr 8 ^.;
 alien builtin {
-  +.      : (Float, Float) -> Float = "%float_plus";
-  -.      : (Float, Float) -> Float = "%float_minus";
-  *.      : (Float, Float) -> Float = "%float_mult";
-  /.      : (Float, Float) -> Float = "%float_div";
-  ^.      : (Float, Float) -> Float = "%float_pow";
-  negatef : (Float)        -> Float = "%float_negate";
+  +.      : (Float, Float) -> Float = "%float_plus"   [directstyle,primitive];
+  -.      : (Float, Float) -> Float = "%float_minus"  [directstyle,primitive];
+  *.      : (Float, Float) -> Float = "%float_mult"   [directstyle,primitive];
+  /.      : (Float, Float) -> Float = "%float_div"    [directstyle,primitive];
+  ^.      : (Float, Float) -> Float = "%float_pow"    [directstyle,primitive];
+  negatef : (Float)        -> Float = "%float_negate" [directstyle];
   # Trig.
-  floor   : (Float) -> Float  = "%float_floor";
-  ceiling : (Float) -> Float  = "%float_ceiling";
-  cos     : (Float) -> Float  = "%float_cos";
-  sin     : (Float) -> Float  = "%float_sin";
-  tan     : (Float) -> Float  = "%float_tan";
-  log     : (Float) -> Float  = "%float_log";
-  log10   : (Float) -> Float  = "%float_log10";
-  exp     : (Float) -> Float  = "%float_exp";
-  sqrt    : (Float) -> Float  = "%float_sqrt";
+  floor   : (Float) -> Float  = "%float_floor"        [directstyle];
+  ceiling : (Float) -> Float  = "%float_ceiling"      [directstyle];
+  cos     : (Float) -> Float  = "%float_cos"          [directstyle];
+  sin     : (Float) -> Float  = "%float_sin"          [directstyle];
+  tan     : (Float) -> Float  = "%float_tan"          [directstyle];
+  log     : (Float) -> Float  = "%float_log"          [directstyle];
+  log10   : (Float) -> Float  = "%float_log10"        [directstyle];
+  exp     : (Float) -> Float  = "%float_exp"          [directstyle];
+  sqrt    : (Float) -> Float  = "%float_sqrt"         [directstyle];
 }
 
 # String concatenation.
 infixr 8 ^^;
-alien builtin ^^ : (String, String) -> String = "%str_cat";
+alien builtin ^^ : (String, String) -> String = "%str_cat" [directstyle];
 
 # Polymorphic relational operators.
 infix 4 ==;
@@ -57,12 +57,12 @@ infix 4 >;
 infix 4 <=;
 infix 4 >=;
 alien builtin {
-  == : (a, a) -> Bool = "%rel_poly_eq";
-  <> : (a, a) -> Bool = "%rel_poly_neq";
-  <  : (a, a) -> Bool = "%rel_poly_lt";
-  >  : (a, a) -> Bool = "%rel_poly_gt";
-  <= : (a, a) -> Bool = "%rel_poly_le";
-  >= : (a, a) -> Bool = "%rel_poly_ge";
+  == : (a, a) -> Bool = "%rel_poly_eq"  [directstyle];
+  <> : (a, a) -> Bool = "%rel_poly_neq" [directstyle];
+  <  : (a, a) -> Bool = "%rel_poly_lt"  [directstyle];
+  >  : (a, a) -> Bool = "%rel_poly_gt"  [directstyle];
+  <= : (a, a) -> Bool = "%rel_poly_le"  [directstyle];
+  >= : (a, a) -> Bool = "%rel_poly_ge"  [directstyle];
 }
 
 # Client side equality functions.
@@ -77,39 +77,40 @@ alien javascript {
 # Conversion functions.
 alien builtin {
   # Integers.
-  intToString : (Int)    -> String = "%conv_int_to_string";
-  intToFloat  : (Int)    -> Float  = "%conv_int_to_float";
-  intToXml    : (Int)    -> Xml    = "%conv_int_to_xml";
+  intToString : (Int)    -> String = "%conv_int_to_string" [directstyle];
+  intToFloat  : (Int)    -> Float  = "%conv_int_to_float"  [directstyle];
+  intToXml    : (Int)    -> Xml    = "%conv_int_to_xml"    [directstyle];
 
   # Floating points.
-  floatToInt    : (Float) -> Int    = "%conv_int_to_float";
-  floatToString : (Float) -> String = "%conv_float_to_string";
-  floatToXml    : (Float) -> Xml    = "%conv_float_to_xml";
+  floatToInt    : (Float) -> Int    = "%conv_int_to_float"    [directstyle];
+  floatToString : (Float) -> String = "%conv_float_to_string" [directstyle];
+  floatToXml    : (Float) -> Xml    = "%conv_float_to_xml"    [directstyle];
 
   # Strings.
-  stringToInt   : (String) -> Int   = "%conv_string_to_int";
-  stringToFloat : (String) -> Float = "%conv_string_to_float";
-  stringToXml   : (String) -> Xml   = "%conv_string_to_xml";
+  stringToInt   : (String) -> Int   = "%conv_string_to_int"   [directstyle];
+  stringToFloat : (String) -> Float = "%conv_string_to_float" [directstyle];
+  stringToXml   : (String) -> Xml   = "%conv_string_to_xml"   [directstyle];
 }
 
 # Exit.
-alien builtin exit : (a) ~> b = "%exit";
-alien builtin sysexit : (Int) ~> a = "%sysexit";
+alien builtin exit server : (a) ~> b = "%exit";
+alien builtin sysexit server : (Int) ~> a = "%sysexit";
 
 # Process related operations.
+infix 6 !;
 alien builtin {
-  process_send     : forall a::Type(Any, Any) . (Process({hear:a|_}), a) ~> () = "%proc_send";
+  !                : forall a::Type(Any, Any) . (Process({hear:a|_}), a) ~> () = "%proc_send";
   recv             : () {:a|_}~> a                                             = "%proc_recv";
   self             : () {hear{a}|_}~> Process({ hear{a} })                     = "%proc_self";
   here             : () ~> Location                                            = "%proc_here";
   there            : () ~> Location                                            = "%proc_there";
   haveMail         : () {:_|_}~> Bool                                          = "%proc_have_mail";
-  process_spawn    : (() ~e~@ _) ~> (Process ({ |e }))                         = "%proc_spawn";
-  spawn_at         : (Location, () ~e~@ _) ~> Process ({ |e })                 = "%proc_spawn_at";
-  spawn_angel      : (() ~e~@ _) ~> Process ({ |e })                           = "%proc_spawn_angel";
-  spawn_angel_at   : (Location, () ~e~@ _) ~> Process ({ |e })                 = "%proc_spawn_angel_at";
-  spawn_wait       : (() { |e}~> a) ~> a                                       = "%proc_spawn_wait";
-  spawn_wait'      : () ~> a                                                   = "%proc_spawn_wait'";
+  spawn            : (() ~e~@ _) ~> (Process ({ |e }))                         = "%proc_spawn";
+  spawnAt          : (Location, () ~e~@ _) ~> Process ({ |e })                 = "%proc_spawn_at";
+  spawnAngel       : (() ~e~@ _) ~> Process ({ |e })                           = "%proc_spawn_angel";
+  spawnAngelAt     : (Location, () ~e~@ _) ~> Process ({ |e })                 = "%proc_spawn_angel_at";
+  spawnWait        : (() { |e}~> a) ~> a                                       = "%proc_spawn_wait";
+  spawnWait'       : () ~> a                                                   = "%proc_spawn_wait'";
   sleep            : (Int) ~> ()                                               = "%proc_sleep";
 }
 
@@ -136,26 +137,23 @@ alien builtin {
 infixr 5 ++;
 infixr 9 ::;
 alien builtin {
-  list_nil : [a]               = "%list_nil";    # TODO drop list_ prefix
-  ::       : (a, [a]) -> [a]   = "%list_cons";
-  ++       : ([a], [a]) -> [a] = "%list_concat";
+  list_nil : [a]               = "%list_nil"    [constant];    # TODO drop list_ prefix
+  ::       : (a, [a]) -> [a]   = "%list_cons"   [directstyle];
+  ++       : ([a], [a]) -> [a] = "%list_concat" [directstyle];
   hd       : ([a]) ~> a        = "%list_hd";
   tl       : ([a]) ~> [a]      = "%list_tl";
-  length   : ([a]) -> Int      = "%list_length";
-  take     : (Int, [a]) ~> [a] = "%list_take";
-  drop     : (Int, [a]) ~> [a] = "%list_drop";
-  max      : ([a]) ~> [|Some:a|None:()|] = "%list_max";
-  min      : ([a]) ~> [|Some:a|None:()|] = "%list_min";
+  length   : ([a]) -> Int      = "%list_length" [directstyle];
+  take     : (Int, [a]) ~> [a] = "%list_take"   [directstyle];
+  drop     : (Int, [a]) ~> [a] = "%list_drop"   [directstyle];
+  max      : ([a]) ~> [|Some:a|None:()|] = "%list_max" [directstyle];
+  min      : ([a]) ~> [|Some:a|None:()|] = "%list_min" [directstyle];
 }
-# infixr 5 ::;
-#sig :: : (a, [a]) -> [a]
-#op x :: xs { cons(x, xs) }
 
 # XML.
 alien builtin {
   childNodes       : (Xml) -> Xml                                 = "%xml_child_nodes";
   addAttributes    : (Xml, [(String, String)]) -> Xml             = "%xml_add_attributes";
-  attribute        : (Xml, String) -> [|Just:String|Nothing|]     = "%xml_attribute";
+  attribute        : (Xml, String) -> [|Just:String|Nothing|]     = "%xml_attribute" [directstyle];
   makeXml          : (String, [(String, String)], Xml) -> XmlItem = "%xml_make";
   xmlToVariant     : (Xml) ~> mu n.[ [|Text:String | Attr:(String, String) | Node:(String, n) | NsAttr: (String, String, String) | NsNode: (String, String, n) |] ]  = "%xml_to_variant";
   variantToXml     : (mu n.[ [|Text:String | Attr:(String, String) | Node:(String, n) | NsAttr: (String, String, String) | NsNode: (String, String, n) |] ]) ~> Xml  = "%xml_variant_to_xml";
@@ -171,7 +169,7 @@ alien builtin {
 # Client side XML functions.
 alien javascript {
   getTextContent client : (Xml) ~> String            = "getTextContent";
-  hasAttribute   client : (Xml, String) ~> Bool      = "hasAttribute";
+  hasAttribute   client : (Xml, String) ~> Bool      = "hasAttribute"   [directstyle];
   getAttribute   client : (Xml, String) ~> String    = "getAttribute";
 }
 
@@ -265,8 +263,8 @@ alien builtin {
 
 # Characters.
 alien builtin {
-  ord : (Char) -> Int  = "%char_ord";
-  chr : (Int)  -> Char = "%char_chr";
+  ord : (Char) -> Int  = "%char_ord" [directstyle];
+  chr : (Int)  -> Char = "%char_chr" [directstyle];
 }
 
 # Regexes.
@@ -280,7 +278,7 @@ alien builtin {
 alien builtin {
   charAt      : (String, Int) ~> Char        = "%str_char_at";
   strsub      : (String, Int, Int) ~> String = "%str_sub";
-  strlen      : (String) ~> Int              = "%str_len";
+  strlen      : (String) ~> Int              = "%str_len"     [directstyle];
   strescape   : (String) ~> String           = "%str_escape";
   strunescape : (String) ~> String           = "%str_unescape";
   strContains : (String, Char) ~> Bool       = "%str_contains";
@@ -303,7 +301,7 @@ alien builtin {
   debugObj client   : (a) ~> ()       = "%debug_object";
   dump client       : (a) ~> ()       = "%dump";
   print             : (String) ~> ()  = "%print";
-  javascript        : Bool            = "%javascript";
+  javascript        : Bool            = "%javascript" [constant];
   error             : (String) ~> a   = "%error";
   gensym server     : () -> Int       = "%gensym";
   show              : (a) -> String   = "%show";
@@ -374,4 +372,4 @@ alien builtin {
 }
 
 # CLI.
-alien builtin getArgs : () ~> [String] = "%cli_get_args";
+alien builtin getArgs server : () ~> [String] = "%cli_get_args";

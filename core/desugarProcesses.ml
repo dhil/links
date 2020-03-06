@@ -30,7 +30,7 @@ object (o : 'self_type)
         let o = o#with_effects outer_eff in
 
         let e : phrasenode =
-          fn_appl_node "spawn_wait" [`Row inner_eff; `Type body_type; `Row outer_eff]
+          fn_appl_node "spawnWait" [`Row inner_eff; `Type body_type; `Row outer_eff]
             [fun_lit ~args:[(Types.make_tuple_type [], inner_eff)] dl_unl [[]] body]
         in
           (o, e, body_type)
@@ -60,8 +60,8 @@ object (o : 'self_type)
 
         let spawn_fun =
           match k with
-          | Demon  -> "spawn_at"
-          | Angel  -> "spawn_angel_at"
+          | Demon  -> "spawnAt"
+          | Angel  -> "spawnAngelAt"
           | Wait   -> assert false in
 
         (* At this point, the location in the funlit doesn't matter -- we'll have an explicit

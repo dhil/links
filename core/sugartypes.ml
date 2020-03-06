@@ -10,13 +10,15 @@ module Binder: sig
   and with_pos = t WithPos.t
   [@@deriving show]
 
-  val make : ?name:Name.t -> ?ty:Types.datatype -> unit -> t
+  val make : ?name:Name.t -> ?ty:Types.datatype -> ?attrs:string list -> unit -> t
 
   val to_name : with_pos -> string
   val to_type : with_pos -> Types.datatype
+  val attributes : with_pos -> string list
 
   val set_name : with_pos -> Name.t -> with_pos
   val set_type : with_pos -> Types.datatype -> with_pos
+  val set_attributes : with_pos -> string list -> with_pos
 
   val erase_type : with_pos -> with_pos
   val has_type : with_pos -> bool
@@ -27,19 +29,22 @@ module Binder: sig
                      -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
                      -> 'c * with_pos
 end = struct
-  type t = Name.t * Types.datatype
+  type t = { name: Name.t; datatype: Types.datatype; attributes: string list }
   and with_pos = t WithPos.t
   [@@deriving show]
 
-  let make ?(name="") ?(ty=`Not_typed) () = (name, ty)
+  let make ?(name="") ?(ty=`Not_typed) ?(attrs=[]) () =
+    { name; datatype = ty; attributes = attrs }
 
-  let to_name b = let (n, _ ) = WithPos.node b in n
-  let to_type b = let (_, ty) = WithPos.node b in ty
+  let to_name b = let { name; _ } = WithPos.node b in name
+  let to_type b = let { datatype; _ } = WithPos.node b in datatype
+  let attributes b = let { attributes; _ } = WithPos.node b in attributes
 
-  let set_name b name = WithPos.map ~f:(fun (_   , ty) -> name, ty ) b
-  let set_type b typ  = WithPos.map ~f:(fun (name, _ ) -> name, typ) b
+  let set_name b name = WithPos.map ~f:(fun r -> { r with name }) b
+  let set_type b typ  = WithPos.map ~f:(fun r -> { r with datatype = typ }) b
+  let set_attributes b attributes = WithPos.map ~f:(fun r -> { r with attributes }) b
 
-  let erase_type b = WithPos.map ~f:(fun (name, _) -> name, `Not_typed) b
+  let erase_type b = set_type b `Not_typed
   let has_type   b = match to_type b with `Not_typed -> false | _ -> true
 
   let traverse_map : with_pos -> o:'o
@@ -47,10 +52,10 @@ end = struct
             -> f_name:('a -> Name.t -> 'b * Name.t)
             -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
             -> 'c * with_pos = fun b ~o ~f_pos ~f_name ~f_ty ->
-    WithPos.traverse_map b ~o ~f_pos ~f_node:(fun o (n, ty) ->
-        let o, name = f_name o n  in
-        let o, typ  = f_ty   o ty in
-        o, (name, typ)
+    WithPos.traverse_map b ~o ~f_pos ~f_node:(fun o r ->
+        let o, name = f_name o r.name  in
+        let o, typ  = f_ty   o r.datatype in
+        o, { r with name; datatype = typ }
       )
 end
 

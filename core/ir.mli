@@ -38,7 +38,8 @@ module Alien: sig
             kind: kind;
             language: ForeignLanguage.t;
             object_name: string;
-            location: location }
+            location: location;
+            attributes: string list }
         [@@deriving show]
 
   val is_function : t -> bool
@@ -46,10 +47,11 @@ module Alien: sig
   val object_name : t -> string
   val language : t -> ForeignLanguage.t
   val location : t -> location
-  val modify : ?binder:binder -> t -> t
+  val modify : ?binder:binder -> ?attrs:string list -> t -> t
+  val attributes : t -> string list
 
-  val make_function : binder -> string -> ForeignLanguage.t -> location -> t
-  val make_value : binder -> string -> ForeignLanguage.t -> location -> t
+  val make_function : binder -> string -> ForeignLanguage.t -> location -> string list -> t
+  val make_value : binder -> string -> ForeignLanguage.t -> location -> string list -> t
 end
 
 (* INVARIANT: all IR binders have unique names *)

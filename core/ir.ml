@@ -39,7 +39,8 @@ module Alien = struct
             kind: kind;
             language: ForeignLanguage.t;
             object_name: string;
-            location: location }
+            location: location;
+            attributes: string list }
         [@@deriving show]
 
   let binder { binder; _ } = binder
@@ -50,17 +51,20 @@ module Alien = struct
   let object_name { object_name; _ } = object_name
   let language { language; _ } = language
   let location { location; _ } = location
+  let attributes { attributes; _ } = attributes
 
-  let modify ?binder alien =
-    match binder with
-    | None -> alien
-    | Some binder -> { alien with binder }
+  let modify ?binder ?attrs alien =
+    match binder, attrs with
+    | None, None -> alien
+    | Some binder, None -> { alien with binder }
+    | Some binder, Some attrs -> { alien with binder; attributes = attrs }
+    | None, Some attrs -> { alien with attributes = attrs }
 
-  let make_function = fun binder object_name language location ->
-    { binder; kind = Function; language; object_name; location }
+  let make_function = fun binder object_name language location attributes ->
+    { binder; kind = Function; language; object_name; location; attributes }
 
-  let make_value binder object_name language location =
-    { binder; kind = Value; language; object_name; location }
+  let make_value binder object_name language location attributes =
+    { binder; kind = Value; language; object_name; location; attributes }
 end
 
 type value =

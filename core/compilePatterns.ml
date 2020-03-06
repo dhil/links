@@ -72,105 +72,110 @@ module PEnv = Env.Int
 type nenv = var NEnv.t
 type tenv = Types.datatype TEnv.t
 type penv = (Pattern.context * value) PEnv.t
+type aenv = string list NEnv.t
 
-type env = nenv * tenv * Types.row * penv
-type raw_env = nenv * tenv * Types.row
+type env = nenv * tenv * Types.row * aenv * penv
+type raw_env = nenv * tenv * Types.row * aenv
 
-let bind_context var context (nenv, tenv, eff, penv) =
-  (nenv, tenv, eff, PEnv.bind var context penv)
+let raw (nenv, tenv, eff, aenv, _) = (nenv, tenv, eff, aenv)
 
-let bind_type var t (nenv, tenv, eff, penv) =
-  (nenv, TEnv.bind var t tenv, eff, penv)
+let bind_context var context (nenv, tenv, eff, aenv, penv) =
+  (nenv, tenv, eff, aenv, PEnv.bind var context penv)
 
-let mem_context var (_nenv, _tenv, _eff, penv) =
+let bind_type var t (nenv, tenv, eff, aenv, penv) =
+  (nenv, TEnv.bind var t tenv, eff, aenv, penv)
+
+let mem_context var (_nenv, _tenv, _eff, _aenv, penv) =
   PEnv.has var penv
 
-let mem_type var (_nenv, tenv, _eff, _penv) =
+let mem_type var (_nenv, tenv, _eff, _aenv, _penv) =
   TEnv.has var tenv
 
-let lookup_context var (_nenv, _tenv, _eff, penv) =
+let lookup_context var (_nenv, _tenv, _eff, _aenv, penv) =
   PEnv.find var penv
 
-let lookup_type var (_nenv, tenv, _eff, _penv) =
+let lookup_type var (_nenv, tenv, _eff, _aenv, _penv) =
   TEnv.find var tenv
 
-let lookup_name name (nenv, _tenv, _eff, _penv) =
+let lookup_name name (nenv, _tenv, _eff, _aenv, _penv) =
   NEnv.find name nenv
 
-let lookup_effects (_nenv, _tenv, eff, _penv) = eff
+let lookup_effects (_nenv, _tenv, eff, _aenv, _penv) = eff
 
 let rec desugar_pattern : Types.row -> Sugartypes.Pattern.with_pos -> Pattern.t * raw_env =
   fun eff {WithPos.node=p; pos} ->
     let desugar_pattern = desugar_pattern eff in
-    let empty = (NEnv.empty, TEnv.empty, eff) in
-    let (++) (nenv, tenv, _) (nenv', tenv', eff') = (NEnv.extend nenv nenv', TEnv.extend tenv tenv', eff') in
-    let fresh_binder (nenv, tenv, eff) bndr =
+    let empty = (NEnv.empty, TEnv.empty, eff, NEnv.empty) in
+    let (++) (nenv, tenv, _, aenv) (nenv', tenv', eff', aenv') =
+      (NEnv.extend nenv nenv', TEnv.extend tenv tenv', eff', NEnv.extend aenv aenv')
+    in
+    let fresh_binder (nenv, tenv, eff, aenv) bndr =
       assert (Sugartypes.Binder.has_type bndr);
       let name = Sugartypes.Binder.to_name bndr in
       let t = Sugartypes.Binder.to_type bndr in
       let xb, x = Var.fresh_var (t, name, Scope.Local) in
-      xb, (NEnv.bind name x nenv, TEnv.bind x t tenv, eff)
+      xb, (NEnv.bind name x nenv, TEnv.bind x t tenv, eff, aenv)
     in
-      let open Sugartypes.Pattern in
-      match p with
-        | Any -> Pattern.Any, empty
-        | Nil -> Pattern.Nil, empty
-        | Cons (p, ps) ->
-            let p, env = desugar_pattern p in
-            let ps, env' = desugar_pattern ps in
-              Pattern.Cons (p, ps), env ++ env'
-        | List [] -> desugar_pattern (WithPos.make ~pos Nil)
-        | List (p::ps) ->
-            let p, env = desugar_pattern p in
-            let ps, env' = desugar_pattern (WithPos.make ~pos (List ps)) in
-              Pattern.Cons (p, ps), env ++ env'
-        | Variant (name, None) -> Pattern.Variant (name, Pattern.Any), empty
-        | Variant (name, Some p) ->
-            let p, env = desugar_pattern p in
-            Pattern.Variant (name, p), env
-        | Effect (name, ps, k) ->
-           let ps, env =
-             List.fold_right
-               (fun p (ps, env) ->
-                 let p', env' = desugar_pattern p in
-                 (p' :: ps, env ++ env'))
-               ps ([], empty)
-           in
-           let k, env' = desugar_pattern k in
-           Pattern.Effect (name, ps, k), env ++ env'
-        | Negative names -> Pattern.Negative (StringSet.from_list names), empty
-        | Record (bs, p) ->
-            let bs, env =
-              List.fold_right
-                (fun (name, p) (bs, env) ->
-                   let p, env' = desugar_pattern p in
-                     StringMap.add name p bs, env ++ env')
-                bs
-                (StringMap.empty, empty) in
-            let p, env =
-              match p with
-                | None -> None, env
-                | Some p ->
-                    let p, env' = desugar_pattern p in
-                      Some p, env ++ env'
-            in
-              Pattern.Record (bs, p), env
-        | Tuple ps ->
-            let bs = mapIndex (fun p i -> (string_of_int (i+1), p)) ps in
-              desugar_pattern (WithPos.make ~pos (Record (bs, None)))
-        | Constant constant ->
-            Pattern.Constant constant, empty
-        | Variable b ->
-            let xb, env = fresh_binder empty b in
-              Pattern.Variable xb, env
-        | As (b, p) ->
-            let xb, env = fresh_binder empty b in
+    let open Sugartypes.Pattern in
+    match p with
+    | Any -> Pattern.Any, empty
+    | Nil -> Pattern.Nil, empty
+    | Cons (p, ps) ->
+       let p, env = desugar_pattern p in
+       let ps, env' = desugar_pattern ps in
+       Pattern.Cons (p, ps), env ++ env'
+    | List [] -> desugar_pattern (WithPos.make ~pos Nil)
+    | List (p::ps) ->
+       let p, env = desugar_pattern p in
+       let ps, env' = desugar_pattern (WithPos.make ~pos (List ps)) in
+       Pattern.Cons (p, ps), env ++ env'
+    | Variant (name, None) -> Pattern.Variant (name, Pattern.Any), empty
+    | Variant (name, Some p) ->
+       let p, env = desugar_pattern p in
+       Pattern.Variant (name, p), env
+    | Effect (name, ps, k) ->
+       let ps, env =
+         List.fold_right
+           (fun p (ps, env) ->
+             let p', env' = desugar_pattern p in
+             (p' :: ps, env ++ env'))
+           ps ([], empty)
+       in
+       let k, env' = desugar_pattern k in
+       Pattern.Effect (name, ps, k), env ++ env'
+    | Negative names -> Pattern.Negative (StringSet.from_list names), empty
+    | Record (bs, p) ->
+       let bs, env =
+         List.fold_right
+           (fun (name, p) (bs, env) ->
+             let p, env' = desugar_pattern p in
+             StringMap.add name p bs, env ++ env')
+           bs
+           (StringMap.empty, empty) in
+       let p, env =
+         match p with
+         | None -> None, env
+         | Some p ->
             let p, env' = desugar_pattern p in
-              Pattern.As (xb, p), env ++ env'
-        | HasType (p, (_, Some t)) ->
-            let p, env = desugar_pattern p in
-              Pattern.HasType (p, t), env
-        | HasType (_, (_, None)) -> assert false
+            Some p, env ++ env'
+       in
+       Pattern.Record (bs, p), env
+    | Tuple ps ->
+       let bs = mapIndex (fun p i -> (string_of_int (i+1), p)) ps in
+       desugar_pattern (WithPos.make ~pos (Record (bs, None)))
+    | Constant constant ->
+       Pattern.Constant constant, empty
+    | Variable b ->
+       let xb, env = fresh_binder empty b in
+       Pattern.Variable xb, env
+    | As (b, p) ->
+       let xb, env = fresh_binder empty b in
+       let p, env' = desugar_pattern p in
+       Pattern.As (xb, p), env ++ env'
+    | HasType (p, (_, Some t)) ->
+       let p, env = desugar_pattern p in
+       Pattern.HasType (p, t), env
+    | HasType (_, (_, None)) -> assert false
 
 type raw_bound_computation = raw_env -> computation
 type bound_computation = env -> computation
@@ -186,10 +191,10 @@ struct
   (* let lookup_type var (_nenv, tenv, _eff) = *)
   (*   TEnv.lookup tenv var *)
 
-  let lookup_name name (nenv, _tenv, _eff) =
+  let lookup_name name (nenv, _tenv, _eff, _aenv) =
     NEnv.find name nenv
 
-  let lookup_effects (_nenv, _tenv, eff) = eff
+  let lookup_effects (_nenv, _tenv, eff, _aenv) = eff
 
   let nil env t : value =
     TApp (Variable (lookup_name "list_nil" env),  (* TODO FIXME unhygienic. *)
@@ -222,10 +227,10 @@ struct
   (* let lookup_type var (_nenv, tenv, _eff) = *)
   (*   TEnv.lookup tenv var *)
 
-  let lookup_name name (nenv, _tenv, _eff) =
+  let lookup_name name (nenv, _tenv, _eff, _) =
     NEnv.find name nenv
 
-  let lookup_effects (_nenv, _tenv, eff) = eff
+  let lookup_effects (_nenv, _tenv, eff, _) = eff
 
   let eq env t : value -> value -> value = fun v1 v2 ->
     let eff = lookup_effects env in
@@ -375,7 +380,7 @@ let rec reduce_pattern : Pattern.t -> annotated_pattern = function
 (* reduce a raw clause to a clause  *)
 let reduce_clause : raw_clause -> clause =
   fun (ps, body) ->
-    (List.map reduce_pattern ps, fun (nenv, tenv, eff, _penv) -> body (nenv, tenv, eff))
+    (List.map reduce_pattern ps, fun env -> body (raw env))
 
 (* partition clauses sequentially by pattern sort *)
 let partition_clauses : clause list -> (clause list) list =
@@ -565,7 +570,6 @@ and match_list
     let var_val = Variable var in
 
     let nil, list_head, list_tail =
-      let raw (nenv, tenv, eff, _) = (nenv, tenv, eff) in
 
       let nil = nil (raw env) (TypeUtils.element_type t) in
       let list_head env = list_head (raw env) in
@@ -600,10 +604,9 @@ and match_list
           | Pattern.CCons, _ -> cons_branch ()
           | _ -> assert false
       else
-        let (nenv, tenv, eff, _) = env in
-          ([], If (eq (nenv, tenv, eff) t var_val nil,
-                    nil_branch (),
-                    cons_branch()))
+        ([], If (eq (raw env) t var_val nil,
+                 nil_branch (),
+                 cons_branch()))
 
 
 (*
@@ -789,18 +792,17 @@ and match_constant
                    let env = bind_context var (Pattern.CNConstant constants, Variable var) env in
                    let clauses = apply_annotations (Variable var) annotated_clauses in
                    let comp =
-                     let (nenv, tenv, eff, _) = env in
-                       ([],
-                        If
-                          (eq (nenv, tenv, eff) t (Variable var) (Constant constant),
-                           match_cases vars clauses def env,
-                           comp))
+                     ([],
+                      If
+                        (eq (raw env) t (Variable var) (Constant constant),
+                         match_cases vars clauses def env,
+                         comp))
                    in
-                     (comp, constants))
+                   (comp, constants))
                 bs
                 (def env, constants)
             in
-              comp
+            comp
         | _ -> assert false
 
 and match_record
@@ -916,9 +918,9 @@ and match_record
 (* the interface to the pattern-matching compiler *)
 let compile_cases
     : raw_env -> (Types.datatype * var * raw_clause list) -> Ir.computation =
-  fun (nenv, tenv, eff) (output_type, var, raw_clauses) ->
+  fun (nenv, tenv, eff, aenv) (output_type, var, raw_clauses) ->
     let clauses = List.map reduce_clause raw_clauses in
-    let initial_env = (nenv, tenv, eff, PEnv.empty) in
+    let initial_env = (nenv, tenv, eff, aenv, PEnv.empty) in
     let result =
       match_cases [var] clauses (fun _ -> ([], Special (Wrong output_type))) initial_env
     in
@@ -952,7 +954,7 @@ let compile_handle_parameters : raw_env -> (Pattern.t * Ir.computation * Types.d
 
 let compile_handle_cases
     : raw_env -> (raw_clause list * raw_clause list * (Pattern.t * Ir.computation * Types.datatype) list * Sugartypes.handler_descriptor) -> Ir.computation -> Ir.computation =
-  fun (nenv, tenv, eff) (raw_value_clauses, raw_effect_clauses, params, desc) m ->
+  fun (nenv, tenv, eff, aenv) (raw_value_clauses, raw_effect_clauses, params, desc) m ->
   (* Observation: reduced continuation patterns are always trivial,
      i.e. a reduced continuation pattern is either a variable or a
      wildcard. Thus continuation patterns _always_ match and therefore
@@ -972,7 +974,7 @@ let compile_handle_cases
      respective compiled clause bodies such that each raw continuation
      binder is an alias of the fresh continuation binder. *)
   let (params, (with_parameters, outer_param_bindings)) =
-    compile_handle_parameters (nenv, tenv, eff) params
+    compile_handle_parameters (nenv, tenv, eff, aenv) params
   in
   let compiled_effect_cases =  (* The compiled cases *)
     if List.length raw_effect_clauses = 0 then
@@ -1038,7 +1040,7 @@ let compile_handle_cases
         let compiled_transformed_effect_cases =
           let dummy_var = Var.(make_local_info ->- fresh_binder ->- var_of_binder) (variant_type, "_m") in
           let tenv = TEnv.bind dummy_var variant_type tenv in
-          let initial_env = (nenv, tenv, eff, PEnv.empty) in (* Need to bind raw continuation binders in tenv and nenv? *)
+          let initial_env = (nenv, tenv, eff, aenv, PEnv.empty) in (* Need to bind raw continuation binders in tenv and nenv? *)
           match snd @@ match_cases [dummy_var] transformed_effect_clauses (fun _ -> ([], Special (Wrong comp_ty))) initial_env with
           | Case (_, clauses, _) -> clauses (* No default effect pattern *)
           | _ -> assert false
@@ -1098,7 +1100,7 @@ let compile_handle_cases
     let (_, comp_ty, _, _) = Sugartypes.(desc.shd_types) in
     let scrutinee = Var.(make_local_info ->- fresh_binder) (comp_ty, "_return_value") in
     let tenv = TEnv.bind (Var.var_of_binder scrutinee) comp_ty tenv in
-    let initial_env = (nenv, tenv, eff, PEnv.empty) in
+    let initial_env = (nenv, tenv, eff, aenv, PEnv.empty) in
     let clauses = List.map reduce_clause raw_value_clauses in
     let body = match_cases [Var.var_of_binder scrutinee] clauses (fun _ -> ([], Special (Wrong comp_ty))) initial_env in
     scrutinee, with_parameters body
@@ -1143,9 +1145,9 @@ let match_choices : var -> clause list -> bound_computation =
 
 let compile_choices
     : raw_env -> (Types.datatype * var * raw_clause list) -> Ir.computation =
-  fun (nenv, tenv, eff) (_output_type, var, raw_clauses) ->
+  fun (nenv, tenv, eff, aenv) (_output_type, var, raw_clauses) ->
     let clauses = List.map reduce_clause raw_clauses in
-    let initial_env = (nenv, tenv, eff, PEnv.empty) in
+    let initial_env = (nenv, tenv, eff, aenv, PEnv.empty) in
     let result =
       match_choices var clauses initial_env
     in

@@ -63,7 +63,7 @@ let type_binary_op env tycon_env =
         `ForAll ([ab; eb],
                  `Function (Types.make_tuple_type [a; a], e,
                             `Primitive Primitive.Bool))
-  | Name "!"     -> TyEnv.find "process_send" env
+  | Name "!"     -> TyEnv.find "!" env
   | Name n       -> TyEnv.find n env
 
 let fun_effects t pss =

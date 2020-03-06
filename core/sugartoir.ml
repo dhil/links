@@ -63,14 +63,21 @@ module TEnv = Env.Int
 
 type nenv = var NEnv.t
 type tenv = Types.datatype TEnv.t
+type aenv = string list NEnv.t
 
-type env = nenv * tenv * Types.row
+type env = nenv * tenv * Types.row * aenv
 
-let lookup_name_and_type name (nenv, tenv, _eff) =
+let lookup_name_and_type name (nenv, tenv, _eff, _aenv) =
   let var = NEnv.find name nenv in
     var, TEnv.find var tenv
 
-let lookup_effects (_, _, eff) = eff
+let lookup_effects (_, _, eff, _) = eff
+
+let is_direct_style_primitive name (_, _, _, aenv) =
+  try
+    let attrs = NEnv.find name aenv in
+    List.mem "directstyle" attrs
+  with Notfound.NotFound _ -> false
 
 (* Hmm... shouldn't we need to use something like this? *)
 
@@ -195,7 +202,7 @@ sig
     (var list -> tail_computation sem) ->
     tail_computation sem
 
-  val alien : var_info * location * string * ForeignLanguage.t * (var -> tail_computation sem) -> tail_computation sem
+  val alien : var_info * location * string * ForeignLanguage.t * string list * (var -> tail_computation sem) -> tail_computation sem
 
   val select : Name.t * value sem -> tail_computation sem
 
@@ -285,7 +292,7 @@ struct
        * location) list ->
       (Var.var list) M.sem
 
-    val alien_binding : var_info * location * string * ForeignLanguage.t -> var M.sem
+    val alien_binding : var_info * location * string * ForeignLanguage.t * string list -> var M.sem
 
     val value_of_untyped_var : var M.sem * datatype -> value sem
   end =
@@ -333,12 +340,12 @@ struct
                 defs))
           fs
 
-    let alien_binding (x_info, location, object_name, language) =
+    let alien_binding (x_info, location, object_name, language, attributes) =
       let xb, x = Var.fresh_var x_info in
       let alien =
         if TypeUtils.is_function_type ~overstep_quantifiers:true (Var.info_type x_info)
-        then Alien.make_function xb object_name language location
-        else Alien.make_value xb object_name language location
+        then Alien.make_function xb object_name language location attributes
+        else Alien.make_value xb object_name language location attributes
       in
       lift_binding (Alien alien) x
 
@@ -549,8 +556,8 @@ struct
 
   let wrong t = lift (Special (Wrong t), t)
 
-  let alien (x_info, location, object_name, language, rest) =
-    M.bind (alien_binding (x_info, location, object_name, language)) rest
+  let alien (x_info, location, object_name, language, attributes, rest) =
+    M.bind (alien_binding (x_info, location, object_name, language, attributes)) rest
 
   let select (l, e) =
     let t = TypeUtils.select_type l (sem_type e) in
@@ -566,9 +573,9 @@ struct
            M.bind
              (comp_binding (Var.info_of_type (sem_type v), Return e))
              (fun var ->
-                let nenv, tenv, eff = env in
+                let nenv, tenv, eff, aenv = env in
                 let tenv = TEnv.bind var (sem_type v) tenv in
-                let (bs, tc) = CompilePatterns.compile_choices (nenv, tenv, eff) (t, var, cases) in
+                let (bs, tc) = CompilePatterns.compile_choices (nenv, tenv, eff, aenv) (t, var, cases) in
                   reflect (bs, (tc, t))))
 
   let db_insert _env (source, rows) =
@@ -746,9 +753,9 @@ struct
            M.bind
              (comp_binding (Var.info_of_type (sem_type v), Return e))
              (fun var ->
-                let nenv, tenv, eff = env in
+                let nenv, tenv, eff, aenv = env in
                 let tenv = TEnv.bind var (sem_type v) tenv in
-                let (bs, tc) = CompilePatterns.compile_cases (nenv, tenv, eff) (t, var, cases) in
+                let (bs, tc) = CompilePatterns.compile_cases (nenv, tenv, eff, aenv) (t, var, cases) in
                   reflect (bs, (tc, t))))
 
   let tabstr (tyvars, s) =
@@ -763,18 +770,19 @@ end
 
 module Eval(I : INTERPRETATION) =
 struct
-  let extend xs vs (nenv, tenv, eff) =
+  let extend xs vs env =
     List.fold_left2
-      (fun (nenv, tenv, eff) x (v, t) ->
-         (NEnv.bind x v nenv, TEnv.bind v t tenv, eff))
-      (nenv, tenv, eff)
+      (fun (nenv, tenv, eff, aenv) x (v, t) ->
+         (NEnv.bind x v nenv, TEnv.bind v t tenv, eff, aenv))
+      env
       xs
       vs
 
-  let (++) (nenv, tenv, _) (nenv', tenv', eff') = (NEnv.extend nenv nenv', TEnv.extend tenv tenv', eff')
+  let (++) (nenv, tenv, _, aenv) (nenv', tenv', eff', aenv') =
+    (NEnv.extend nenv nenv', TEnv.extend tenv tenv', eff', NEnv.extend aenv aenv')
 
   let rec eval : env -> Sugartypes.phrase -> tail_computation I.sem =
-    fun env {node=e; pos} ->
+    fun ((_,_,_,aenv) as env) {node=e; pos} ->
       let lookup_var name =
         let x, xt = lookup_name_and_type name env in
           I.var (x, xt) in
@@ -789,13 +797,14 @@ struct
                     Instantiate.ArityMismatch (expected, provided) ->
                       raise (Errors.TypeApplicationArityMismatch { pos; name; expected; provided }) in
 
-      let rec is_pure_primitive e =
+      let rec is_pure_primitive e env =
         let open Sugartypes in
         match WithPos.node e with
           | TAbstr (_, e)
-          | TAppl (e, _) -> is_pure_primitive e
-          | Var f when Lib.is_pure_primitive f -> true
-          | _ -> false in
+          | TAppl (e, _) -> is_pure_primitive e env
+          | Var f -> is_direct_style_primitive f env
+          | _ -> false
+      in
 
       let eff = lookup_effects env in
 
@@ -825,13 +834,13 @@ struct
           | Section (Section.Name name) | FreezeSection (Section.Name name) -> cofv (lookup_var name) (* TODO FIXME unhygienic. *)
           | Conditional (p, e1, e2) ->
               I.condition (ev p, ec e1, ec e2)
-          | InfixAppl ((tyargs, BinaryOp.Name ((">" | ">=" | "==" | "<" | "<=" | "<>") as op)), e1, e2) ->
-              cofv (I.apply_pure (instantiate op tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
-          | InfixAppl ((tyargs, BinaryOp.Name "++"), e1, e2) ->
-              cofv (I.apply_pure (instantiate "++" tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
-          | InfixAppl ((tyargs, BinaryOp.Name "!"), e1, e2) ->
-              I.apply (instantiate "process_send" tyargs, [ev e1; ev e2])
-          | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) when Lib.is_pure_primitive n ->
+          (* | InfixAppl ((tyargs, BinaryOp.Name ((">" | ">=" | "==" | "<" | "<=" | "<>") as op)), e1, e2) ->
+           *     cofv (I.apply_pure (instantiate op tyargs, [ev e1; ev e2])) (\* TODO FIXME unhygienic. *\)
+           * | InfixAppl ((tyargs, BinaryOp.Name "++"), e1, e2) ->
+           *     cofv (I.apply_pure (instantiate "++" tyargs, [ev e1; ev e2])) (\* TODO FIXME unhygienic. *\)
+           * | InfixAppl ((tyargs, BinaryOp.Name "!"), e1, e2) ->
+           *     I.apply (instantiate "process_send" tyargs, [ev e1; ev e2]) *)
+          | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) when is_direct_style_primitive n env ->
               cofv (I.apply_pure (instantiate n tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) ->
               I.apply (instantiate n tyargs, [ev e1; ev e2]) (* TODO FIXME unhygienic. *)
@@ -852,16 +861,16 @@ struct
               cofv (I.apply_pure(instantiate_mb "negate", [ev e])) (* TODO FIXME unhygienic. *)
           | UnaryAppl ((_tyargs, UnaryOp.FloatMinus), e) ->
               cofv (I.apply_pure(instantiate_mb "negatef", [ev e])) (* TODO FIXME unhygienic. *)
-          | UnaryAppl ((tyargs, UnaryOp.Name n), e) when Lib.is_pure_primitive n ->
+          | UnaryAppl ((tyargs, UnaryOp.Name n), e) when is_direct_style_primitive n env ->
               cofv (I.apply_pure(instantiate n tyargs, [ev e])) (* TODO FIXME unhygienic. *)
           | UnaryAppl ((tyargs, UnaryOp.Name n), e) ->
               I.apply (instantiate n tyargs, [ev e]) (* TODO FIXME unhygienic. *)
-          | FnAppl ({node=Var f; _}, es) when Lib.is_pure_primitive f ->  (* TODO FIXME unhygienic. *)
+          | FnAppl ({node=Var f; _}, es) when is_direct_style_primitive f env ->  (* TODO FIXME unhygienic. *)
               cofv (I.apply_pure (I.var (lookup_name_and_type f env), evs es))
           | FnAppl ({node=TAppl ({node=Var f; _}, tyargs); _}, es)
-               when Lib.is_pure_primitive f -> (* TODO FIXME unhygienic. *)
+               when is_direct_style_primitive f env -> (* TODO FIXME unhygienic. *)
               cofv (I.apply_pure (instantiate f (List.map (snd ->- val_of) tyargs), evs es))
-          | FnAppl (e, es) when is_pure_primitive e -> (* TODO FIXME unhygienic. *)
+          | FnAppl (e, es) when is_pure_primitive e env -> (* TODO FIXME unhygienic. *)
               cofv (I.apply_pure (ev e, evs es))
           | FnAppl (e, es) ->
               I.apply (ev e, evs es)
@@ -919,7 +928,7 @@ struct
                 the bodies of the cases) *)
              let eff = lookup_effects env in
              let henv, params =
-               let empty_env = (NEnv.empty, TEnv.empty, eff) in
+               let empty_env = (NEnv.empty, TEnv.empty, eff, aenv) in
                 match (sh_descr.shd_params) with
                 | None -> empty_env, []
                 | Some { shp_bindings = bindings; shp_types = types } ->
@@ -1195,6 +1204,9 @@ struct
                     in
                       I.letrec env defs (fun vs -> eval_bindings scope (extend fs (List.combine vs outer_fts) env) bs e)
                 | Foreign alien ->
+                   let bind_attrs x attrs (nenv, tenv, eff, aenv) =
+                     (nenv, tenv, eff, NEnv.bind x attrs aenv)
+                   in
                    let binder, location =
                      let entity = Alien.declaration alien in
                      Alien.Entity.(binder entity, location entity)
@@ -1202,8 +1214,10 @@ struct
                    assert (Binder.has_type binder);
                    let x  = Binder.to_name binder in
                    let xt = Binder.to_type binder in
-                   I.alien ((xt, x, scope), location, Alien.object_name alien, Alien.language alien,
-                            fun v -> eval_bindings scope (extend [x] [(v, xt)] env) bs e)
+                   let attrs = Binder.attributes binder in
+                   let env' = bind_attrs x attrs env in
+                   I.alien ((xt, x, scope), location, Alien.object_name alien, Alien.language alien, attrs,
+                            fun v -> eval_bindings scope (extend [x] [(v, xt)] env') bs e)
                 | Typenames _
                 | Infix _ ->
                     (* Ignore type alias and infix declarations - they
@@ -1229,18 +1243,18 @@ struct
      The locals list contains all top-level bindings on which global
      bindings may not depend, i.e., all top-level bindings after the
      last global binding. *)
-  let partition_program : program -> binding list * computation * nenv =
+  let partition_program : program -> binding list * computation * nenv * aenv =
     fun (bs, main) ->
-    let rec partition (globals, locals, nenv) =
+    let rec partition (globals, locals, nenv, aenv) =
       function
-        | [] -> List.rev globals, List.rev locals, nenv
+        | [] -> List.rev globals, List.rev locals, nenv, aenv
         | b::bs ->
             begin
               match b with
                 | Let ((x, (_xt, x_name, Scope.Global)), _) ->
-                    partition (b::locals @ globals, [], Env.String.bind x_name x nenv) bs
+                    partition (b::locals @ globals, [], Env.String.bind x_name x nenv, aenv) bs
                 | Fun ((f, (_ft, f_name, Scope.Global)), _, _, _) ->
-                    partition (b::locals @ globals, [], Env.String.bind f_name f nenv) bs
+                    partition (b::locals @ globals, [], Env.String.bind f_name f nenv, aenv) bs
                 | Rec defs ->
                   (* we depend on the invariant that mutually
                      recursive definitions all have the same scope *)
@@ -1255,20 +1269,22 @@ struct
                       begin
                         match scope with
                           | Scope.Global ->
-                              partition (b::locals @ globals, [], nenv) bs
+                              partition (b::locals @ globals, [], nenv, aenv) bs
                           | Scope.Local ->
-                              partition (globals, b::locals, nenv) bs
+                              partition (globals, b::locals, nenv, aenv) bs
                       end
                 | Alien alien
                      when Var.Scope.isGlobal (Var.scope_of_binder (Alien.binder alien)) ->
                    let binder = Alien.binder alien in
                    let f = Var.var_of_binder binder in
                    let f_name = Var.name_of_binder binder in
-                    partition (b::locals @ globals, [], Env.String.bind f_name f nenv) bs
-                | _ -> partition (globals, b::locals, nenv) bs
+                   let attrs = Alien.attributes alien in
+                   let aenv' = NEnv.bind f_name attrs aenv in
+                   partition (b::locals @ globals, [], Env.String.bind f_name f nenv, aenv') bs
+                | _ -> partition (globals, b::locals, nenv, aenv) bs
             end in
-    let globals, locals, nenv = partition ([], [], Env.String.empty) bs in
-      globals, (locals, main), nenv
+    let globals, locals, nenv, aenv = partition ([], [], Env.String.empty, Env.String.empty) bs in
+      globals, (locals, main), nenv, aenv
 
 
   let compile env (bindings, body) =
@@ -1287,21 +1303,6 @@ end
 
 module C = Eval(Interpretation(BindingListMonad))
 
-let desugar_expression : env -> Sugartypes.phrase -> Ir.computation =
-  fun env e ->
-    let (bs, body), _ = C.compile env ([], Some e) in
-      (bs, body)
-
-let desugar_program : env -> Sugartypes.program -> Ir.binding list * Ir.computation * nenv =
-  fun env p ->
-    let (bs, body), _ = C.compile env p in
-      C.partition_program (bs, body)
-
-let desugar_definitions : env -> Sugartypes.binding list -> Ir.binding list * nenv =
-  fun env bs ->
-    let globals, _, nenv = desugar_program env (bs, None) in
-      globals, nenv
-
 type result =
   { globals: Ir.binding list;
     program: Ir.program;
@@ -1310,19 +1311,24 @@ type result =
 
 let program : Context.t -> Types.datatype -> Sugartypes.program -> result
   = fun context datatype program ->
-  let (nenv, _, _) as env =
+  let (nenv, _, _, aenv) as env =
     let nenv = Context.name_environment context in
     let tenv = Context.typing_environment context in
     let venv = Context.variable_environment context in
-    (nenv, venv, tenv.Types.effect_row)
+    let aenv = Context.attribute_environment context in
+    (nenv, venv, tenv.Types.effect_row, aenv)
   in
   let program', _ = C.compile env program in
-  let globals, program'', nenv' = C.partition_program program' in
+  let globals, program'', nenv', aenv' = C.partition_program program' in
   let nenv'' = Env.String.extend nenv nenv' in
   let venv =
     let tenv = Context.typing_environment context in
     Var.varify_env (nenv'', tenv.Types.var_env)
   in
+  let aenv'' =
+    Env.String.extend aenv aenv'
+  in
   { globals; datatype; program = program'';
     context = Context.({ context with name_environment = nenv'';
-                                      variable_environment = venv }) }
+                                      variable_environment = venv;
+                                      attribute_environment = aenv'' }) }
