@@ -630,17 +630,20 @@ unary_expression:
 | postfix_expression | constructor_expression                  { $1 }
 | DOOP CONSTRUCTOR loption(arg_spec)                           { with_pos $loc (DoOperation ($2, $3, None)) }
 
-infix_appl:
+regex_appl:
 | unary_expression                                             { $1 }
-| unary_expression OPERATOR                                    { unary_appl ~ppos:$loc (UnaryOp.Name $2) $1 } /* TODO(dhil): This is more general than the previous rule as in it will permit more expressions to be chained together. */
-| unary_expression OPERATOR infix_appl                         { infix_appl' ~ppos:$loc $1 (BinaryOp.Name $2) $3 }
-| unary_expression COLONCOLON infix_appl                       { infix_appl' ~ppos:$loc $1 BinaryOp.Cons $3 }
-| unary_expression MINUS infix_appl                            { infix_appl' ~ppos:$loc $1 BinaryOp.Minus $3 }
-| unary_expression MINUSDOT infix_appl                         { infix_appl' ~ppos:$loc $1 BinaryOp.FloatMinus $3 }
-| unary_expression DOLLAR infix_appl                           { infix_appl' ~ppos:$loc $1 (BinaryOp.Name "$") $3 }
-| unary_expression BANG infix_appl                             { infix_appl' ~ppos:$loc $1 (BinaryOp.Name "!") $3 }
 | unary_expression EQUALSTILDE regex                           { let r, flags = $3 in
                                                                  infix_appl' ~ppos:$loc $1 (BinaryOp.RegexMatch flags) r }
+infix_appl:
+| regex_appl                                             { $1 }
+| regex_appl OPERATOR                                    { unary_appl ~ppos:$loc (UnaryOp.Name $2) $1 } /* TODO(dhil): This is more general than the previous rule as in it will permit more expressions to be chained together. */
+| regex_appl OPERATOR infix_appl                         { infix_appl' ~ppos:$loc $1 (BinaryOp.Name $2) $3 }
+| regex_appl COLONCOLON infix_appl                       { infix_appl' ~ppos:$loc $1 BinaryOp.Cons $3 }
+| regex_appl MINUS infix_appl                            { infix_appl' ~ppos:$loc $1 BinaryOp.Minus $3 }
+| regex_appl MINUSDOT infix_appl                         { infix_appl' ~ppos:$loc $1 BinaryOp.FloatMinus $3 }
+| regex_appl DOLLAR infix_appl                           { infix_appl' ~ppos:$loc $1 (BinaryOp.Name "$") $3 }
+| regex_appl BANG infix_appl                             { infix_appl' ~ppos:$loc $1 (BinaryOp.Name "!") $3 }
+
 typed_expression:
 | infix_appl                                                   { $1 }
 | typed_expression COLON datatype                              { with_pos $loc (TypeAnnotation ($1, datatype $3)) }
