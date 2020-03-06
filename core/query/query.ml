@@ -871,7 +871,7 @@ struct
             bind env (x, arg)) xs args env in
         (* Debug.print("Applied"); *)
           norm_comp env body
-    | Q.Primitive "list_cons", [x; xs] -> (* TODO FIXME unhygienic. *)
+    | Q.Primitive "::", [x; xs] -> (* TODO FIXME unhygienic. *)
         Q.reduce_concat [Q.Singleton x; xs]
     | Q.Primitive "++", ([_xs; _ys] as l) -> (* TODO FIXME unhygienic. *)
         Q.reduce_concat l

@@ -5,7 +5,7 @@ alien builtin not : (Bool) -> Bool = "%bool_not";
 
 # Integer arithmetic operations.
 infixl 6 +;
-#infixl 6 -; # Minus is hard-coded for now.
+infixl 6 -;
 infixl 7 *;
 infixl 7 /;
 infixl 7 `mod`;
@@ -22,7 +22,7 @@ alien builtin {
 
 # Floating point operations.
 infixl 6 +.;
-#infixl 6 -.; # Float minus is hard-coded for now.
+infixl 6 -.;
 infixl 7 *.;
 infixl 7 /.;
 infixr 8 ^.;
@@ -134,17 +134,18 @@ alien builtin {
 
 # Lists.
 infixr 5 ++;
+infixr 9 ::;
 alien builtin {
-  list_nil    : [a]               = "%list_nil";    # TODO drop list_ prefix
-  list_cons   : (a, [a]) -> [a]   = "%list_cons";   # TODO drop list_ prefix
-  ++          : ([a], [a]) -> [a] = "%list_concat";
-  hd     : ([a]) ~> a        = "%list_hd";
-  tl     : ([a]) ~> [a]      = "%list_tl";
-  length      : ([a]) -> Int      = "%list_length";
-  take        : (Int, [a]) ~> [a] = "%list_take";
-  drop        : (Int, [a]) ~> [a] = "%list_drop";
-  max         : ([a]) ~> [|Some:a|None:()|] = "%list_max";
-  min         : ([a]) ~> [|Some:a|None:()|] = "%list_min";
+  list_nil : [a]               = "%list_nil";    # TODO drop list_ prefix
+  ::       : (a, [a]) -> [a]   = "%list_cons";
+  ++       : ([a], [a]) -> [a] = "%list_concat";
+  hd       : ([a]) ~> a        = "%list_hd";
+  tl       : ([a]) ~> [a]      = "%list_tl";
+  length   : ([a]) -> Int      = "%list_length";
+  take     : (Int, [a]) ~> [a] = "%list_take";
+  drop     : (Int, [a]) ~> [a] = "%list_drop";
+  max      : ([a]) ~> [|Some:a|None:()|] = "%list_max";
+  min      : ([a]) ~> [|Some:a|None:()|] = "%list_min";
 }
 # infixr 5 ::;
 #sig :: : (a, [a]) -> [a]

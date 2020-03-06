@@ -376,13 +376,18 @@ declaration:
 
 nofun_declaration:
 | alien_declaration                                            { $1 }
-| FIXITY UINTEGER? op SEMICOLON                                { let precedence = from_option default_fixity $2 in
-                                                                 let node = Infix { name = WithPos.node $3; precedence; assoc = $1 } in
-                                                                 with_pos $loc node }
-
+| fixity_declaration                                           { $1 }
 | signature? tlvarbinding SEMICOLON                            { val_binding' ~ppos:$loc($2) $1 $2 }
 | typedecl SEMICOLON | links_module | links_open SEMICOLON     { $1 }
 | pollute = boption(OPEN) IMPORT CONSTRUCTOR SEMICOLON         { import ~ppos:$loc($2) ~pollute [$3] }
+
+fixity_declaration:
+| FIXITY UINTEGER? op SEMICOLON                                { let precedence = from_option default_fixity $2 in
+                                                                 let node = Infix { name = WithPos.node $3; precedence; assoc = $1 } in
+                                                                 with_pos $loc node }
+| FIXITY UINTEGER? COLONCOLON SEMICOLON                        { let precedence = from_option default_fixity $2 in
+                                                                 let node = Infix { name = "::"; precedence; assoc = $1 } in
+                                                                 with_pos $loc node }
 
 alien_entity:
 | VARIABLE perhaps_location COLON datatype EQ STRING SEMICOLON { let binder = binder ~ppos:$loc($1) $1 in
@@ -390,12 +395,6 @@ alien_entity:
                                                                  Alien.Entity.make binder datatype $6 $2 }
 | sigop perhaps_location COLON datatype EQ STRING SEMICOLON    { let sigop = $1 in
                                                                  let binder = binder ~ppos:$loc($1) (WithPos.node sigop) in
-                                                                 let datatype = datatype $4 in
-                                                                 Alien.Entity.make binder datatype $6 $2 }
-| MINUS perhaps_location COLON datatype EQ STRING SEMICOLON    { let binder = binder ~ppos:$loc($1) "-" in
-                                                                 let datatype = datatype $4 in
-                                                                 Alien.Entity.make binder datatype $6 $2 }
-| MINUSDOT perhaps_location COLON datatype EQ STRING SEMICOLON { let binder = binder ~ppos:$loc($1) "-." in
                                                                  let datatype = datatype $4 in
                                                                  Alien.Entity.make binder datatype $6 $2 }
 | COLONCOLON perhaps_location COLON datatype EQ STRING SEMICOLON { let binder = binder ~ppos:$loc($1) "::" in
@@ -557,24 +556,24 @@ constructor_expression:
 | CONSTRUCTOR parenthesized_thing?                             { constructor ~ppos:$loc ?body:$2 $1 }
 
 parenthesized_thing:
-| LPAREN binop RPAREN                                          { with_pos $loc (Section $2)              }
+| LPAREN sigop RPAREN                                          { let name = Section.Name (WithPos.node $2) in
+                                                                 with_pos $loc (Section name) }
+| LPAREN COLONCOLON RPAREN                                     { let name = Section.Name "::" in
+                                                                 with_pos $loc (Section name) }
 | LPAREN DOT record_label RPAREN                               { with_pos $loc (Section (Section.Project $3))   }
 | LPAREN RPAREN                                                { record ~ppos:$loc []                     }
 | LPAREN labeled_exps preceded(VBAR, exp)? RPAREN              { record ~ppos:$loc $2 ?exp:$3             }
 | LPAREN exps RPAREN                                           { with_pos $loc (TupleLit ($2))           }
 | LPAREN exp WITH labeled_exps RPAREN                          { with_pos $loc (With ($2, $4))           }
 
-binop:
-| MINUS                                                        { Section.Minus          }
-| MINUSDOT                                                     { Section.FloatMinus     }
-| sigop                                                        { Section.Name (WithPos.node $1) }
-
 sigop:
 | DOLLAR                                                       { with_pos $loc "$" }
 | op                                                           { $1 }
 
 op:
-| OPERATOR                                                     { with_pos $loc $1 }
+| OPERATOR                                                     { with_pos $loc $1  }
+| MINUS                                                        { with_pos $loc "-" }
+| MINUSDOT                                                     { with_pos $loc "-." }
 
 spawn_expression:
 | SPAWNAT LPAREN exp COMMA block RPAREN                        { spawn ~ppos:$loc Demon (ExplicitSpawnLocation $3) $5 }

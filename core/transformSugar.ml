@@ -50,7 +50,7 @@ let type_binary_op env tycon_env =
 
   | And
   | Or           -> datatype "(Bool,Bool) -> Bool"
-  | Cons         -> TyEnv.find "list_cons" env  (* TODO FIXME unhygienic. *)
+  | Cons         -> TyEnv.find "::" env  (* TODO FIXME unhygienic. *)
   | Name "++"    -> TyEnv.find "++" env  (* TODO FIXME unhygienic. *)
   | Name ">"
   | Name ">="

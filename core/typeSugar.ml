@@ -1816,7 +1816,7 @@ let type_binary_op pos ctxt =
         end
   | And
   | Or           -> add_empty_usages (datatype "(Bool,Bool) -> Bool")
-  | Cons         -> add_empty_usages (Utils.instantiate ctxt.var_env "list_cons")  (* TODO FIXME unhygienic. *)
+  | Cons         -> add_empty_usages (Utils.instantiate ctxt.var_env "::")  (* TODO FIXME unhygienic. *)
   | Name "++"    -> add_empty_usages (Utils.instantiate ctxt.var_env "++")  (* TODO FIXME unhygienic. *)
   | Name ">"
   | Name ">="
