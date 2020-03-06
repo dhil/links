@@ -210,8 +210,6 @@ rule lex ctxt nl = parse
   | "|+]"                               { BARPLUSRBRACKET }
   | "[&|"                               { LBRACKETAMPBAR }
   | "|&]"                               { BARAMPRBRACKET }
-  | "||"                                { BARBAR }
-  | "&&"                                { AMPAMP }
   | '|'                                 { VBAR }
   | '~'                                 { TILDE }
   | "=~"                                { ctxt#push_lexer (regex' ctxt nl); EQUALSTILDE }

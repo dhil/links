@@ -61,45 +61,7 @@ let unary : phrase -> UnaryOp.t partial_op -> phrase
 module Optable = struct
   type t = (int * Associativity.t) Utility.StringMap.t
   let defaults : t =
-    let open Associativity in
-    let xs =
-      [ "::" , (9, Right)
-
-      ; "^"  , (8, Right)
-      ; "^^" , (8, Right)
-      ; "**" , (8, Right)
-
-      ; "*"  , (7, Left)
-      ; "/"  , (7, Left)
-      ; "+"  , (6, Left)
-      ; "*." , (7, Left)
-      ; "/." , (7, Left)
-      ; "+." , (6, Left)
-
-      ; "-"  , (6, Left)
-      ; ".-" , (6, Left)
-
-      ; "!"  , (6, Left)
-
-      ; "++" , (5, Right)
-
-      ; "=~" , (5, Right)
-
-      ; "==" , (4, None)
-      ; "<>" , (4, None)
-      ; "<"  , (4, None)
-      ; "<=" , (4, None)
-      ; ">=" , (4, None)
-      ; ">"  , (4, None)
-
-      ; "&&" , (3, Right)
-
-      ; "||" , (2, Right)
-
-      ;  ">>" , (1, Left)
-      ;  "$"  , (1, Right) ]
-    in
-    Utility.StringMap.from_alist xs
+    Utility.StringMap.empty
 
   let lookup : string -> t -> (int * Associativity.t)
     = fun name optable ->

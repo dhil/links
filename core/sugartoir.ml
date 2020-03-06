@@ -833,7 +833,14 @@ struct
           | Section Section.FloatMinus | FreezeSection Section.FloatMinus -> cofv (lookup_var "-.") (* TODO FIXME unhygienic. *)
           | Section (Section.Name name) | FreezeSection (Section.Name name) -> cofv (lookup_var name) (* TODO FIXME unhygienic. *)
           | Conditional (p, e1, e2) ->
-              I.condition (ev p, ec e1, ec e2)
+             I.condition (ev p, ec e1, ec e2)
+          | InfixAppl ((_tyargs, BinaryOp.Name "&&"), e1, e2) -> (* TODO FIXME unhygienic *)
+             (* IMPORTANT: we compile boolean expressions to
+                conditionals in order to faithfully capture
+                short-circuit evaluation *)
+              I.condition (ev e1, ec e2, cofv (I.constant (Constant.Bool false))) (* TODO FIXME unhygienic. *)
+          | InfixAppl ((_tyargs, BinaryOp.Name "||"), e1, e2) -> (* TODO FIXME unhygienic. *)
+              I.condition (ev e1, cofv (I.constant (Constant.Bool true)), ec e2) (* TODO FIXME unhygienic. *)
           (* | InfixAppl ((tyargs, BinaryOp.Name ((">" | ">=" | "==" | "<" | "<=" | "<>") as op)), e1, e2) ->
            *     cofv (I.apply_pure (instantiate op tyargs, [ev e1; ev e2])) (\* TODO FIXME unhygienic. *\)
            * | InfixAppl ((tyargs, BinaryOp.Name "++"), e1, e2) ->
@@ -849,14 +856,8 @@ struct
           | InfixAppl ((tyargs, BinaryOp.FloatMinus), e1, e2) ->
               cofv (I.apply_pure (instantiate "-." tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
           | InfixAppl ((tyargs, BinaryOp.Minus), e1, e2) ->
-              cofv (I.apply_pure (instantiate "-" tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
-          | InfixAppl ((_tyargs, BinaryOp.And), e1, e2) ->
-              (* IMPORTANT: we compile boolean expressions to
-                 conditionals in order to faithfully capture
-                 short-circuit evaluation *)
-              I.condition (ev e1, ec e2, cofv (I.constant (Constant.Bool false))) (* TODO FIXME unhygienic. *)
-          | InfixAppl ((_tyargs, BinaryOp.Or), e1, e2) ->
-              I.condition (ev e1, cofv (I.constant (Constant.Bool true)), ec e2) (* TODO FIXME unhygienic. *)
+             cofv (I.apply_pure (instantiate "-" tyargs, [ev e1; ev e2])) (* TODO FIXME unhygienic. *)
+          | InfixAppl ((_, BinaryOp.And), _, _) | InfixAppl ((_, BinaryOp.Or), _, _) -> assert false
           | UnaryAppl ((_tyargs, UnaryOp.Minus), e) ->
               cofv (I.apply_pure(instantiate_mb "negate", [ev e])) (* TODO FIXME unhygienic. *)
           | UnaryAppl ((_tyargs, UnaryOp.FloatMinus), e) ->

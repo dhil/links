@@ -273,7 +273,6 @@ let parse_foreign_language pos lang =
 %token CLIENT SERVER
 %token SEMICOLON
 %token TRUE FALSE
-%token BARBAR AMPAMP
 %token <int> UINTEGER
 %token <float> UFLOAT
 %token <string> STRING CDATA REGEXREPL
@@ -642,13 +641,8 @@ infix_appl:
 | unary_expression BANG infix_appl                             { infix_appl' ~ppos:$loc $1 (BinaryOp.Name "!") $3 }
 | unary_expression EQUALSTILDE regex                           { let r, flags = $3 in
                                                                  infix_appl' ~ppos:$loc $1 (BinaryOp.RegexMatch flags) r }
-logical_expression:
-| infix_appl                                                   { $1 }
-| logical_expression BARBAR infix_appl                         { infix_appl' ~ppos:$loc $1 BinaryOp.Or  $3 }
-| logical_expression AMPAMP infix_appl                         { infix_appl' ~ppos:$loc $1 BinaryOp.And $3 }
-
 typed_expression:
-| logical_expression                                           { $1 }
+| infix_appl                                                   { $1 }
 | typed_expression COLON datatype                              { with_pos $loc (TypeAnnotation ($1, datatype $3)) }
 | typed_expression COLON datatype LARROW datatype              { with_pos $loc (Upcast ($1, datatype $3, datatype $5)) }
 
@@ -687,15 +681,15 @@ xml_contents:
 | CDATA                                                        { with_pos $loc (TextNode (Utility.xml_unescape $1)) }
 
 formlet_binding:
-| LBRACE logical_expression RARROW pattern RBRACE              { with_pos $loc (FormBinding($2, $4)) }
+| LBRACE infix_appl RARROW pattern RBRACE                      { with_pos $loc (FormBinding($2, $4)) }
 
 formlet_placement:
-| LBRACE logical_expression
-         FATRARROW logical_expression RBRACE                   { with_pos $loc (FormletPlacement ($2, $4,
+| LBRACE infix_appl
+         FATRARROW infix_appl RBRACE                           { with_pos $loc (FormletPlacement ($2, $4,
                                                                                                    list ~ppos:$loc [])) }
-| LBRACE logical_expression
-         FATRARROW logical_expression
-         WITH logical_expression RBRACE                        { with_pos $loc (FormletPlacement ($2, $4, $6)) }
+| LBRACE infix_appl
+         FATRARROW infix_appl
+         WITH infix_appl RBRACE                                { with_pos $loc (FormletPlacement ($2, $4, $6)) }
 
 page_placement:
 | LBRACEBAR exp BARRBRACE                                      { with_pos $loc($2) (PagePlacement $2) }

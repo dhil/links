@@ -1,7 +1,13 @@
 ## Declarations of Links builtins.
 
 # Booleans.
-alien builtin not : (Bool) -> Bool = "%bool_not" [directstyle,primitive];
+infixr 3 &&;
+infixr 2 ||;
+alien builtin {
+  not : (Bool) -> Bool = "%bool_not" [directstyle,primitive];
+  ||  : (Bool, Bool) -> Bool = "%logical_or" [directstyle,primitive];
+  &&  : (Bool, Bool) -> Bool = "%logical_and" [directstyle,primitive];
+}
 
 # Integer arithmetic operations.
 infixl 6 +;
