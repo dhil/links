@@ -40,7 +40,7 @@ module Alien = struct
             language: ForeignLanguage.t;
             object_name: string;
             location: location;
-            attributes: string list }
+            attributes: (string * string) list }
         [@@deriving show]
 
   let binder { binder; _ } = binder

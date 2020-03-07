@@ -72,7 +72,7 @@ module PEnv = Env.Int
 type nenv = var NEnv.t
 type tenv = Types.datatype TEnv.t
 type penv = (Pattern.context * value) PEnv.t
-type aenv = string list NEnv.t
+type aenv = (string * string) list NEnv.t
 
 type env = nenv * tenv * Types.row * aenv * penv
 type raw_env = nenv * tenv * Types.row * aenv

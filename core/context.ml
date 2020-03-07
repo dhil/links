@@ -6,7 +6,7 @@ type t =
     value_environment: Value.env;
     primitive_vars: Utility.IntSet.t; (* TODO remove *)
     variable_environment: Types.datatype Env.Int.t; (* TODO remove. *)
-    attribute_environment: string list Env.String.t; (* TODO remove. *)
+    attribute_environment: (string * string) list Env.String.t; (* TODO remove. *)
     source_code: SourceCode.source_code;          (* TODO remove. *)
     ffi_files: string list;                      (* TODO remove. *)
     operator_table: (int * Operators.Associativity.t) Utility.StringMap.t option } (* TODO remove. *)

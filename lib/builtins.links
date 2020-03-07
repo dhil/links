@@ -4,9 +4,9 @@
 infixr 3 &&;
 infixr 2 ||;
 alien builtin {
-  not : (Bool) -> Bool = "%bool_not" [directstyle,primitive];
-  ||  : (Bool, Bool) -> Bool = "%logical_or" [directstyle,primitive];
-  &&  : (Bool, Bool) -> Bool = "%logical_and" [directstyle,primitive];
+  not : (Bool) -> Bool = "%bool_not" [directstyle,objectname:"!"];
+  ||  : (Bool, Bool) -> Bool = "%logical_or" [directstyle];
+  &&  : (Bool, Bool) -> Bool = "%logical_and" [directstyle];
 }
 
 # Integer arithmetic operations.
@@ -17,12 +17,12 @@ infixl 7 /;
 infixl 7 `mod`;
 infixr 8 ^;
 alien builtin {
-  +      : (Int, Int) -> Int = "%int_plus"   [directstyle,primitive];
-  -      : (Int, Int) -> Int = "%int_minus"  [directstyle,primitive];
-  *      : (Int, Int) -> Int = "%int_mult"   [directstyle,primitive];
-  /      : (Int, Int) -> Int = "%int_div"    [directstyle,primitive];
-  ^      : (Int, Int) -> Int = "%int_pow"    [directstyle,primitive];
-  mod    : (Int, Int) -> Int = "%int_mod"    [directstyle,primitive];
+  +      : (Int, Int) -> Int = "%int_plus"   [directstyle];
+  -      : (Int, Int) -> Int = "%int_minus"  [directstyle];
+  *      : (Int, Int) -> Int = "%int_mult"   [directstyle];
+  /      : (Int, Int) -> Int = "%int_div"    [directstyle];
+  ^      : (Int, Int) -> Int = "%int_pow"    [directstyle,objectname:"**"];
+  mod    : (Int, Int) -> Int = "%int_mod"    [directstyle,objectname:"%"];
   negate : (Int)      -> Int = "%int_negate" [directstyle];
 }
 
@@ -33,12 +33,12 @@ infixl 7 *.;
 infixl 7 /.;
 infixr 8 ^.;
 alien builtin {
-  +.      : (Float, Float) -> Float = "%float_plus"   [directstyle,primitive];
-  -.      : (Float, Float) -> Float = "%float_minus"  [directstyle,primitive];
-  *.      : (Float, Float) -> Float = "%float_mult"   [directstyle,primitive];
-  /.      : (Float, Float) -> Float = "%float_div"    [directstyle,primitive];
-  ^.      : (Float, Float) -> Float = "%float_pow"    [directstyle,primitive];
-  negatef : (Float)        -> Float = "%float_negate" [directstyle];
+  +.      : (Float, Float) -> Float = "%float_plus"   [directstyle,objectname:"+"];
+  -.      : (Float, Float) -> Float = "%float_minus"  [directstyle,objectname:"-"];
+  *.      : (Float, Float) -> Float = "%float_mult"   [directstyle,objectname:"*"];
+  /.      : (Float, Float) -> Float = "%float_div"    [directstyle,objectname:"/"];
+  ^.      : (Float, Float) -> Float = "%float_pow"    [directstyle,objectname:"**"];
+  negatef : (Float)        -> Float = "%float_negate" [directstyle,objectname:"-"];
   # Trig.
   floor   : (Float) -> Float  = "%float_floor"        [directstyle];
   ceiling : (Float) -> Float  = "%float_ceiling"      [directstyle];
@@ -53,7 +53,7 @@ alien builtin {
 
 # String concatenation.
 infixr 8 ^^;
-alien builtin ^^ : (String, String) -> String = "%str_cat" [directstyle];
+alien builtin ^^ : (String, String) -> String = "%str_cat" [directstyle,objectname:"+"];
 
 # Polymorphic relational operators.
 infix 4 ==;

@@ -63,7 +63,7 @@ module TEnv = Env.Int
 
 type nenv = var NEnv.t
 type tenv = Types.datatype TEnv.t
-type aenv = string list NEnv.t
+type aenv = (string * string) list NEnv.t
 
 type env = nenv * tenv * Types.row * aenv
 
@@ -76,7 +76,7 @@ let lookup_effects (_, _, eff, _) = eff
 let is_direct_style_primitive name (_, _, _, aenv) =
   try
     let attrs = NEnv.find name aenv in
-    List.mem "directstyle" attrs
+    List.mem_assoc "directstyle" attrs
   with Notfound.NotFound _ -> false
 
 (* Hmm... shouldn't we need to use something like this? *)
@@ -202,7 +202,7 @@ sig
     (var list -> tail_computation sem) ->
     tail_computation sem
 
-  val alien : var_info * location * string * ForeignLanguage.t * string list * (var -> tail_computation sem) -> tail_computation sem
+  val alien : var_info * location * string * ForeignLanguage.t * (string * string) list * (var -> tail_computation sem) -> tail_computation sem
 
   val select : Name.t * value sem -> tail_computation sem
 
@@ -292,7 +292,7 @@ struct
        * location) list ->
       (Var.var list) M.sem
 
-    val alien_binding : var_info * location * string * ForeignLanguage.t * string list -> var M.sem
+    val alien_binding : var_info * location * string * ForeignLanguage.t * (string * string) list -> var M.sem
 
     val value_of_untyped_var : var M.sem * datatype -> value sem
   end =

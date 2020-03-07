@@ -392,8 +392,13 @@ fixity_special:
 | COLONCOLON      { "::" }
 | BANG            { "!" }
 
+keyvaluepair:
+| VARIABLE COLON STRING    { ($1, $3) }
+| VARIABLE                 { ($1, "") }
+
+
 attribute_list:
-| LBRACKET separated_nonempty_list(COMMA, VARIABLE) RBRACKET { $2 }
+| LBRACKET separated_nonempty_list(COMMA, keyvaluepair) RBRACKET { $2 }
 
 alien_binder:
 | VARIABLE   { binder ~ppos:$loc($1) $1 }

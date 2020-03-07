@@ -10,15 +10,15 @@ module Binder: sig
   and with_pos = t WithPos.t
   [@@deriving show]
 
-  val make : ?name:Name.t -> ?ty:Types.datatype -> ?attrs:string list -> unit -> t
+  val make : ?name:Name.t -> ?ty:Types.datatype -> ?attrs:(string * string) list -> unit -> t
 
   val to_name : with_pos -> string
   val to_type : with_pos -> Types.datatype
-  val attributes : with_pos -> string list
+  val attributes : with_pos -> (string * string) list
 
   val set_name : with_pos -> Name.t -> with_pos
   val set_type : with_pos -> Types.datatype -> with_pos
-  val set_attributes : with_pos -> string list -> with_pos
+  val set_attributes : with_pos -> (string * string) list -> with_pos
 
   val erase_type : with_pos -> with_pos
   val has_type : with_pos -> bool
@@ -29,7 +29,9 @@ module Binder: sig
                      -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
                      -> 'c * with_pos
 end = struct
-  type t = { name: Name.t; datatype: Types.datatype; attributes: string list }
+  type t = { name: Name.t;
+             datatype: Types.datatype;
+             attributes: (string * string) list }
   and with_pos = t WithPos.t
   [@@deriving show]
 
