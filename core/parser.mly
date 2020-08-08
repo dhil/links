@@ -501,14 +501,14 @@ qualified_type_name:
 | CONSTRUCTOR DOT separated_nonempty_list(DOT, CONSTRUCTOR)    { $1 :: $3 }
 
 atomic_expression:
-| qualified_name                                               { with_pos $loc (QualifiedVar $1) }
-| VARIABLE                                                     { with_pos $loc (Var          $1) }
-| TILDE VARIABLE                                               { with_pos $loc (FreezeVar    $2) }
+| qualified_name                                               { with_pos $loc (QualifiedVar (List.map Name.unresolved $1)) }
+| VARIABLE                                                     { with_pos $loc (Var          (Name.unresolved $1)) }
+| TILDE VARIABLE                                               { with_pos $loc (FreezeVar    (Name.unresolved $2)) }
 | constant                                                     { with_pos $loc (Constant     $1) }
 | parenthesized_thing                                          { $1 }
 /* HACK: allows us to support both mailbox receive syntax
 and receive for session types. */
-| RECEIVE                                                      { with_pos $loc (Var "receive") }
+| RECEIVE                                                      { with_pos $loc (Var (Name.unresolved "receive")) }
 
 cp_name:
 | VARIABLE                                                     { binder ~ppos:$loc($1) $1 }

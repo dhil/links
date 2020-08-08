@@ -207,6 +207,9 @@ end
 module Name = struct
   type t = string
     [@@deriving show]
+
+  let unresolved : string -> t
+    = fun name -> name
 end
 
 module ForeignLanguage = struct
