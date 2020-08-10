@@ -9,7 +9,8 @@ let internal_error message =
   Errors.internal_error ~filename:"sugartypes.ml" ~message
 
 module Binder: sig
-  type t
+  type var = int
+  and t
   and with_pos = t WithPos.t
   [@@deriving show]
 
@@ -17,9 +18,11 @@ module Binder: sig
 
   val to_name : with_pos -> string
   val to_type : with_pos -> Types.datatype
+  val to_var  : with_pos -> var
 
   val set_name : with_pos -> Name.t -> with_pos
   val set_type : with_pos -> Types.datatype -> with_pos
+  val set_var : with_pos -> var -> with_pos
 
   val erase_type : with_pos -> with_pos
   val has_type : with_pos -> bool
@@ -30,19 +33,22 @@ module Binder: sig
                      -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
                      -> 'c * with_pos
 end = struct
-  type t = Name.t * Types.datatype
+  type var = int
+  and t = Name.t * Types.datatype * var
   and with_pos = t WithPos.t
   [@@deriving show]
 
-  let make ?(name="") ?(ty=Types.Not_typed) () = (name, ty)
+  let make ?(name="") ?(ty=Types.Not_typed) () = (name, ty, -1)
 
-  let to_name b = let (n, _ ) = WithPos.node b in n
-  let to_type b = let (_, ty) = WithPos.node b in ty
+  let to_name b = let (n, _, _) = WithPos.node b in n
+  let to_type b = let (_, ty, _) = WithPos.node b in ty
+  let to_var b  = let (_, _, v) = WithPos.node b in v
 
-  let set_name b name = WithPos.map ~f:(fun (_   , ty) -> name, ty ) b
-  let set_type b typ  = WithPos.map ~f:(fun (name, _ ) -> name, typ) b
+  let set_name b name = WithPos.map ~f:(fun (_   , typ, v) -> name, typ, v) b
+  let set_type b typ  = WithPos.map ~f:(fun (name, _  , v) -> name, typ, v) b
+  let set_var  b v    = WithPos.map ~f:(fun (name, typ, _) -> name, typ, v) b
 
-  let erase_type b = WithPos.map ~f:(fun (name, _) -> name, Types.Not_typed) b
+  let erase_type b = WithPos.map ~f:(fun (name, _, v) -> name, Types.Not_typed, v) b
   let has_type   b = match to_type b with Types.Not_typed -> false | _ -> true
 
   let traverse_map : with_pos -> o:'o
@@ -50,11 +56,10 @@ end = struct
             -> f_name:('a -> Name.t -> 'b * Name.t)
             -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
             -> 'c * with_pos = fun b ~o ~f_pos ~f_name ~f_ty ->
-    WithPos.traverse_map b ~o ~f_pos ~f_node:(fun o (n, ty) ->
+    WithPos.traverse_map b ~o ~f_pos ~f_node:(fun o (n, ty, v) ->
         let o, name = f_name o n  in
         let o, typ  = f_ty   o ty in
-        o, (name, typ)
-      )
+        o, (name, typ, v))
 end
 
 type tyarg = Types.type_arg
