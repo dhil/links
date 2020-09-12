@@ -1,0 +1,52 @@
+# Boehm-Berarducci encoding of some recursive data structures.
+
+## Lists.
+module List {
+  typename T(a) = forall t::Type,e::Eff. ((a, t) -e-> t, t) -e-> t;
+
+  sig nil : T(a)
+  fun nil(cons, nil) { nil }
+
+  sig cons : (a, T(a)) -> T(a)
+  fun cons(x, xs)(cons, nil) { cons(x, xs(cons, nil)) }
+
+  sig foldr : ((a, b) -e-> b, b, T(a)) -e-> b
+  fun foldr(f, z, xs) { xs(f, z) }
+
+  sig map : ((a) -e-> b, T(a)) -e-> T(b)
+  fun map(f, xs) {
+    foldr(fun(x, ys) { cons(f(x), ys) }, nil, xs)
+  }
+
+  sig append : (T(a), T(a)) -> T(a)
+  fun append(xs, ys) {
+    foldr(cons, ys, xs)
+  }
+
+  # sig reverse : (T(a)) -> T(a)
+  # fun reverse(xs) {
+  #   foldr(fun(x, xs) { append(xs, cons(x, nil)) }, nil, xs)
+  # }
+
+  sig length : (T(a)) -> Int
+  fun length(xs) {
+    foldr(fun(_, len) { len + 1 }, 0, xs)
+  }
+
+  sig intersperse : (a, T(a)) -> T(a)
+  fun intersperse(x', xs) {
+    var (xs', _) = foldr( fun(x, (xs',b)) {
+                            (if (b) cons(x, cons(x', xs')) else cons(x, xs')
+                            , true)
+                          }
+                        , (nil, false), xs);
+    xs'
+  }
+
+  sig toString : ((a) -e-> String, T(a)) -e-> String
+  fun toString(toString, xs) {
+    "[" ^^ foldr((^^), "", intersperse(", ", map(toString, xs))) ^^ "]"
+  }
+}
+
+
