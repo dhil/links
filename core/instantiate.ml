@@ -295,26 +295,26 @@ let instantiate_typ = instantiate_typ false
     This returns the type arguments var is instantiated with
     and the instantiated type.
  *)
-let instantiate : environment -> string -> type_arg list * datatype =
+let instantiate : environment -> Name.t -> type_arg list * datatype =
   fun env var ->
     let t =
       try
-        Env.String.find var env
+        Env.Name.find var env
       with NotFound _ ->
-        raise (Errors.UndefinedVariable ("Variable '"^ var ^ "' does not refer to a declaration"))
+        raise (Errors.UndefinedVariable ("Variable '"^ (Name.to_string var) ^ "' does not refer to a declaration"))
     in
 (*       Debug.print ("t1: " ^ Types.string_of_datatype t); *)
       let t = instantiate_typ t in
 (*       Debug.print ("t2: " ^ Types.string_of_datatype (snd t)); *)
         t
 
-let rigid : environment -> string -> type_arg list * datatype =
+let rigid : environment -> Name.t -> type_arg list * datatype =
   fun env var ->
     let t =
       try
-        Env.String.find var env
+        Env.Name.find var env
       with NotFound _ ->
-        raise (Errors.UndefinedVariable ("Variable '"^ var ^ "' does not refer to a declaration"))
+        raise (Errors.UndefinedVariable ("Variable '"^ (Name.to_string var) ^ "' does not refer to a declaration"))
     in
       instantiate_rigid t
 

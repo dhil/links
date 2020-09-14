@@ -444,7 +444,7 @@ tlfunbinding:
 | OP pattern OPERATOR perhaps_location block                   { ((dl_unl, false), $3, [[$2]], $4, $5)          }
 
 tlvarbinding:
-| VAR VARIABLE perhaps_location EQ exp                         { (PatName $2, $5, $3) }
+| VAR VARIABLE perhaps_location EQ exp                         { (PatName (Name.unresolved $2), $5, $3) }
 
 signatures:
 | signature                                                    { (Some $1, false) }
@@ -610,27 +610,27 @@ perhaps_exps:
 | loption(exps)                                                { $1 }
 
 unary_expression:
-| MINUS unary_expression                                       { unary_appl ~ppos:$loc UnaryOp.Minus      $2 }
-| MINUSDOT unary_expression                                    { unary_appl ~ppos:$loc UnaryOp.FloatMinus $2 }
-| OPERATOR unary_expression                                    { unary_appl ~ppos:$loc (UnaryOp.Name $1)  $2 }
+| MINUS unary_expression                                       { unary_appl ~ppos:$loc Name.minus $2 }
+| MINUSDOT unary_expression                                    { unary_appl ~ppos:$loc Name.float_minus $2 }
+| OPERATOR unary_expression                                    { unary_appl ~ppos:$loc (Name.unresolved $1)  $2 }
 | postfix_expression | constructor_expression                  { $1 }
 | DOOP CONSTRUCTOR loption(arg_spec)                           { with_pos $loc (DoOperation ($2, $3, None)) }
 
 infix_appl:
 | unary_expression                                             { $1 }
-| unary_expression OPERATOR                                    { unary_appl ~ppos:$loc (UnaryOp.Name $2) $1 } /* TODO(dhil): This is more general than the previous rule as in it will permit more expressions to be chained together. */
-| unary_expression OPERATOR infix_appl                         { infix_appl' ~ppos:$loc $1 (BinaryOp.Name $2) $3 }
-| unary_expression COLONCOLON infix_appl                       { infix_appl' ~ppos:$loc $1 BinaryOp.Cons $3 }
-| unary_expression MINUS infix_appl                            { infix_appl' ~ppos:$loc $1 BinaryOp.Minus $3 }
-| unary_expression MINUSDOT infix_appl                         { infix_appl' ~ppos:$loc $1 BinaryOp.FloatMinus $3 }
-| unary_expression DOLLAR infix_appl                           { infix_appl' ~ppos:$loc $1 (BinaryOp.Name "$") $3 }
-| unary_expression BANG infix_appl                             { infix_appl' ~ppos:$loc $1 (BinaryOp.Name "!") $3 }
+| unary_expression OPERATOR                                    { unary_appl ~ppos:$loc (Name.unresolved $2) $1 }
+| unary_expression OPERATOR infix_appl                         { infix_appl' ~ppos:$loc $1 (Name.unresolved $2) $3 }
+| unary_expression COLONCOLON infix_appl                       { infix_appl' ~ppos:$loc $1 Name.cons $3 }
+| unary_expression MINUS infix_appl                            { infix_appl' ~ppos:$loc $1 Name.minus $3 }
+| unary_expression MINUSDOT infix_appl                         { infix_appl' ~ppos:$loc $1 Name.float_minus $3 }
+| unary_expression DOLLAR infix_appl                           { infix_appl' ~ppos:$loc $1 (Name.unresolved "$") $3 }
+| unary_expression BANG infix_appl                             { infix_appl' ~ppos:$loc $1 (Name.unresolved "!") $3 }
 | unary_expression EQUALSTILDE regex                           { let r, flags = $3 in
-                                                                 infix_appl' ~ppos:$loc $1 (BinaryOp.RegexMatch flags) r }
+                                                                 infix_appl' ~ppos:$loc $1 Name.(Special (Special.RegexMatch flags)) r }
 logical_expression:
 | infix_appl                                                   { $1 }
-| logical_expression BARBAR infix_appl                         { infix_appl' ~ppos:$loc $1 BinaryOp.Or  $3 }
-| logical_expression AMPAMP infix_appl                         { infix_appl' ~ppos:$loc $1 BinaryOp.And $3 }
+| logical_expression BARBAR infix_appl                         { infix_appl' ~ppos:$loc $1 Name.or'  $3 }
+| logical_expression AMPAMP infix_appl                         { infix_appl' ~ppos:$loc $1 Name.and' $3 }
 
 typed_expression:
 | logical_expression                                           { $1 }

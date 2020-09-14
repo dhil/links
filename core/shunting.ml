@@ -2,20 +2,25 @@
 open Sugartypes
 open SourceCode.WithPos
 open Operators
+open CommonTypes
 
-let name_of_binop = function
-  | BinaryOp.Minus -> "-"
-  | BinaryOp.FloatMinus -> "-."
-  | BinaryOp.RegexMatch _ -> "=~"
-  | BinaryOp.And -> "&&"
-  | BinaryOp.Or -> "||"
-  | BinaryOp.Cons -> "::"
-  | BinaryOp.Name name -> name
+let name_of_binop =
+  Name.to_string
+  (* function
+   * | BinaryOp.Minus -> "-"
+   * | BinaryOp.FloatMinus -> "-."
+   * | BinaryOp.RegexMatch _ -> "=~"
+   * | BinaryOp.And -> "&&"
+   * | BinaryOp.Or -> "||"
+   * | BinaryOp.Cons -> "::" *)
+  (* | BinaryOp.Name name -> name *)
 
-let name_of_unop = function
-  | UnaryOp.Minus -> "-"
-  | UnaryOp.FloatMinus -> "-."
-  | UnaryOp.Name name -> name
+let name_of_unop =
+  Name.to_string
+  (* function
+   * | UnaryOp.Minus -> "-"
+   * | UnaryOp.FloatMinus -> "-."
+   * (\* | UnaryOp.Name name -> name *\) *)
 
 type 'a partial_op =
   { partial_node: (tyarg list * 'a);
@@ -24,8 +29,8 @@ type 'a partial_op =
     position: SourceCode.Position.t }
 
 type op =
-  | Unary  of UnaryOp.t partial_op
-  | Binary of BinaryOp.t partial_op
+  | Unary  of Name.t partial_op
+  | Binary of Name.t partial_op
 
 type exp =
   | Op of op
@@ -49,11 +54,11 @@ let partial_op : (tyarg list * 'a) -> Associativity.t -> int -> SourceCode.Posit
   = fun partial_node assoc precedence position ->
   { partial_node; assoc; precedence; position }
 
-let binary : phrase -> BinaryOp.t partial_op -> phrase -> phrase
+let binary : phrase -> Name.t partial_op -> phrase -> phrase
   = fun lhs op rhs ->
   make ~pos:op.position (InfixAppl (op.partial_node, lhs, rhs))
 
-let unary : phrase -> UnaryOp.t partial_op -> phrase
+let unary : phrase -> Name.t partial_op -> phrase
   = fun exp op ->
   make ~pos:op.position (UnaryAppl (op.partial_node, exp))
 

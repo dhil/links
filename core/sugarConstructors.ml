@@ -46,10 +46,10 @@ module SugarConstructors (Position : Pos)
     match sig_opt with
     | Some {node=({node=signame; _}, datatype); pos} ->
        (* Ensure that name in a signature matches name in a declaration. *)
-       if signame <> name then
+       if not (Name.equal signame name) then
          raise (ConcreteSyntaxError (pos,
                Printf.sprintf "Signature for `%s' should precede definition of `%s', not `%s'."
-                  signame signame name));
+                  (Name.to_string signame) (Name.to_string signame) (Name.to_string name)));
        Some datatype
     | None -> None
 
@@ -97,17 +97,23 @@ module SugarConstructors (Position : Pos)
 
   (** Binders **)
 
-  let binder ?(ppos=dp) ?ty name = with_pos ppos (Binder.make ~name ?ty ())
+  let binder ?(ppos=dp) ?ty name =
+    let name' = Name.to_string name in
+    with_pos ppos (Binder.make ~name:name' ?ty ())
 
   (** Imports **)
 
-  let import ?(ppos=dp) ?(pollute=false) names = with_pos ppos (Import { path = names; pollute })
+  let import ?(ppos=dp) ?(pollute=false) names =
+    with_pos ppos (Import { path = List.map Name.to_string names; pollute })
 
   (** Patterns *)
 
   (* Create a variable pattern with a given name. *)
+  let variable_pat' ?(ppos=dp) bndr =
+    with_pos ppos (Pattern.Variable bndr)
+
   let variable_pat ?(ppos=dp) ?ty name =
-    with_pos ppos (Pattern.Variable (binder ~ppos ?ty name))
+    variable_pat' ~ppos (binder ~ppos ?ty name)
 
   (* Create a tuple pattern. *)
   let tuple_pat ?(ppos=dp) pats =
@@ -228,7 +234,7 @@ module SugarConstructors (Position : Pos)
 
   (* Apply a binary infix operator with a specified name. *)
   let infix_appl ?(ppos=dp) arg1 op arg2 =
-    infix_appl' ~ppos arg1 (BinaryOp.Name op) arg2
+    infix_appl' ~ppos arg1 (Name.unresolved op) arg2
 
   (* Apply an unary operator. *)
   let unary_appl ?(ppos=dp) op arg =

@@ -132,7 +132,7 @@ let get_type_args kind bound_vars t =
   remove_duplicates (get_type_args kind bound_vars t)
 
 let env_type_vars (env : Types.environment) =
-  TypeVarSet.union_all (List.map free_type_vars (Env.String.range env))
+  TypeVarSet.union_all (List.map free_type_vars (Env.Name.range env))
 
 let rigidify_type_arg : type_arg -> unit =
   let rigidify_point point =

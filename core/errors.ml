@@ -29,6 +29,7 @@ let string_of_stage = function
 
 exception RuntimeError of string
 exception UndefinedVariable of string
+exception UnboundVariable of string * Position.t
 exception InvalidMutualBinding of Position.t
 exception Type_error of (Position.t * string)
 exception IRTypeError of string
@@ -188,6 +189,12 @@ let format_exception =
      pos_prefix (Printf.sprintf "Error: Cannot call client side function '%s' because of %s\n" fn reason)
   | MissingBuiltinType alias -> Printf.sprintf "Error: Missing builtin type with alias '%s'. Is it defined in the prelude?" alias
   | Sys.Break -> "Caught interrupt"
+  | UnboundVariable (name, pos) ->
+     let pos, _ = Position.resolve_start_expr pos in
+     let message =
+       Printf.sprintf "Error: Unbound name %s\n" name
+     in
+     pos_prefix ~pos message
   | exn -> pos_prefix ("Error: " ^ Printexc.to_string exn)
 
 let format_exception_html e =
@@ -231,3 +238,4 @@ let disabled_extension ?pos ?setting ?flag name =
   DisabledExtension (pos, setting, flag, name)
 let prime_alien pos = PrimeAlien pos
 let forbidden_client_call fn reason = ForbiddenClientCall (fn, reason)
+let unbound_variable pos name = UnboundVariable (name, pos)

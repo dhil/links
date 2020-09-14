@@ -36,14 +36,14 @@ type value =
   | Constant   of Constant.t
   | Variable   of var
   | Extend     of value name_map * value option
-  | Project    of Name.t * value
+  | Project    of Label.t * value
   | Erase      of name_set * value
-  | Inject     of Name.t * value * Types.t
+  | Inject     of Label.t * value * Types.t
 
   | TAbs       of tyvar list * value
   | TApp       of value * tyarg list
 
-  | XmlNode    of Name.t * value name_map * value list
+  | XmlNode    of Label.t * value name_map * value list
   | ApplyPure  of value * value list
 
   | Closure    of var * tyarg list * value
@@ -84,10 +84,10 @@ and special =
   | Update     of (binder * value) * computation option * computation
   | Delete     of (binder * value) * computation option
   | CallCC     of value
-  | Select     of Name.t * value
+  | Select     of Label.t * value
   | Choice     of value * (binder * computation) name_map
   | Handle     of handler
-  | DoOperation of Name.t * value list * Types.t
+  | DoOperation of Label.t * value list * Types.t
 and computation = binding list * tail_computation
 and effect_case = binder * binder * computation
 and handler = {

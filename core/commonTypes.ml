@@ -205,11 +205,99 @@ module Freedom = struct
 end
 
 module Name = struct
-  type t = string
+  module Special = struct
+    type regexflag = RegexList | RegexNative | RegexGlobal | RegexReplace
     [@@deriving show]
 
+    type t =
+      | Minus
+      | FloatMinus
+      | RegexMatch of regexflag list
+      | And
+      | Or
+      | Cons
+      | Dummy of int
+    [@@deriving show]
+
+    let to_string = function
+      | Minus        -> "-"
+      | FloatMinus   -> ".-"
+      | RegexMatch _ -> "<some regex nonsense>"
+      | And          -> "&&"
+      | Or           -> "||"
+      | Cons         -> "::"
+      | Dummy i      -> Printf.sprintf "DUMMY(%d)" i
+
+    let compare x y =
+      String.compare (to_string x) (to_string y)
+
+    let equal x y =
+      compare x y = 0
+
+    let is_dummy = function
+      | Dummy _ -> true
+      | _ -> false
+
+    let counter = ref (-1)
+    let make_dummy () =
+      let var = !counter in
+      counter := !counter - 1;
+      Dummy var
+  end
+
+  type t = Unresolved of string
+         | Local of string * int
+         | Special of Special.t
+    [@@deriving show]
+
+  let minus = Special Special.Minus
+  let float_minus = Special Special.FloatMinus
+  let and' = Special Special.And
+  let or'  = Special Special.Or
+  let cons = Special Special.Cons
+
   let unresolved : string -> t
-    = fun name -> name
+    = fun name -> Unresolved name
+
+  let legacy = unresolved
+
+  let resolved : string -> int -> t
+    = fun name var -> Local (name, var)
+
+  let is_dummy = function
+    | Special s -> Special.is_dummy s
+    | _ -> false
+
+  let dummy () =
+    Special (Special.make_dummy ())
+
+  let to_string = function
+    | Unresolved name -> name
+    | Local (name, _) -> name
+    | Special s -> Special.to_string s
+
+  let compare x y =
+    match x, y with
+    | Unresolved x', Unresolved y' ->
+       String.compare x' y'
+    | Local (_, x'), Local (_, y') ->
+       if x' < y' then (-1)
+       else if x' > y' then 1
+       else 0
+    | Special x', Special y' ->
+       Special.compare x' y'
+    | _ ->
+       if is_dummy x then (-1)
+       else if is_dummy y then 1
+       else assert false
+
+  let equal x y =
+    compare x y = 0
+end
+
+module Label = struct
+  type t = string
+    [@@deriving show]
 end
 
 module ForeignLanguage = struct

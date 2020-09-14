@@ -50,3 +50,12 @@ module Sessions = struct
               |> CLI.(add (long "session-exceptions"))
               |> sync)
 end
+
+module Names = struct
+  let legacy_names =
+    Settings.(flag "legacy names"
+              |> synopsis "Use the old-style unhygienic names"
+              |> privilege `System
+              |> convert parse_bool
+              |> sync)
+end

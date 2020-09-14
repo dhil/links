@@ -3,6 +3,8 @@ open CommonTypes
 open SourceCode
 open Sugartypes
 
+type regexflag = Name.Special.regexflag
+
 (* Make a copy of a value.  You can override any method(s) to get a
    different operation at that type.  For example, the function
 
@@ -25,8 +27,8 @@ class map :
     method float           : float -> float
     method char            : char -> char
     method bool            : bool -> bool
-    method unary_op        : UnaryOp.t -> UnaryOp.t
-    method tyunary_op      : tyarg list * UnaryOp.t -> tyarg list * UnaryOp.t
+    method unary_op        : Name.t -> Name.t
+    method tyunary_op      : tyarg list * Name.t -> tyarg list * Name.t
     method binder          : Binder.with_pos -> Binder.with_pos
     method sentence        : sentence -> sentence
     method section         : Section.t -> Section.t
@@ -49,6 +51,7 @@ class map :
     method patternnode     : Pattern.t -> Pattern.t
     method pattern         : Pattern.with_pos -> Pattern.with_pos
     method foreign_language : ForeignLanguage.t -> ForeignLanguage.t
+    method label           : Label.t -> Label.t
     method name            : Name.t -> Name.t
     method location        : Location.t -> Location.t
     method iterpatt        : iterpatt -> iterpatt
@@ -63,8 +66,8 @@ class map :
     method type_arg        : Datatype.type_arg -> Datatype.type_arg
     method type_arg'       : type_arg' -> type_arg'
     method constant        : Constant.t -> Constant.t
-    method binop           : BinaryOp.t -> BinaryOp.t
-    method tybinop         : tyarg list * BinaryOp.t -> tyarg list * BinaryOp.t
+    method binop           : Name.t -> Name.t
+    method tybinop         : tyarg list * Name.t -> tyarg list * Name.t
     method bindingnode     : bindingnode -> bindingnode
     method binding         : binding -> binding
     method typenamenode    : typenamenode -> typenamenode
@@ -104,8 +107,8 @@ class fold :
     method float           : float -> 'self
     method char            : char -> 'self
     method bool            : bool -> 'self
-    method unary_op        : UnaryOp.t -> 'self
-    method tyunary_op      : tyarg list * UnaryOp.t -> 'self
+    method unary_op        : Name.t -> 'self
+    method tyunary_op      : tyarg list * Name.t -> 'self
     method binder          : Binder.with_pos -> 'self
     method sentence        : sentence -> 'self
     method section         : Section.t -> 'self
@@ -142,8 +145,8 @@ class fold :
     method type_arg        : Datatype.type_arg -> 'self
     method type_arg'       : type_arg' -> 'self
     method constant        : Constant.t -> 'self
-    method binop           : BinaryOp.t -> 'self
-    method tybinop         : tyarg list * BinaryOp.t -> 'self
+    method binop           : Name.t -> 'self
+    method tybinop         : tyarg list * Name.t -> 'self
     method bindingnode     : bindingnode -> 'self
     method binding         : binding -> 'self
     method typenamenode    : typenamenode -> 'self
@@ -153,6 +156,7 @@ class fold :
     method recursive_functionnode  : recursive_functionnode -> 'self
     method program         : program -> 'self
     method unknown         : 'a. 'a -> 'self
+    method label           : Label.t -> 'self
   end
 
 
@@ -173,8 +177,8 @@ object ('self)
   method bindingnode     : bindingnode -> 'self * bindingnode
   method typenamenode    : typenamenode -> 'self * typenamenode
   method typename        : typename -> 'self * typename
-  method binop           : BinaryOp.t -> 'self * BinaryOp.t
-  method tybinop         : tyarg list * BinaryOp.t -> 'self * (tyarg list * BinaryOp.t)
+  method binop           : Name.t -> 'self * Name.t
+  method tybinop         : tyarg list * Name.t -> 'self * (tyarg list * Name.t)
   method bool            : bool -> 'self * bool
   method char            : char -> 'self * char
   method constant        : Constant.t -> 'self * Constant.t
@@ -211,7 +215,7 @@ object ('self)
   method row_var         : Datatype.row_var -> 'self * Datatype.row_var
   method section         : Section.t -> 'self * Section.t
   method sentence        : sentence -> 'self * sentence
-  method string          : Name.t -> 'self * Name.t
+  method string          : string -> 'self * string
   method subkind         : Subkind.t -> 'self * Subkind.t
   method kind            : kind -> 'self * kind
   method freedom         : Freedom.t -> 'self * Freedom.t
@@ -222,10 +226,11 @@ object ('self)
   method type_arg        : Datatype.type_arg -> 'self * Datatype.type_arg
   method type_field_spec : Types.field_spec -> ('self * Types.field_spec)
   method tyarg           : Types.type_arg -> ('self * Types.type_arg)
-  method tyunary_op      : tyarg list * UnaryOp.t -> 'self * (tyarg list * UnaryOp.t)
-  method unary_op        : UnaryOp.t -> 'self * UnaryOp.t
+  method tyunary_op      : tyarg list * Name.t -> 'self * (tyarg list * Name.t)
+  method unary_op        : Name.t -> 'self * Name.t
   method function_definition : function_definition -> 'self * function_definition
   method recursive_function  : recursive_function -> 'self * recursive_function
   method recursive_functionnode  : recursive_functionnode -> 'self * recursive_functionnode
   method unknown         : 'a . 'a -> 'self * 'a
+  method label           : Label.t -> 'self * Label.t
 end

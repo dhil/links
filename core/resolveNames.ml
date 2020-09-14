@@ -22,9 +22,13 @@ module Scope = struct
     = fun name var env ->
     { vars = StringMap.add name var env.vars }
 
-  let extend : t -> t -> t
+  let _extend : t -> t -> t
     = fun env env' ->
     { vars = StringMap.extend env.vars env'.vars }
+
+  let lookup_var : string -> t -> var
+    = fun name env ->
+    StringMap.find name env.vars
 end
 
 (* Static name resolution. *)
@@ -32,12 +36,18 @@ module Resolve = struct
 
   let rec resolve scope' =
     let open Sugartypes in
-    let open SourceCode.WithPos in
+    let open SourceCode in
+    let open WithPos in
+    let open CommonTypes in
     object(self : 'self_type)
       inherit SugarTraversals.map as super
 
       (* We maintain a reference to the current scope. *)
       val mutable scope = scope'
+
+      (* For error reporting we maintain a reference to the source
+         position of the current phrase node. *)
+      val mutable phrase_position = Position.dummy
 
       (* Intended to be used by the object creator to extract the
          scope. *)
@@ -63,6 +73,15 @@ module Resolve = struct
         let var  = self#fresh_var in
         self#bind_var name var;
         Binder.set_var bndr var
+
+      method resolve_var : Name.t -> Name.t
+        = fun name ->
+        try
+          match name with
+          | Name.Unresolved name ->
+             Name.resolved name (Scope.lookup_var name self#get_scope)
+          | _ -> assert false
+        with Notfound.NotFound _ -> raise (Errors.unbound_variable phrase_position (Name.to_string name))
 
       method bindings : binding list -> binding list
         = fun bs -> List.map self#binding bs
@@ -137,7 +156,77 @@ module Resolve = struct
            in
            AlienBlock (Alien.modify ~declarations:decls' aliendecls)
 
+      method cases : (Pattern.with_pos * phrase) list -> (Pattern.with_pos * phrase) list
+        = fun cases ->
+        List.map
+          (fun (pat, body) ->
+            let visitor = self#clone in
+            let pat'  = visitor#pattern pat in
+            let body' = visitor#phrase body in
+            (pat', body'))
+          cases
+
+      method! phrase phr =
+        let cur_pos = phrase_position in
+        phrase_position <- pos phr;
+        let phrasenode = self#phrasenode (node phr) in
+        phrase_position <- cur_pos;
+        WithPos.make ~pos:(pos phr) phrasenode
+
       method! phrasenode = function
+        | Block (bs, body) ->
+           (* Enters a new scope, which is thrown away on exit. *)
+           let visitor = self#clone in
+           let bs'= visitor#bindings bs in
+           let body' = visitor#phrase body in
+           Block (bs', body')
+        | Var name ->
+           (* Must be resolved. *)
+           Var (self#resolve_var name)
+        | QualifiedVar _names -> assert false (* TODO(dhil): Module
+                                                 stuff is assumed to
+                                                 be handled by an
+                                                 earlier pass. *)
+        | Escape (bndr, body) ->
+           let visitor = self#clone in
+           let bndr' = visitor#binder bndr in
+           let body' = visitor#phrase body in
+           Escape (bndr', body')
+        | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
+           let sh_expr = self#phrase sh_expr in
+           let shd_params =
+             self#option (fun o -> o#handle_params) sh_descr.shd_params
+           in
+           let sh_effect_cases = self#cases sh_effect_cases in
+           let sh_value_cases = self#cases sh_value_cases in
+           Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr = { sh_descr with shd_params } }
+        | Switch (expr, cases, dt) ->
+           let expr' = self#phrase expr in
+           let cases' = self#cases cases in
+           Switch (expr', cases', dt)
+        | Receive (cases, dt) ->
+           let cases' = self#cases cases in
+           Receive (cases', dt)
+        | FormBinding (body, pat) ->
+           let visitor = self#clone in
+           let body' = visitor#phrase body in
+           let pat' = visitor#pattern pat in
+           FormBinding (body', pat')
+        | Offer (expr, cases, dt) ->
+           let expr' = self#phrase expr in
+           let cases' = self#cases cases in
+           Offer (expr', cases', dt)
+        | TryInOtherwise (expr, x, body, catch, dt) ->
+           let expr' = self#phrase expr in
+           let visitor = self#clone in
+           let x' = visitor#pattern x in
+           let body' = visitor#phrase body in
+           let catch' = self#phrase catch in
+           TryInOtherwise (expr', x', body', catch', dt)
+        | CP cp_exp ->
+           (* CP introduces a new scope. *)
+           let visitor = self#clone in
+           CP (visitor#cp_phrase cp_exp)
         | exp -> super#phrasenode exp
   end
 

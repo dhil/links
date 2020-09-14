@@ -125,11 +125,11 @@ sig
   val letvar : (var_info * tail_computation sem * tyvar list *
                (var -> tail_computation sem)) -> tail_computation sem
 
-  val xml : value sem * string * (Name.t * (value sem) list) list * (value sem) list -> value sem
-  val record : (Name.t * value sem) list * (value sem) option -> value sem
+  val xml : value sem * string * (Label.t * (value sem) list) list * (value sem) list -> value sem
+  val record : (Label.t * value sem) list * (value sem) option -> value sem
 
-  val project : value sem * Name.t -> value sem
-  val update : value sem * (Name.t * value sem) list -> value sem
+  val project : value sem * Label.t -> value sem
+  val update : value sem * (Label.t * value sem) list -> value sem
 
   val coerce : value sem * datatype -> value sem
 
@@ -141,7 +141,7 @@ sig
   val db_update : env -> (CompilePatterns.Pattern.t * value sem * tail_computation sem option * tail_computation sem) -> tail_computation sem
   val db_delete : env -> (CompilePatterns.Pattern.t * value sem * tail_computation sem option) -> tail_computation sem
 
-  val do_operation : Name.t * (value sem) list * Types.datatype -> tail_computation sem
+  val do_operation : Label.t * (value sem) list * Types.datatype -> tail_computation sem
 
   val handle : env -> (tail_computation sem *
                          (CompilePatterns.Pattern.t * (env -> tail_computation sem)) list *
@@ -152,7 +152,7 @@ sig
 
   val switch : env -> (value sem * (CompilePatterns.Pattern.t * (env -> tail_computation sem)) list * Types.datatype) -> tail_computation sem
 
-  val inject : Name.t * value sem * datatype -> value sem
+  val inject : Label.t * value sem * datatype -> value sem
   (* val case : *)
   (*   value sem * string * (var_info * (var -> tail_computation sem)) * *)
   (*   (var_info * (var -> tail_computation sem)) option -> *)
@@ -195,7 +195,7 @@ sig
 
   val alien : var_info * string * ForeignLanguage.t * (var -> tail_computation sem) -> tail_computation sem
 
-  val select : Name.t * value sem -> tail_computation sem
+  val select : Label.t * value sem -> tail_computation sem
 
   val offer : env -> (value sem * (CompilePatterns.Pattern.t * (env -> tail_computation sem)) list * Types.datatype) -> tail_computation sem
 end
@@ -820,40 +820,41 @@ struct
              I.escape (Var.make_local_info (kt, k), eff, fun v -> eval (extend [k] [(v, kt)] env) body)
           | Section Section.Minus | FreezeSection Section.Minus -> cofv (lookup_var "-")
           | Section Section.FloatMinus | FreezeSection Section.FloatMinus -> cofv (lookup_var "-.")
-          | Section (Section.Name name) | FreezeSection (Section.Name name) -> cofv (lookup_var name)
+          (* | Section (Section.Name name) | FreezeSection (Section.Name name) -> cofv (lookup_var name) *)
           | Conditional (p, e1, e2) ->
-              I.condition (ev p, ec e1, ec e2)
-          | InfixAppl ((tyargs, BinaryOp.Name ((">" | ">=" | "==" | "<" | "<=" | "<>") as op)), e1, e2) ->
-              cofv (I.apply_pure (instantiate op tyargs, [ev e1; ev e2]))
-          | InfixAppl ((tyargs, BinaryOp.Name "++"), e1, e2) ->
-              cofv (I.apply_pure (instantiate "Concat" tyargs, [ev e1; ev e2]))
-          | InfixAppl ((tyargs, BinaryOp.Name "!"), e1, e2) ->
-              I.apply (instantiate "Send" tyargs, [ev e1; ev e2])
-          | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) when Lib.is_pure_primitive n ->
-              cofv (I.apply_pure (instantiate n tyargs, [ev e1; ev e2]))
-          | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) ->
-              I.apply (instantiate n tyargs, [ev e1; ev e2])
-          | InfixAppl ((tyargs, BinaryOp.Cons), e1, e2) ->
-              cofv (I.apply_pure (instantiate "Cons" tyargs, [ev e1; ev e2]))
-          | InfixAppl ((tyargs, BinaryOp.FloatMinus), e1, e2) ->
-              cofv (I.apply_pure (instantiate "-." tyargs, [ev e1; ev e2]))
-          | InfixAppl ((tyargs, BinaryOp.Minus), e1, e2) ->
-              cofv (I.apply_pure (instantiate "-" tyargs, [ev e1; ev e2]))
-          | InfixAppl ((_tyargs, BinaryOp.And), e1, e2) ->
-              (* IMPORTANT: we compile boolean expressions to
-                 conditionals in order to faithfully capture
-                 short-circuit evaluation *)
-              I.condition (ev e1, ec e2, cofv (I.constant (Constant.Bool false)))
-          | InfixAppl ((_tyargs, BinaryOp.Or), e1, e2) ->
-              I.condition (ev e1, cofv (I.constant (Constant.Bool true)), ec e2)
-          | UnaryAppl ((_tyargs, UnaryOp.Minus), e) ->
-              cofv (I.apply_pure(instantiate_mb "negate", [ev e]))
-          | UnaryAppl ((_tyargs, UnaryOp.FloatMinus), e) ->
-              cofv (I.apply_pure(instantiate_mb "negatef", [ev e]))
-          | UnaryAppl ((tyargs, UnaryOp.Name n), e) when Lib.is_pure_primitive n ->
-              cofv (I.apply_pure(instantiate n tyargs, [ev e]))
-          | UnaryAppl ((tyargs, UnaryOp.Name n), e) ->
-              I.apply (instantiate n tyargs, [ev e])
+             I.condition (ev p, ec e1, ec e2)
+          (* TODO FIXME *)
+          (* | InfixAppl ((tyargs, BinaryOp.Name ((">" | ">=" | "==" | "<" | "<=" | "<>") as op)), e1, e2) ->
+           *     cofv (I.apply_pure (instantiate op tyargs, [ev e1; ev e2])) *)
+          (* | InfixAppl ((tyargs, BinaryOp.Name "++"), e1, e2) ->
+           *     cofv (I.apply_pure (instantiate "Concat" tyargs, [ev e1; ev e2]))
+           * | InfixAppl ((tyargs, BinaryOp.Name "!"), e1, e2) ->
+           *     I.apply (instantiate "Send" tyargs, [ev e1; ev e2])
+           * | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) when Lib.is_pure_primitive n ->
+           *     cofv (I.apply_pure (instantiate n tyargs, [ev e1; ev e2]))
+           * | InfixAppl ((tyargs, BinaryOp.Name n), e1, e2) ->
+           *     I.apply (instantiate n tyargs, [ev e1; ev e2])
+           * | InfixAppl ((tyargs, BinaryOp.Cons), e1, e2) ->
+           *     cofv (I.apply_pure (instantiate "Cons" tyargs, [ev e1; ev e2]))
+           * | InfixAppl ((tyargs, BinaryOp.FloatMinus), e1, e2) ->
+           *     cofv (I.apply_pure (instantiate "-." tyargs, [ev e1; ev e2]))
+           * | InfixAppl ((tyargs, BinaryOp.Minus), e1, e2) ->
+           *     cofv (I.apply_pure (instantiate "-" tyargs, [ev e1; ev e2]))
+           * | InfixAppl ((_tyargs, BinaryOp.And), e1, e2) ->
+           *     (\* IMPORTANT: we compile boolean expressions to
+           *        conditionals in order to faithfully capture
+           *        short-circuit evaluation *\)
+           *     I.condition (ev e1, ec e2, cofv (I.constant (Constant.Bool false)))
+           * | InfixAppl ((_tyargs, BinaryOp.Or), e1, e2) ->
+           *     I.condition (ev e1, cofv (I.constant (Constant.Bool true)), ec e2)
+           * | UnaryAppl ((_tyargs, UnaryOp.Minus), e) ->
+           *     cofv (I.apply_pure(instantiate_mb "negate", [ev e]))
+           * | UnaryAppl ((_tyargs, UnaryOp.FloatMinus), e) ->
+           *     cofv (I.apply_pure(instantiate_mb "negatef", [ev e]))
+           * | UnaryAppl ((tyargs, UnaryOp.Name n), e) when Lib.is_pure_primitive n ->
+           *     cofv (I.apply_pure(instantiate n tyargs, [ev e]))
+           * | UnaryAppl ((tyargs, UnaryOp.Name n), e) ->
+           *     I.apply (instantiate n tyargs, [ev e]) *)
           | FnAppl ({node=Var f; _}, es) when Lib.is_pure_primitive f ->
               cofv (I.apply_pure (I.var (lookup_name_and_type f env), evs es))
           | FnAppl ({node=TAppl ({node=Var f; _}, tyargs); _}, es)

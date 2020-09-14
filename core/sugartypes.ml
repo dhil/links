@@ -14,13 +14,15 @@ module Binder: sig
   and with_pos = t WithPos.t
   [@@deriving show]
 
-  val make : ?name:Name.t -> ?ty:Types.datatype -> unit -> t
+  val make : ?name:string -> ?ty:Types.datatype -> ?fresh:bool -> unit -> t
+  val make' : ?pos:Position.t -> ?name:string -> ?ty:Types.datatype -> ?fresh:bool -> unit -> with_pos
 
   val to_name : with_pos -> string
+  val to_name' : with_pos -> Name.t
   val to_type : with_pos -> Types.datatype
   val to_var  : with_pos -> var
 
-  val set_name : with_pos -> Name.t -> with_pos
+  val set_name : with_pos -> string -> with_pos
   val set_type : with_pos -> Types.datatype -> with_pos
   val set_var : with_pos -> var -> with_pos
 
@@ -29,20 +31,35 @@ module Binder: sig
 
   val traverse_map : with_pos -> o:'o
                      -> f_pos:('o -> Position.t -> 'a * Position.t)
-                     -> f_name:('a -> Name.t -> 'b * Name.t)
+                     -> f_name:('a -> string -> 'b * string)
                      -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
                      -> 'c * with_pos
 end = struct
   type var = int
-  and t = Name.t * Types.datatype * var
+  and t = string * Types.datatype * var
   and with_pos = t WithPos.t
   [@@deriving show]
 
-  let make ?(name="") ?(ty=Types.Not_typed) () = (name, ty, -1)
+  let make ?(name="") ?(ty=Types.Not_typed) ?(fresh=false) () =
+    let v =
+      if fresh
+      then Var.fresh_raw_var ()
+      else -1
+    in
+    (name, ty, v)
 
-  let to_name b = let (n, _, _) = WithPos.node b in n
+  let make' ?(pos=Position.dummy) ?(name="") ?(ty=Types.Not_typed) ?(fresh=false) ()
+    = WithPos.make ~pos (make ~name ~ty ~fresh ())
+
+  let to_name b = let (n, _, _)  = WithPos.node b in n
   let to_type b = let (_, ty, _) = WithPos.node b in ty
-  let to_var b  = let (_, _, v) = WithPos.node b in v
+  let to_var b  = let (_, _, v)  = WithPos.node b in v
+
+  let use_legacy_names = Settings.get Basicsettings.Names.legacy_names
+  let to_name' b =
+    let (n, _, v) = WithPos.node b in
+    if use_legacy_names then Name.legacy n
+    else Name.resolved n v
 
   let set_name b name = WithPos.map ~f:(fun (_   , typ, v) -> name, typ, v) b
   let set_type b typ  = WithPos.map ~f:(fun (name, _  , v) -> name, typ, v) b
@@ -53,7 +70,7 @@ end = struct
 
   let traverse_map : with_pos -> o:'o
             -> f_pos:('o -> Position.t -> 'a * Position.t)
-            -> f_name:('a -> Name.t -> 'b * Name.t)
+            -> f_name:('a -> string -> 'b * string)
             -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
             -> 'c * with_pos = fun b ~o ~f_pos ~f_name ~f_ty ->
     WithPos.traverse_map b ~o ~f_pos ~f_node:(fun o (n, ty, v) ->
@@ -87,7 +104,7 @@ struct
    about its primary kind. This is filled in when resolving the variable *)
 (* FIXME: the above comment may well be false now - check *)
 type t =
-  | TUnresolved       of Name.t * Subkind.t option * Freedom.t
+  | TUnresolved       of string * Subkind.t option * Freedom.t
   | TResolvedType     of Types.meta_type_var
   | TResolvedRow      of Types.meta_type_var
   | TResolvedPresence of Types.meta_type_var
@@ -145,7 +162,7 @@ module SugarQuantifier =
 struct
 
   type t =
-    | QUnresolved of Name.t * kind * Freedom.t
+    | QUnresolved of string * kind * Freedom.t
     | QResolved of Quantifier.t
       [@@deriving show]
 
@@ -242,10 +259,10 @@ module Pattern = struct
     | Nil
     | Cons     of with_pos * with_pos
     | List     of with_pos list
-    | Variant  of Name.t * with_pos option
-    | Effect   of Name.t * with_pos list * with_pos
-    | Negative of Name.t list
-    | Record   of (Name.t * with_pos) list * with_pos option
+    | Variant  of Label.t * with_pos option
+    | Effect   of Label.t * with_pos list * with_pos
+    | Negative of Label.t list
+    | Record   of (Label.t * with_pos) list * with_pos option
     | Tuple    of with_pos list
     | Constant of Constant.t
     | Variable of Binder.with_pos
@@ -417,22 +434,22 @@ and phrasenode =
   | FreezeSection    of Section.t
   | Conditional      of phrase * phrase * phrase
   | Block            of block_body
-  | InfixAppl        of (tyarg list * BinaryOp.t) * phrase * phrase
+  | InfixAppl        of (tyarg list * Name.t) * phrase * phrase
   | Regex            of regex
-  | UnaryAppl        of (tyarg list * UnaryOp.t) * phrase
+  | UnaryAppl        of (tyarg list * Name.t) * phrase
   | FnAppl           of phrase * phrase list
   | TAbstr           of SugarQuantifier.t list * phrase
   | TAppl            of phrase * type_arg' list
   | TupleLit         of phrase list
-  | RecordLit        of (Name.t * phrase) list * phrase option
-  | Projection       of phrase * Name.t
-  | With             of phrase * (Name.t * phrase) list
+  | RecordLit        of (Label.t * phrase) list * phrase option
+  | Projection       of phrase * Label.t
+  | With             of phrase * (Label.t * phrase) list
   | TypeAnnotation   of phrase * datatype'
   | Upcast           of phrase * datatype' * datatype'
   | Instantiate      of phrase
   | Generalise       of phrase
-  | ConstructorLit   of Name.t * phrase option * Types.datatype option
-  | DoOperation      of Name.t * phrase list * Types.datatype option
+  | ConstructorLit   of Label.t * phrase option * Types.datatype option
+  | DoOperation      of Label.t * phrase list * Types.datatype option
   | Handle           of handler
   | Switch           of phrase * (Pattern.with_pos * phrase) list *
                           Types.datatype option
@@ -440,11 +457,11 @@ and phrasenode =
   | DatabaseLit      of phrase * (phrase option * phrase option)
   | TableLit         of phrase * (Datatype.with_pos * (Types.datatype *
                            Types.datatype * Types.datatype) option) *
-                          (Name.t * fieldconstraint list) list * phrase * phrase
+                          (Label.t * fieldconstraint list) list * phrase * phrase
   | DBDelete         of Pattern.with_pos * phrase * phrase option
-  | DBInsert         of phrase * Name.t list * phrase * phrase option
+  | DBInsert         of phrase * Label.t list * phrase * phrase option
   | DBUpdate         of Pattern.with_pos * phrase * phrase option *
-                          (Name.t * phrase) list
+                          (Label.t * phrase) list
   | LensLit          of phrase * Lens.Type.t option
   | LensSerialLit    of phrase * string list * Lens.Type.t option
   (* the lens keys lit is a literal that takes an expression and is converted
@@ -460,7 +477,7 @@ and phrasenode =
   | LensGetLit       of phrase * Types.datatype option
   | LensCheckLit     of phrase * Lens.Type.t option
   | LensPutLit       of phrase * phrase * Types.datatype option
-  | Xml              of Name.t * (Name.t * (phrase list)) list * phrase option *
+  | Xml              of Label.t * (Label.t * (phrase list)) list * phrase option *
                           phrase list
   | TextNode         of string
   | Formlet          of phrase * phrase
@@ -469,7 +486,7 @@ and phrasenode =
   | PagePlacement    of phrase
   | FormBinding      of phrase * Pattern.with_pos
   (* choose *)
-  | Select           of Name.t * phrase
+  | Select           of Label.t * phrase
   (* choice *)
   | Offer            of phrase * (Pattern.with_pos * phrase) list *
                           Types.datatype option
@@ -484,8 +501,8 @@ and bindingnode =
   | Fun     of function_definition
   | Funs    of recursive_function list
   | Foreign of Alien.single Alien.t
-  | Import of { pollute: bool; path : Name.t list }
-  | Open of Name.t list
+  | Import of { pollute: bool; path : string list }
+  | Open of string list
   | Typenames of typename list
   | Infix   of { assoc: Associativity.t;
                  precedence: int;
@@ -507,7 +524,7 @@ and cp_phrasenode =
   | CPLink        of Binder.with_pos * Binder.with_pos
   | CPComp        of Binder.with_pos * cp_phrase * cp_phrase
 and cp_phrase = cp_phrasenode WithPos.t
-and typenamenode = Name.t * SugarQuantifier.t list * datatype'
+and typenamenode = Label.t * SugarQuantifier.t list * datatype' (* TODO FIXME: Should be a `Name` rather than `Label`. *)
 and typename = typenamenode WithPos.t
 and function_definition = {
     fun_binder: Binder.with_pos;
@@ -607,10 +624,10 @@ struct
   let rec phrase (p : phrase) : StringSet.t =
     let p = WithPos.node p in
     match p with
-    | Var v -> singleton v
-    | FreezeVar v -> singleton v
-    | Section (Section.Name n) -> singleton n
-    | FreezeSection (Section.Name n) -> singleton n
+    | Var v -> singleton (Name.to_string v)
+    | FreezeVar v -> singleton (Name.to_string v)
+    (* | Section (Section.Name n) -> singleton n *)
+    (* | FreezeSection (Section.Name n) -> singleton n *)
 
     | Constant _
     | TextNode _
@@ -653,12 +670,14 @@ struct
     | FormletPlacement (p1, p2, p3)
     | Conditional (p1, p2, p3) -> union_map phrase [p1;p2;p3]
     | Block b -> block b
-    | InfixAppl ((_, BinaryOp.Name n), p1, p2) ->
-       union (singleton n) (union_map phrase [p1;p2])
-    | InfixAppl (_, p1, p2) -> union_map phrase [p1;p2]
+    (* | InfixAppl ((_, BinaryOp.Name n), p1, p2) ->
+     *    union (singleton n) (union_map phrase [p1;p2]) *)
+    | InfixAppl ((_, n), p1, p2) ->
+       union (singleton (Name.to_string n)) (union_map phrase [p1;p2])
     | RangeLit (p1, p2) -> union_map phrase [p1;p2]
     | Regex r -> regex r
-    | UnaryAppl (_, p) -> phrase p
+    | UnaryAppl ((_, n), p) ->
+       union (singleton (Name.to_string n)) (phrase p)
     | FnAppl (p, ps) -> union_map phrase (p::ps)
     | RecordLit (fields, p) ->
         union (union_map (snd ->- phrase) fields)

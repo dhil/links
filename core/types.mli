@@ -169,13 +169,13 @@ type tycon_spec = [
   | `Mutual of (Quantifier.t list * tygroup ref) (* Type in same recursive group *)
 ]
 
-type environment        = datatype Env.String.t
+type environment        = datatype Env.Name.t
 type tycon_environment  = tycon_spec Env.String.t
 type typing_environment = { var_env    : environment ;
-                            rec_vars   : Utility.StringSet.t ;
+                            rec_vars   : Env.Name.Dom.t ;
                             tycon_env  : tycon_environment ;
                             effect_row : row ;
-                            desugared : bool }
+                            desugared  : bool }
 
 val empty_typing_environment : typing_environment
 

@@ -945,7 +945,8 @@ let pp_row = fun f _ -> Utility.format_omission f
 let pp_meta_type_var = fun f _ -> Utility.format_omission f
 let pp_meta_row_var = fun f _ -> Utility.format_omission f*)
 
-module Env = Env.String
+module TCEnv = Env.String
+module Env = Env.Name
 
 (* type ops stuff *)
   let empty_field_env = FieldEnv.empty
@@ -2499,18 +2500,18 @@ let string_of_quantifier ?(policy=Print.default_policy) ?(refresh_tyvar_names=tr
 
 type environment        = datatype Env.t
                             [@@deriving show]
-type tycon_environment  = tycon_spec Env.t
+type tycon_environment  = tycon_spec TCEnv.t
                             [@@deriving show]
 type typing_environment = { var_env    : environment ;
-                            rec_vars   : StringSet.t ;
+                            rec_vars   : Env.Dom.t ;
                             tycon_env  : tycon_environment ;
                             effect_row : row;
                             desugared  : bool }
                             [@@deriving show]
 
 let empty_typing_environment = { var_env = Env.empty;
-                                 rec_vars = StringSet.empty;
-                                 tycon_env =  Env.empty;
+                                 rec_vars = Env.Dom.empty;
+                                 tycon_env =  TCEnv.empty;
                                  effect_row = make_empty_closed_row ();
                                  desugared = false }
 
@@ -2525,8 +2526,8 @@ let extend_typing_environment
     {var_env = l; rec_vars = lvars; tycon_env = al; effect_row = _; desugared = _;  }
     {var_env = r; rec_vars = rvars; tycon_env = ar; effect_row = er; desugared = dr } : typing_environment =
   { var_env    = Env.extend l r
-  ; rec_vars   = StringSet.union lvars rvars
-  ; tycon_env  = Env.extend al ar
+  ; rec_vars   = Env.Dom.union lvars rvars
+  ; tycon_env  = TCEnv.extend al ar
   ; effect_row = er
   ; desugared  = dr }
 

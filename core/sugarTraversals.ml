@@ -13,6 +13,7 @@ open CommonTypes
 open SourceCode
 open Sugartypes
 
+type regexflag = Name.Special.regexflag
 
 class map =
   object ((o : 'self_type))
@@ -40,18 +41,16 @@ class map =
 
     method bool : bool -> bool = function | false -> false | true -> true
 
-    method unary_op : UnaryOp.t -> UnaryOp.t =
-      let open UnaryOp in function
-      | Minus -> Minus
-      | FloatMinus -> FloatMinus
-      | Name _x -> let _x = o#name _x in Name _x
+    method label : Label.t -> Label.t = o#string
 
-    method tyunary_op : tyarg list * UnaryOp.t -> tyarg list * UnaryOp.t =
+    method unary_op : Name.t -> Name.t = o#name
+
+    method tyunary_op : tyarg list * Name.t -> tyarg list * Name.t =
       fun (_x, _x_i1) -> (o#list (fun o -> o#tyarg) _x, o#unary_op _x_i1)
 
     method binder : Binder.with_pos -> Binder.with_pos =
       fun bndr ->
-        let name = o#name (Binder.to_name bndr) in
+        let name = o#string (Binder.to_name bndr) in
         let ty  = Binder.to_type bndr |> o#typ in
         let pos = WithPos.pos bndr |> o#position in
         let bndr' = Binder.(set_type (set_name bndr name) ty) in
@@ -68,8 +67,8 @@ class map =
       let open Section in function
       | Minus -> Minus
       | FloatMinus -> FloatMinus
-      | Project _x -> let _x = o#name _x in Project _x
-      | Name _x -> let _x = o#name _x in Name _x
+      | Project _x -> let _x = o#label _x in Project _x
+      (* | Name _x -> let _x = o#name _x in Name _x *)
 
     method subkind : Subkind.t -> Subkind.t = fun x -> x
 
@@ -81,7 +80,7 @@ class map =
       let open SugarTypeVar in
       function
         | TUnresolved (name, subkind_opt, freedom) ->
-           let name' = o#name name in
+           let name' = o#string name in
            let subkind_opt' = o#option (fun o -> o#subkind) subkind_opt in
            let freedom' = o#freedom freedom in
            TUnresolved (name', subkind_opt', freedom')
@@ -92,7 +91,7 @@ class map =
       let open SugarQuantifier in
       function
       | QUnresolved (name, kind, freedom) ->
-         let name' = o#name name in
+         let name' = o#string name in
          let kind' = o#kind kind in
          let freedom' = o#freedom freedom in
          QUnresolved (name', kind', freedom')
@@ -115,7 +114,7 @@ class map =
         let _x =
           o#list
             (fun o (_x, _x_i1) ->
-               let _x = o#name _x in
+               let _x = o#label _x in
                let _x_i1 = o#fieldspec _x_i1 in (_x, _x_i1))
             _x in
         let _x_i1 = o#row_var _x_i1 in (_x, _x_i1)
@@ -245,20 +244,20 @@ class map =
           let _x =
             o#list
               (fun o (_x, _x_i1) ->
-                 let _x = o#name _x in
+                 let _x = o#label _x in
                  let _x_i1 = o#phrase _x_i1 in (_x, _x_i1))
               _x in
           let _x_i1 = o#option (fun o -> o#phrase) _x_i1
           in RecordLit ((_x, _x_i1))
       | Projection ((_x, _x_i1)) ->
           let _x = o#phrase _x in
-          let _x_i1 = o#name _x_i1 in Projection ((_x, _x_i1))
+          let _x_i1 = o#label _x_i1 in Projection ((_x, _x_i1))
       | With ((_x, _x_i1)) ->
           let _x = o#phrase _x in
           let _x_i1 =
             o#list
               (fun o (_x, _x_i1) ->
-                 let _x = o#name _x in
+                 let _x = o#label _x in
                  let _x_i1 = o#phrase _x_i1 in (_x, _x_i1))
               _x_i1
           in With ((_x, _x_i1))
@@ -276,36 +275,35 @@ class map =
           let _x = o#phrase _x in
           Generalise _x
       | ConstructorLit ((_x, _x_i1, _x_i2)) ->
-          let _x = o#name _x in
+          let _x = o#label _x in
           let _x_i1 = o#option (fun o -> o#phrase) _x_i1 in
           let _x_i2 = o#option (fun o -> o#typ) _x_i2 in
           ConstructorLit ((_x, _x_i1, _x_i2))
       | DoOperation (name, ps, t) ->
+          let name = o#label name in
           let ps  = o#list (fun o -> o#phrase) ps in
           let t   = o#option (fun o -> o#typ) t in
           DoOperation (name, ps, t)
       | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
-         let m = o#phrase sh_expr in
-         let params =
+          let m = o#phrase sh_expr in
+          let params =
             o#option (fun o -> o#handle_params) sh_descr.shd_params
-         in
-         let eff_cases =
-           o#list
-             (fun o (lhs, rhs) ->
-               let lhs = o#pattern lhs in
-               let rhs = o#phrase rhs in (lhs, rhs)
-         )
-             sh_effect_cases
-     in
-         let val_cases =
-           o#list
-             (fun o (lhs, rhs) ->
-               let lhs = o#pattern lhs in
-               let rhs = o#phrase rhs in (lhs, rhs)
-         )
-             sh_value_cases
-     in
-         Handle { sh_expr = m; sh_effect_cases = eff_cases; sh_value_cases = val_cases; sh_descr = { sh_descr with shd_params = params } }
+          in
+          let eff_cases =
+            o#list
+              (fun o (lhs, rhs) ->
+                let lhs = o#pattern lhs in
+                let rhs = o#phrase rhs in (lhs, rhs))
+              sh_effect_cases
+          in
+          let val_cases =
+            o#list
+              (fun o (lhs, rhs) ->
+                let lhs = o#pattern lhs in
+                let rhs = o#phrase rhs in (lhs, rhs))
+              sh_value_cases
+          in
+          Handle { sh_expr = m; sh_effect_cases = eff_cases; sh_value_cases = val_cases; sh_descr = { sh_descr with shd_params = params } }
       | Switch ((_x, _x_i1, _x_i2)) ->
           let _x = o#phrase _x in
           let _x_i1 =
@@ -329,7 +327,7 @@ class map =
       (*     let _x = o#phrase _x in *)
       (*     let _x_i1 = o#phrase _x_i1 in Link ((_x, _x_i1)) *)
       | Select ((_x, _x_i1)) ->
-          let _x = o#name _x in
+          let _x = o#label _x in
           let _x_i1 = o#phrase _x_i1
           in Select (_x, _x_i1)
       | Offer ((_x, _x_i1, _x_i2)) ->
@@ -363,7 +361,7 @@ class map =
           let _x_i2 =
             o#list
               (fun o (_x, _x_i1) ->
-                 let _x = o#name _x in
+                 let _x = o#label _x in
                  let _x_i1 = o#list (fun o -> o#fieldconstraint) _x_i1
                  in (_x, _x_i1))
               _x_i2 in
@@ -424,7 +422,7 @@ class map =
           in DBDelete ((_x, _x_i1, _x_i2))
       | DBInsert ((_x, _x_i1, _x_i2, _x_i3)) ->
           let _x = o#phrase _x in
-          let _x_i1 = o#list (fun o -> o#name) _x_i1 in
+          let _x_i1 = o#list (fun o -> o#label) _x_i1 in
           let _x_i2 = o#phrase _x_i2 in
           let _x_i3 = o#option (fun o -> o#phrase) _x_i3 in DBInsert ((_x, _x_i1, _x_i2, _x_i3))
       | DBUpdate ((_x, _x_i1, _x_i2, _x_i3)) ->
@@ -434,16 +432,16 @@ class map =
           let _x_i3 =
             o#list
               (fun o (_x, _x_i1) ->
-                 let _x = o#name _x in
+                 let _x = o#label _x in
                  let _x_i1 = o#phrase _x_i1 in (_x, _x_i1))
               _x_i3
           in DBUpdate ((_x, _x_i1, _x_i2, _x_i3))
       | Xml ((_x, _x_i1, _x_i2, _x_i3)) ->
-          let _x = o#name _x in
+          let _x = o#label _x in
           let _x_i1 =
             o#list
               (fun o (_x, _x_i1) ->
-                 let _x = o#name _x in
+                 let _x = o#label _x in
                  let _x_i1 = o#list (fun o -> o#phrase) _x_i1 in (_x, _x_i1))
               _x_i1 in
           let _x_i2 = o#option (fun o -> o#phrase) _x_i2 in
@@ -508,22 +506,22 @@ class map =
           let _x_i1 = o#pattern _x_i1 in Cons ((_x, _x_i1))
       | List _x -> let _x = o#list (fun o -> o#pattern) _x in List _x
       | Variant ((_x, _x_i1)) ->
-          let _x = o#name _x in
+          let _x = o#label _x in
           let _x_i1 = o#option (fun o -> o#pattern) _x_i1
           in Variant ((_x, _x_i1))
       | Effect (name, ps, k) ->
-         let name = o#name name in
+         let name = o#label name in
          let ps = o#list (fun o -> o#pattern) ps in
          let k  = o#pattern k in
          Effect (name, ps, k)
       | Negative _x ->
-          let _x = o#list (fun o -> o#name) _x
+          let _x = o#list (fun o -> o#label) _x
           in Negative _x
       | Record ((_x, _x_i1)) ->
           let _x =
             o#list
               (fun o (_x, _x_i1) ->
-                 let _x = o#name _x in
+                 let _x = o#label _x in
                  let _x_i1 = o#pattern _x_i1 in (_x, _x_i1))
               _x in
           let _x_i1 = o#option (fun o -> o#pattern) _x_i1
@@ -545,7 +543,12 @@ class map =
     method foreign_language : ForeignLanguage.t -> ForeignLanguage.t
       = fun lang -> lang
 
-    method name : Name.t -> Name.t = o#string
+    method name : Name.t -> Name.t =
+      let open Name in function
+      | Special (Special.RegexMatch _x) ->
+         let _x = o#list (fun o -> o#regexflag) _x in
+         Special (Special.RegexMatch _x)
+      | n -> n
 
     method location : Location.t -> Location.t = o#unknown
 
@@ -624,7 +627,7 @@ class map =
          let _x_i2 = o#datatype _x_i2 in Table (_x, _x_i1, _x_i2)
       | List _x -> let _x = o#datatype _x in List _x
       | TypeApplication (_x, _x_i1) ->
-          let _x = o#name _x in
+          let _x = o#string _x in
           let _x_i1 = o#list (fun o -> o#type_arg) _x_i1
           in TypeApplication (_x, _x_i1)
       | Primitive _x -> let _x = o#unknown _x in Primitive _x
@@ -666,18 +669,9 @@ class map =
       | Constant.Bool _x   -> let _x = o#bool _x   in Constant.Bool _x
       | Constant.Char _x   -> let _x = o#char _x   in Constant.Char _x
 
-    method binop : BinaryOp.t -> BinaryOp.t =
-      let open BinaryOp in function
-      | Minus -> Minus
-      | FloatMinus -> FloatMinus
-      | RegexMatch _x ->
-          let _x = o#list (fun o -> o#regexflag) _x in RegexMatch _x
-      | And -> And
-      | Or -> Or
-      | Cons -> Cons
-      | Name _x -> let _x = o#name _x in Name _x
+    method binop : Name.t -> Name.t = o#name
 
-    method tybinop : tyarg list * BinaryOp.t -> tyarg list * BinaryOp.t =
+    method tybinop : tyarg list * Name.t -> tyarg list * Name.t =
       fun (_x, _x_i1) -> (o#list (fun o -> o#tyarg) _x, o#binop _x_i1)
 
     method bindingnode : bindingnode -> bindingnode =
@@ -705,15 +699,15 @@ class map =
          let language = o#foreign_language (Alien.language alien) in
          Foreign (Alien.modify ~declarations ~language alien)
       | Import { pollute; path } ->
-         Import { pollute; path = o#list (fun o -> o#name) path }
+         Import { pollute; path = o#list (fun o -> o#string) path }
       | Open _xs ->
-          let _xs = o#list (fun o -> o#name) _xs in
+          let _xs = o#list (fun o -> o#string) _xs in
           Open _xs
       | Typenames ts ->
           let _x = o#list (fun o -> o#typename) ts in
           Typenames _x
       | Infix { name; assoc; precedence } ->
-         Infix { name = o#name name; assoc; precedence }
+         Infix { name = o#string name; assoc; precedence }
       | Exp _x -> let _x = o#phrase _x in Exp _x
       | Module { binder; members } ->
           let binder = o#binder binder in
@@ -737,7 +731,7 @@ class map =
 
     method typenamenode : typenamenode -> typenamenode =
       fun (_x, _x_i1, _x_i2) ->
-      let _x = o#name _x in
+      let _x = o#string _x in
       let _x_i1 = o#list (fun o x -> o#quantifier x)
                     _x_i1 in
       let _x_i2 = o#datatype' _x_i2 in
@@ -836,18 +830,16 @@ class fold =
 
     method bool : bool -> 'self_type = function | false -> o | true -> o
 
-    method unary_op : UnaryOp.t -> 'self_type =
-      let open UnaryOp in function
-      | Minus -> o
-      | FloatMinus -> o
-      | Name _x -> let o = o#name _x in o
+    method unary_op : Name.t -> 'self_type = o#name
 
-    method tyunary_op : tyarg list * UnaryOp.t -> 'self_type =
+    method tyunary_op : tyarg list * Name.t -> 'self_type =
       fun (_x, _x_i1) -> o#unary_op _x_i1
+
+    method label : Label.t -> 'self_type = o#string
 
     method binder : Binder.with_pos -> 'self_type =
       fun bndr ->
-        let o = o#name (Binder.to_name bndr) in
+        let o = o#string (Binder.to_name bndr) in
         let o = o#position (WithPos.pos bndr) in o
 
     method sentence : sentence -> 'self_type =
@@ -860,8 +852,8 @@ class fold =
       let open Section in function
       | Minus -> o
       | FloatMinus -> o
-      | Project _x -> let o = o#name _x in o
-      | Name _x -> let o = o#name _x in o
+      | Project _x -> let o = o#label _x in o
+      (* | Name _x -> let o = o#name _x in o *)
 
     method subkind : Subkind.t -> 'self_type = fun _ -> o
 
@@ -873,7 +865,7 @@ class fold =
       let open SugarTypeVar in
       function
         | TUnresolved (name, subkind_opt, freedom) ->
-           let o = o#name name in
+           let o = o#string name in
            let o = o#option (fun o -> o#subkind) subkind_opt in
            let o = o#freedom freedom in
            o
@@ -883,7 +875,7 @@ class fold =
      let open SugarQuantifier in
      function
      | QUnresolved (name, kind, freedom) ->
-        let o = o#name name in
+        let o = o#string name in
         let o = o#kind kind in
         let o = o#freedom freedom in
         o
@@ -902,7 +894,7 @@ class fold =
         let o =
           o#list
             (fun o (_x, _x_i1) ->
-               let o = o#name _x in let o = o#fieldspec _x_i1 in o)
+               let o = o#label _x in let o = o#fieldspec _x_i1 in o)
             _x in
         let o = o#row_var _x_i1 in o
 
@@ -1009,17 +1001,17 @@ class fold =
           let o =
             o#list
               (fun o (_x, _x_i1) ->
-                 let o = o#name _x in let o = o#phrase _x_i1 in o)
+                 let o = o#label _x in let o = o#phrase _x_i1 in o)
               _x in
           let o = o#option (fun o -> o#phrase) _x_i1 in o
       | Projection ((_x, _x_i1)) ->
-          let o = o#phrase _x in let o = o#name _x_i1 in o
+          let o = o#phrase _x in let o = o#label _x_i1 in o
       | With ((_x, _x_i1)) ->
           let o = o#phrase _x in
           let o =
             o#list
               (fun o (_x, _x_i1) ->
-                 let o = o#name _x in let o = o#phrase _x_i1 in o)
+                 let o = o#label _x in let o = o#phrase _x_i1 in o)
               _x_i1
           in o
       | TypeAnnotation ((_x, _x_i1)) ->
@@ -1030,33 +1022,31 @@ class fold =
           let o = o#phrase _x in
           let o = o#datatype' _x_i1 in let o = o#datatype' _x_i2 in o
       | ConstructorLit ((_x, _x_i1, _x_i2)) ->
-          let o = o#name _x in
+          let o = o#label _x in
           let o = o#option (fun o -> o#phrase) _x_i1 in o
       | DoOperation (name,ps,t) ->
-         let o = o#name name in
-     let o = o#option (fun o -> o#unknown) t in
-     let o = o#list (fun o -> o#phrase) ps in o
+          let o = o#label name in
+          let o = o#option (fun o -> o#unknown) t in
+          let o = o#list (fun o -> o#phrase) ps in o
       | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
-         let o = o#phrase sh_expr in
-         let o =
-           o#option (fun o -> o#handle_params) sh_descr.shd_params
-         in
-         let o =
-           o#list
-             (fun o (lhs, rhs) ->
-               let o = o#pattern lhs in
-           let o = o#phrase rhs in o
-         )
-             sh_effect_cases
-     in
-         let o =
-           o#list
-             (fun o (lhs, rhs) ->
-               let o = o#pattern lhs in
-           let o = o#phrase rhs in o
-         )
-             sh_value_cases
-     in o
+          let o = o#phrase sh_expr in
+          let o =
+            o#option (fun o -> o#handle_params) sh_descr.shd_params
+          in
+          let o =
+            o#list
+              (fun o (lhs, rhs) ->
+                let o = o#pattern lhs in
+                let o = o#phrase rhs in o)
+              sh_effect_cases
+          in
+          let o =
+            o#list
+              (fun o (lhs, rhs) ->
+                let o = o#pattern lhs in
+                let o = o#phrase rhs in o)
+              sh_value_cases
+          in o
       | Switch ((_x, _x_i1, _x_i2)) ->
           let o = o#phrase _x in
           let o =
@@ -1079,7 +1069,7 @@ class fold =
       (*     let o = o#phrase _x_i1 *)
       (*     in o *)
       | Select ((_x, _x_i1)) ->
-          let o = o#name _x in
+          let o = o#label _x in
           let o = o#phrase _x_i1
           in o
       | Offer ((_x, _x_i1, _x_i2)) ->
@@ -1110,12 +1100,12 @@ class fold =
           let o =
             o#list
               (fun o (_x, _x_i1) ->
-                 let o = o#name _x in
+                 let o = o#label _x in
                  let o = o#list (fun o -> o#fieldconstraint) _x_i1 in o)
               _x_i2 in
           let o = o#phrase _x_i3 in
-      let o = o#phrase _x_i4 in
-        o
+          let o = o#phrase _x_i4 in
+          o
       | LensLit ((_x, _x_i1)) ->
           let o = o#phrase _x in
           let o = o#option (fun o -> o#unknown) _x_i1 in
@@ -1169,7 +1159,7 @@ class fold =
           let o = o#option (fun o -> o#phrase) _x_i2 in o
       | DBInsert ((_x, _x_i1, _x_i2, _x_i3)) ->
           let o = o#phrase _x in
-          let o = o#list (fun o -> o#name) _x_i1 in
+          let o = o#list (fun o -> o#label) _x_i1 in
           let o = o#phrase _x_i2 in let o = o#option (fun o -> o#phrase) _x_i3 in o
       | DBUpdate ((_x, _x_i1, _x_i2, _x_i3)) ->
           let o = o#pattern _x in
@@ -1178,15 +1168,15 @@ class fold =
           let o =
             o#list
               (fun o (_x, _x_i1) ->
-                 let o = o#name _x in let o = o#phrase _x_i1 in o)
+                 let o = o#label _x in let o = o#phrase _x_i1 in o)
               _x_i3
           in o
       | Xml ((_x, _x_i1, _x_i2, _x_i3)) ->
-          let o = o#name _x in
+          let o = o#label _x in
           let o =
             o#list
               (fun o (_x, _x_i1) ->
-                 let o = o#name _x in
+                 let o = o#label _x in
                  let o = o#list (fun o -> o#phrase) _x_i1 in o)
               _x_i1 in
           let o = o#option (fun o -> o#phrase) _x_i2 in
@@ -1241,20 +1231,20 @@ class fold =
           let o = o#pattern _x in let o = o#pattern _x_i1 in o
       | List _x -> let o = o#list (fun o -> o#pattern) _x in o
       | Variant ((_x, _x_i1)) ->
-          let o = o#name _x in
+          let o = o#label _x in
           let o = o#option (fun o -> o#pattern) _x_i1 in o
       | Effect (name, ps, k) ->
-         let o = o#name name in
+         let o = o#label name in
          let o = o#list (fun o -> o#pattern) ps in
          let o = o#pattern k in
          o
       | Negative _x ->
-          let o = o#list (fun o -> o#name) _x in o
+          let o = o#list (fun o -> o#label) _x in o
       | Record ((_x, _x_i1)) ->
           let o =
             o#list
               (fun o (_x, _x_i1) ->
-                 let o = o#name _x in let o = o#pattern _x_i1 in o)
+                 let o = o#label _x in let o = o#pattern _x_i1 in o)
               _x in
           let o = o#option (fun o -> o#pattern) _x_i1 in o
       | Tuple _x -> let o = o#list (fun o -> o#pattern) _x in o
@@ -1275,7 +1265,7 @@ class fold =
     method foreign_language : ForeignLanguage.t -> 'self_type
       = fun _ -> o
 
-    method name : Name.t -> 'self_type = o#string
+    method name : Name.t -> 'self_type = fun _ -> o
 
     method location : Location.t -> 'self_type = o#unknown
 
@@ -1341,7 +1331,7 @@ class fold =
           let o = o#datatype _x in let o = o#datatype _x_i1 in let o = o#datatype _x_i2 in o
       | List _x -> let o = o#datatype _x in o
       | TypeApplication (_x, _x_i1) ->
-          let o = o#name _x in
+          let o = o#string _x in
           let o = o#list (fun o -> o#type_arg) _x_i1 in o
       | Primitive _x -> let o = o#unknown _x in o
       | DB -> o
@@ -1385,17 +1375,9 @@ class fold =
       | Constant.Bool   _x -> let o = o#bool   _x in o
       | Constant.Char   _x -> let o = o#char   _x in o
 
-    method binop : BinaryOp.t -> 'self_type =
-      let open BinaryOp in function
-      | Minus -> o
-      | FloatMinus -> o
-      | RegexMatch _x -> let o = o#list (fun o -> o#regexflag) _x in o
-      | And -> o
-      | Or -> o
-      | Cons -> o
-      | Name _x -> let o = o#name _x in o
+    method binop : Name.t -> 'self_type = o#name
 
-    method tybinop : tyarg list * BinaryOp.t -> 'self_type =
+    method tybinop : tyarg list * Name.t -> 'self_type =
       fun (_x, _x_i1) -> o#binop _x_i1
 
     method bindingnode : bindingnode -> 'self_type =
@@ -1420,16 +1402,15 @@ class fold =
          in
          o#foreign_language (Alien.language alien)
       | Import { path; _ } ->
-         let o = o#list (fun o -> o#name) path in
+         let o = o#list (fun o -> o#string) path in
           o
       | Open _xs ->
-          let o = o#list (fun o -> o#name) _xs in
+          let o = o#list (fun o -> o#string) _xs in
           o
       | Typenames ts ->
           let o = o#list (fun o -> o#typename) ts in
           o
-      | Infix { name; _ } ->
-         o#name name
+      | Infix { name; _ } -> o#string name
       | Exp _x -> let o = o#phrase _x in o
       | Module { binder; members } ->
           let o = o#binder binder in
@@ -1450,7 +1431,7 @@ class fold =
 
     method typenamenode : typenamenode -> 'self_type =
       fun (_x, _x_i1, _x_i2) ->
-      let o = o#name _x in
+      let o = o#string _x in
       let o =
         o#list
           (fun o _x ->
@@ -1549,16 +1530,14 @@ class fold_map =
     method bool : bool -> ('self_type * bool) =
       function | false -> (o, false) | true -> (o, true)
 
-    method unary_op : UnaryOp.t -> ('self_type * UnaryOp.t) =
-      let open UnaryOp in function
-      | Minus -> (o, Minus)
-      | FloatMinus -> (o, FloatMinus)
-      | Name _x -> let (o, _x) = o#name _x in (o, Name _x)
+    method unary_op : Name.t -> ('self_type * Name.t) = o#name
 
-    method tyunary_op : tyarg list * UnaryOp.t -> 'self_type * (tyarg list * UnaryOp.t) =
+    method tyunary_op : tyarg list * Name.t -> 'self_type * (tyarg list * Name.t) =
       fun (_x, _x_i1) ->
         let (o, _x) = o#list (fun o -> o#tyarg) _x in
         let (o, _x_i1) = o#unary_op _x_i1 in (o, (_x, _x_i1))
+
+    method label : Label.t -> ('self_type * Label.t) = o#string
 
     method sentence : sentence -> ('self_type * sentence) =
       function
@@ -1572,8 +1551,8 @@ class fold_map =
       let open Section in function
       | Minus -> (o, Minus)
       | FloatMinus -> (o, FloatMinus)
-      | Project _x -> let (o, _x) = o#name _x in (o, Project _x)
-      | Name _x -> let (o, _x) = o#name _x in (o, Name _x)
+      | Project _x -> let (o, _x) = o#label _x in (o, Project _x)
+      (* | Name _x -> let (o, _x) = o#name _x in (o, Name _x) *)
 
     method subkind : Subkind.t -> ('self_type * Subkind.t) = fun k -> (o, k)
 
@@ -1585,7 +1564,7 @@ class fold_map =
       let open SugarTypeVar in
       function
         | TUnresolved (name, subkind_opt, freedom) ->
-           let o, name' = o#name name in
+           let o, name' = o#string name in
            let o, subkind_opt' = o#option (fun o -> o#subkind) subkind_opt in
            let o, freedom' = o#freedom freedom in
            o, TUnresolved (name', subkind_opt', freedom')
@@ -1596,7 +1575,7 @@ class fold_map =
       let open SugarQuantifier in
       function
       | QUnresolved (name, kind, freedom) ->
-         let o, name' = o#name name in
+         let o, name' = o#string name in
          let o, kind' = o#kind kind in
          let o, freedom' = o#freedom freedom in
          o, QUnresolved (name', kind', freedom')
@@ -1617,7 +1596,7 @@ class fold_map =
         let (o, _x) =
           o#list
             (fun o (_x, _x_i1) ->
-               let (o, _x) = o#string _x in
+               let (o, _x) = o#label _x in
                let (o, _x_i1) = o#fieldspec _x_i1 in (o, (_x, _x_i1)))
             _x in
         let (o, _x_i1) = o#row_var _x_i1 in (o, (_x, _x_i1))
@@ -1756,20 +1735,20 @@ class fold_map =
           let (o, _x) =
             o#list
               (fun o (_x, _x_i1) ->
-                 let (o, _x) = o#name _x in
+                 let (o, _x) = o#label _x in
                  let (o, _x_i1) = o#phrase _x_i1 in (o, (_x, _x_i1)))
               _x in
           let (o, _x_i1) = o#option (fun o -> o#phrase) _x_i1
           in (o, (RecordLit ((_x, _x_i1))))
       | Projection ((_x, _x_i1)) ->
           let (o, _x) = o#phrase _x in
-          let (o, _x_i1) = o#name _x_i1 in (o, (Projection ((_x, _x_i1))))
+          let (o, _x_i1) = o#label _x_i1 in (o, (Projection ((_x, _x_i1))))
       | With ((_x, _x_i1)) ->
           let (o, _x) = o#phrase _x in
           let (o, _x_i1) =
             o#list
               (fun o (_x, _x_i1) ->
-                 let (o, _x) = o#name _x in
+                 let (o, _x) = o#label _x in
                  let (o, _x_i1) = o#phrase _x_i1 in (o, (_x, _x_i1)))
               _x_i1
           in (o, (With ((_x, _x_i1))))
@@ -1789,7 +1768,7 @@ class fold_map =
           let (o, _x) = o#phrase _x in
           (o, Generalise _x)
       | ConstructorLit ((_x, _x_i1, _x_i2)) ->
-          let (o, _x) = o#name _x in
+          let (o, _x) = o#label _x in
           let (o, _x_i1) = o#option (fun o -> o#phrase) _x_i1 in
           let o, _x_i2 = o#option (fun o -> o#typ) _x_i2 in
           (o, (ConstructorLit ((_x, _x_i1, _x_i2))))
@@ -1806,18 +1785,16 @@ class fold_map =
             o#list
               (fun o (lhs, rhs) ->
                  let (o, lhs) = o#pattern lhs in
-                 let (o, rhs) = o#phrase rhs in (o, (lhs, rhs))
-          )
+                 let (o, rhs) = o#phrase rhs in (o, (lhs, rhs)))
               sh_effect_cases
-      in
+          in
           let (o, val_cases) =
             o#list
               (fun o (lhs, rhs) ->
-                 let (o, lhs) = o#pattern lhs in
-                 let (o, rhs) = o#phrase rhs in (o, (lhs, rhs))
-          )
+                let (o, lhs) = o#pattern lhs in
+                let (o, rhs) = o#phrase rhs in (o, (lhs, rhs)))
               sh_value_cases
-      in
+          in
           (o, (Handle { sh_expr = m; sh_effect_cases = eff_cases; sh_value_cases = val_cases; sh_descr = { sh_descr with shd_params = params } }))
       | Switch ((_x, _x_i1, _x_i2)) ->
           let (o, _x) = o#phrase _x in
@@ -1842,7 +1819,7 @@ class fold_map =
       (*     let (o, _x) = o#phrase _x in *)
       (*     let (o, _x_i1) = o#phrase _x in (o, (Link(_x, _x_i1))) *)
       | Select ((_x, _x_i1)) ->
-          let (o, _x) = o#name _x in
+          let (o, _x) = o#label _x in
           let (o, _x_i1) = o#phrase _x_i1
           in (o, (Select (_x, _x_i1)))
       | Offer ((_x, _x_i1, _x_i2)) ->
@@ -1884,7 +1861,7 @@ class fold_map =
           let (o, _x_i2) =
             o#list
               (fun o (_x, _x_i1) ->
-                 let (o, _x) = o#name _x in
+                 let (o, _x) = o#label _x in
                  let (o, _x_i1) = o#list (fun o -> o#fieldconstraint) _x_i1
                  in (o, (_x, _x_i1)))
               _x_i2 in
@@ -1919,7 +1896,6 @@ class fold_map =
           let (o, _x_i1) = o#phrase _x_i1 in
           let (o, _x_i2) = o#option (fun o -> o#unknown) _x_i2 in
             (o, (LensSelectLit ((_x, _x_i1, _x_i2))))
-
       | LensJoinLit ((_x, _x_i1, _x_i2, _x_i3, _x_i4, _x_i5)) ->
           let (o, _x) = o#phrase _x in
           let (o, _x_i1) = o#phrase _x_i1 in
@@ -1946,7 +1922,7 @@ class fold_map =
           in (o, (DBDelete ((_x, _x_i1, _x_i2))))
       | DBInsert ((_x, _x_i1, _x_i2, _x_i3)) ->
           let (o, _x) = o#phrase _x in
-          let (o, _x_i1) = o#list (fun o -> o#name) _x_i1 in
+          let (o, _x_i1) = o#list (fun o -> o#label) _x_i1 in
           let (o, _x_i2) = o#phrase _x_i2 in
           let (o, _x_i3) = o#option (fun o -> o#phrase) _x_i3
           in (o, (DBInsert ((_x, _x_i1, _x_i2, _x_i3))))
@@ -1957,16 +1933,16 @@ class fold_map =
           let (o, _x_i3) =
             o#list
               (fun o (_x, _x_i1) ->
-                 let (o, _x) = o#name _x in
+                 let (o, _x) = o#label _x in
                  let (o, _x_i1) = o#phrase _x_i1 in (o, (_x, _x_i1)))
               _x_i3
           in (o, (DBUpdate ((_x, _x_i1, _x_i2, _x_i3))))
       | Xml ((_x, _x_i1, _x_i2, _x_i3)) ->
-          let (o, _x) = o#name _x in
+          let (o, _x) = o#label _x in
           let (o, _x_i1) =
             o#list
               (fun o (_x, _x_i1) ->
-                 let (o, _x) = o#name _x in
+                 let (o, _x) = o#label _x in
                  let (o, _x_i1) = o#list (fun o -> o#phrase) _x_i1
                  in (o, (_x, _x_i1)))
               _x_i1 in
@@ -2012,7 +1988,6 @@ class fold_map =
             let o, dt = o#typ dt in
             o, (dt, args))
       in
-
       function
       | CPUnquote (bs, e) ->
          let o, bs = o#list (fun o -> o#binding) bs in
@@ -2062,21 +2037,21 @@ class fold_map =
       | List _x ->
           let (o, _x) = o#list (fun o -> o#pattern) _x in (o, (List _x))
       | Variant ((_x, _x_i1)) ->
-          let (o, _x) = o#name _x in
+          let (o, _x) = o#label _x in
           let (o, _x_i1) = o#option (fun o -> o#pattern) _x_i1
           in (o, (Variant ((_x, _x_i1))))
       | Effect (name, ps, k) ->
-         let (o, name) = o#name name in
+         let (o, name) = o#label name in
          let (o, ps) = o#list (fun o -> o#pattern) ps in
          let (o, k) = o#pattern k in
          (o, Effect (name, ps, k))
       | Negative _x ->
-          let (o, _x) = o#list (fun o -> o#name) _x in (o, (Negative _x))
+          let (o, _x) = o#list (fun o -> o#label) _x in (o, (Negative _x))
       | Record ((_x, _x_i1)) ->
           let (o, _x) =
             o#list
               (fun o (_x, _x_i1) ->
-                 let (o, _x) = o#name _x in
+                 let (o, _x) = o#label _x in
                  let (o, _x_i1) = o#pattern _x_i1 in (o, (_x, _x_i1)))
               _x in
           let (o, _x_i1) = o#option (fun o -> o#pattern) _x_i1
@@ -2101,7 +2076,8 @@ class fold_map =
     method foreign_language : ForeignLanguage.t -> ('self_type * ForeignLanguage.t)
       = fun lang -> o, lang
 
-    method name : Name.t -> ('self_type * Name.t) = o#string
+    method name : Name.t -> ('self_type * Name.t) =
+      fun n -> (o, n)
 
     method location : Location.t -> ('self_type * Location.t) = o#unknown
 
@@ -2241,19 +2217,9 @@ class fold_map =
       | Constant.Char _x ->
          let (o, _x) = o#char _x in (o, (Constant.Char _x))
 
-    method binop : BinaryOp.t -> ('self_type * BinaryOp.t) =
-      let open BinaryOp in function
-      | Minus -> (o, Minus)
-      | FloatMinus -> (o, FloatMinus)
-      | RegexMatch _x ->
-          let (o, _x) = o#list (fun o -> o#regexflag) _x
-          in (o, (RegexMatch _x))
-      | And -> (o, And)
-      | Or -> (o, Or)
-      | Cons -> (o, Cons)
-      | Name _x -> let (o, _x) = o#name _x in (o, (Name _x))
+    method binop : Name.t -> ('self_type * Name.t) = o#name
 
-    method tybinop : tyarg list * BinaryOp.t -> 'self_type * (tyarg list * BinaryOp.t) =
+    method tybinop : tyarg list * Name.t -> 'self_type * (tyarg list * Name.t) =
       fun (_x, _x_i1) ->
         let (o, _x) = o#list (fun o -> o#tyarg) _x in
         let (o, _x_i1) = o#binop _x_i1 in (o, (_x, _x_i1))
@@ -2282,16 +2248,16 @@ class fold_map =
          let o, language = o#foreign_language (Alien.language alien) in
          o, Foreign (Alien.modify ~declarations ~language alien)
       | Import { pollute; path } ->
-          let (o, path') = o#list (fun o n -> o#name n) path in
+          let (o, path') = o#list (fun o n -> o#string n) path in
           (o, Import { pollute; path = path' })
       | Open _xs ->
-          let (o, _xs) = o#list (fun o n -> o#name n) _xs in
+          let (o, _xs) = o#list (fun o n -> o#string n) _xs in
           (o, Open _xs)
       | Typenames ts ->
           let (o, _x) = o#list (fun o -> o#typename) ts in
           (o, (Typenames _x))
       | Infix { name; assoc; precedence } ->
-         let (o, name) = o#name name in
+         let (o, name) = o#string name in
          (o, Infix { name; assoc; precedence })
       | Exp _x -> let (o, _x) = o#phrase _x in (o, (Exp _x))
       | Module { binder; members } ->
@@ -2318,7 +2284,7 @@ class fold_map =
 
     method typenamenode : typenamenode -> ('self_type * typenamenode) =
       fun (_x, _x_i1, _x_i2) ->
-      let (o, _x) = o#name _x in
+      let (o, _x) = o#string _x in
       let (o, _x_i1) =
         o#list
           (fun o _x ->
@@ -2387,7 +2353,7 @@ class fold_map =
       Binder.traverse_map
         ~o
         ~f_pos:(fun o v -> o#position v)
-        ~f_name:(fun o v -> o#name v)
+        ~f_name:(fun o v -> o#string v)
         ~f_ty:(fun o v -> o#typ v)
 
     method typ : Types.datatype -> ('self_type * Types.datatype) =

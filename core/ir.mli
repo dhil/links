@@ -38,14 +38,14 @@ type value =
   | Constant   of Constant.t                      (* constant: c *)
   | Variable   of var                             (* variable use: x *)
   | Extend     of value name_map * value option   (* record extension: (l1=v1, ..., lk=vk|r) or (l1=v1, ..., lk=vk) *)
-  | Project    of Name.t * value                    (* record projection: r.l *)
+  | Project    of Label.t * value                    (* record projection: r.l *)
   | Erase      of name_set * value                (* erase fields from a record: r\{ls} *)
-  | Inject     of Name.t * value * Types.t   (* variant injection: L(v) *)
+  | Inject     of Label.t * value * Types.t   (* variant injection: L(v) *)
 
   | TAbs       of tyvar list * value       (* type abstraction: /\xs.v *)
   | TApp       of value * tyarg list       (* type application: v ts *)
 
-  | XmlNode    of Name.t * value name_map * value list
+  | XmlNode    of Label.t * value name_map * value list
                                        (* XML node construction: <tag attributes>body</tag> *)
   | ApplyPure  of value * value list   (* non-side-effecting application: v ws *)
 
@@ -86,10 +86,10 @@ and special =
   | Update     of (binder * value) * computation option * computation
   | Delete     of (binder * value) * computation option
   | CallCC     of value
-  | Select     of Name.t * value
+  | Select     of Label.t * value
   | Choice     of value * (binder * computation) name_map
   | Handle     of handler
-  | DoOperation of Name.t * value list * Types.t
+  | DoOperation of Label.t * value list * Types.t
 and computation = binding list * tail_computation
 and effect_case = binder * binder * computation
 and handler = {

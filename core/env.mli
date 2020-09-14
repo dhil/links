@@ -80,3 +80,7 @@ module Int : S
   and module Dom = Utility.Set.Make(Utility.Int)
   and module Dom = Utility.IntSet
 (** Pre-built environment with integers for names *)
+
+module Name : S
+  with type name = CommonTypes.Name.t
+  and module Dom = Utility.Set.Make(CommonTypes.Name)

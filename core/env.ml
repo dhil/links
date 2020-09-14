@@ -66,3 +66,5 @@ module String
   = Make(Utility.String)
 module Int
   = Make(Utility.Int)
+module Name
+  = Make(CommonTypes.Name)

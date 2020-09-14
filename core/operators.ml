@@ -25,13 +25,13 @@ module UnaryOp = struct
   type t =
     | Minus
     | FloatMinus
-    | Name of Name.t
+    (* | Name of Name.t *)
     [@@deriving show]
 
   let to_string = function
     | Minus      -> "-"
     | FloatMinus -> ".-"
-    | Name name  -> name
+    (* | Name name  -> name *)
 end
 
 module BinaryOp = struct
@@ -42,7 +42,7 @@ module BinaryOp = struct
     | And
     | Or
     | Cons
-    | Name of Name.t
+    (* | Name of Name.t *)
     [@@deriving show]
 
   let to_string = function
@@ -52,11 +52,11 @@ module BinaryOp = struct
     | And          -> "&&"
     | Or           -> "||"
     | Cons         -> "::"
-    | Name name    -> name
+    (* | Name name    -> name *)
 end
 
 (* Operator section *)
 module Section = struct
-  type t = Minus | FloatMinus | Project of Name.t | Name of Name.t
+  type t = Minus | FloatMinus | Project of Label.t (* | Name of Name.t *)
     [@@deriving show]
 end

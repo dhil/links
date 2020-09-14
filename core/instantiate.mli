@@ -8,8 +8,8 @@ exception ArityMismatch of (int * int) (* Expected, provided *)
 
 val show_recursion : bool Settings.setting
 
-val var : Types.environment -> string -> (Types.type_arg list * Types.datatype)
-val rigid : Types.environment -> string -> (Types.type_arg list * Types.datatype)
+val var : Types.environment -> Name.t -> (Types.type_arg list * Types.datatype)
+val rigid : Types.environment -> Name.t -> (Types.type_arg list * Types.datatype)
 val typ : Types.datatype -> (Types.type_arg list * Types.datatype)
 val typ_rigid : Types.datatype -> (Types.type_arg list * Types.datatype)
 val datatype : instantiation_maps -> Types.datatype -> Types.datatype
