@@ -55,7 +55,7 @@ open SugarConstructors.DummyPositions
    a collection of nested functions
 *)
 let unwrap_def (bndr, linearity, (tyvars, lam), location) =
-  let f = Binder.to_name bndr in
+  (* let f = Binder.to_name bndr in *)
   let ft = Binder.to_type bndr in
   let rt = TypeUtils.return_type ft in
   let lam =
@@ -63,15 +63,16 @@ let unwrap_def (bndr, linearity, (tyvars, lam), location) =
       function
         | ([_ps], _body) as lam -> lam
         | (ps::pss, body) ->
-            let g = gensym ~prefix:"_fun_" () in
+            let g = Binder.make' ~ty:t ~name:(gensym ~prefix:"_fun_" ()) ~fresh:true () in
+            let gid = Binder.to_name' g in
             let rt = TypeUtils.return_type t in
               ([ps], block
-                  ([fun_binding' ~linearity ~location (binder ~ty:t g)
-                                 (make_lam rt (pss, body))],
-                   freeze_var g))
+                  ([fun_binding' ~linearity ~location g (make_lam rt (pss, body))],
+                   freeze_var gid))
         | _, _ -> assert false
     in make_lam rt lam
-  in (binder ~ty:ft f, linearity, (tyvars, lam), location)
+  in
+  (bndr, linearity, (tyvars, lam), location)
 
 (*
   unwrap a curried function definition
