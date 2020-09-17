@@ -101,9 +101,10 @@ object (o : 'self_type)
                  else Function (args, mb, rt))
                argss rt in
 
-    let f = gensym ~prefix:"_fun_" () in
+    let f = Binder.make' ~ty:ft ~name:(gensym ~prefix:"_fun_" ()) ~fresh:true () in
+    let fid = Binder.to_name' f in
     let (bndr, lin, (_, def), loc) =
-      unwrap_def (binder ~ty:ft f, lin, ([], lam), location) in
+      unwrap_def (f, lin, ([], lam), location) in
     let (tvs, tyargs), gen_ft =
       Generalise.generalise (o#get_var_env ()) (Binder.to_type bndr) in
     let s_tvs = List.map SugarQuantifier.mk_resolved tvs in
@@ -117,7 +118,7 @@ object (o : 'self_type)
                                 ; fun_signature        = None
                                 ; fun_frozen           = true
                                 ; fun_unsafe_signature = false })],
-                         with_dummy_pos (tappl (FreezeVar f, tyargs)))
+                         with_dummy_pos (tappl (FreezeVar fid, tyargs)))
     in (o, e, ft)
 
   method! phrasenode : Sugartypes.phrasenode -> ('self_type * Sugartypes.phrasenode * Types.datatype) = function
