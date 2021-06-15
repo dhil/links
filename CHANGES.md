@@ -1,3 +1,162 @@
+# 0.9.3
+
+This minor release fixes a few bugs.
+
+## MVU library is now distributed as part of Links
+
+The JavaScript dependencies of the MVU library are now correctly
+installed alongside Links. As a result the MVU examples now work
+out-of-the-box following a fresh install of Links. For instance, the
+following command will now successfully run the TODO example:
+
+```
+$ linx $OPAM_SWITCH_PREFIX/share/links/examples/mvu/todomvc/todoMVC.links
+```
+
+## Limited support for regular expressions in SQL where clauses
+
+Links now support compilation of regular expressions in SQL where
+clauses, however, only for regular expressions that can be translated
+to SQL `LIKE` clauses. Consider the following example.
+
+```
+# Suppose we had configured two tables as follows
+#  insert staff values (name, dept)
+#    [(name = "Alice", dept = "math"),
+#     (name = "Bob", dept = "computer science"),
+#     (name = "Carol", dept = "dentistry")];
+#  insert depts values (name, coffee_budget)
+#    [(name = "mathematics", coffee_budget = 10000),
+#     (name = "computer science", coffee_budget = 20000),
+#     (name = "dentistry", coffee_budget = 30000)]
+
+query flat {
+  for (s <-- staff)
+    for (d <-- depts)
+       where (d.name =~ /.*{s.dept}.*/)
+         [(name = s.name, dept = d.name, coffee_budget = d.coffee_budget)]
+}
+```
+
+When `s` is bound to the record `(name = "Alice", dept = "math")` the
+regular expression `.*{s.dept}.*` will match the department record
+with `name = "mathematics"`, and thus the query yields
+
+```
+[ (coffee_budget = 10000, dept = "mathematics", name = "Alice")
+, (coffee_budget = 20000, dept = "computer science", name = "Bob")
+, (coffee_budget = 30000, dept = "dentistry", name = "Carol") ]
+```
+
+## Other fixes
+
+* Compatibility with OCaml 4.12 (thanks to @kit-ty-kate).
+* The webserver now correctly sends HTTP responses with code 500 for errors.
+* Various internal improvements.
+
+# 0.9.2
+
+This minor release contains various bug fixes, improvements, and a
+**breaking** change.
+
+## Breaking change: Trailing semicolons are no longer permitted
+The surface syntax of Links has been changed.  Up until now it was possible to
+end a block with a semicolon.  A trailing semicolon was interpreted as
+implicitly ending the block with a `()` expression.  The rationale for this
+change is to make the Links syntax more consistent, i.e. now all blocks must end
+with an explicit expression.  To sum up, previously both of the following were
+allowed
+
+```links
+fun foo(x) {
+  bar(y);
+  baz(x);
+}
+fun foo'(x) {
+  bar(y);
+  baz(x)
+}
+```
+
+Now the first form is no longer accepted. Instead you have to drop the semicolon
+and either end the block with an explicit `()` or wrap the last expression in an
+`ignore` application.
+
+```links
+fun foo(x) {
+  bar(y);
+  baz(x);
+  ()
+}
+
+fun foo(x) {
+  bar(y);
+  ignore(baz(x))
+}
+```
+
+A third option is to simply drop the trailing semicolon, though, this only works
+as intended if the type of the last expression is `()`.
+
+
+## SML-style function definitions
+
+Links now supports "switch functions", a new syntax for defining functions in
+terms of match clauses directly, similar to SML. This allows writing the
+following function
+```links
+fun ack(_,_) switch {
+  case (0, n) -> n + 1
+  case (m, 0) -> ack(m - 1, 1)
+  case (m, n) -> ack(m - 1, ack(m, n - 1))
+}
+```
+instead of the following, more verbose version:
+
+```links
+fun ack(a, b) {
+  switch(a, b) {
+    case (0, n) -> n + 1
+    case (m, 0) -> ack(m - 1, 1)
+    case (m, n) -> ack(m - 1, ack(m, n - 1))
+  }
+}
+```
+
+Switch functions can also be anonymous, allowing function like the following:
+```links
+fun(_, _) switch {
+  case (0, n) -> 0
+  case (m, n) -> m + n
+}
+```
+Note: currently switch function syntax is only supported for uncurried functions.
+As switch functions have experimental status they are disabled by default. To
+enable them you must set the option `switch_functions=true` in a
+configuration file.
+## Require OCaml 4.08
+
+The minimum required OCaml version has been raised to 4.08.
+
+
+## Miscellaneous
+
+- Fixed a bug breaking the TODO list example (#812)
+- Checkboxes and radio groups in form elements are now handled correctly (#903)
+- Links supports MySQL databases again! (#858)
+- Fixed a bug where the effect of `orderby` was inconsistent between database
+  drivers w.r.t. reversing the order of results (#858)
+- Relational lenses can now be used with MySQL and Sqlite3 databases, too (#897)
+- Remove setting `use_keys_in_shredding`, behaving as if it was always true (#892)
+- Remove setting `query`, behaving as if it was off
+  (i.e., `query` behaves like `query flat`) (#892)
+- Fixed a bug where regular expressions in nested queries did not work correctly
+  (#852)
+- Implemented support for negative patterns in let bindings (#811)
+
+
+
+
 # 0.9.1
 
 This minor release contains various bug fixes and improvements.
