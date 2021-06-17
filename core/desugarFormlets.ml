@@ -24,10 +24,10 @@ let tt =
     | [t] -> t
     | ts -> Types.make_tuple_type ts
 
-let xml_str           = "xml"
-let pure_str          = "pure"
-let plug_str          = "plug"
-let atatat_str        = "@@@"
+let xml_str ()          = failwith "TODO primitive xml"
+let pure_str  ()        = failwith "TODO primitive pure"
+let plug_str  ()        = failwith "TODO primitive plug"
+let atatat_str ()        = failwith "TODO primitive @@@"
 
 let closed_wild = Types.row_with ("wild", Types.Present Types.unit_type) (Types.make_empty_closed_row ())
 
@@ -77,7 +77,7 @@ object (o : 'self_type)
         let ppos = WithPos.pos e in
         match WithPos.node e with
           | _ when is_raw e ->
-             let e = fn_appl ~ppos xml_str [(PrimaryKind.Row, o#lookup_effects)] [e]
+             let e = fn_appl ~ppos (xml_str ()) [(PrimaryKind.Row, o#lookup_effects)] [e]
              in (o, e, Types.xml_type)
           | FormBinding (f, _) ->
               let (o, f, ft) = o#phrase f
@@ -115,14 +115,14 @@ object (o : 'self_type)
                     | [] ->
                         let (o, e, _) = super#phrasenode (Xml ("#", [], None, contents)) in
                         (o,
-                         fn_appl ~ppos xml_str [Row, o#lookup_effects] [with_dummy_pos e],
+                         fn_appl ~ppos (xml_str ()) [Row, o#lookup_effects] [with_dummy_pos e],
                          Types.unit_type)
                     | _ ->
                         let args = List.map (fun t -> (Types.make_tuple_type [t], closed_wild)) ts' in
                         let (o, es, _) = TransformSugar.list o (fun o -> o#formlet_body) contents in
                         let eff = o#lookup_effects in
                         let base : phrase =
-                          fn_appl pure_str
+                          fn_appl (pure_str ())
                             [(Type, ft); (Row, eff)]
                             [fun_lit ~ppos ~args:args dl_unl pss' (tuple vs)]
                         in
@@ -132,7 +132,7 @@ object (o : 'self_type)
                                let arg_type = List.hd (TypeUtils.arg_types ft) in
                                let ft = TypeUtils.return_type ft in
                                let base : phrase =
-                                 fn_appl ~ppos atatat_str
+                                 fn_appl ~ppos (atatat_str ())
                                    [(Type, arg_type); (Type, ft); (Row, o#lookup_effects)]
                                    [arg; base]
                                in base, ft)
@@ -153,7 +153,7 @@ object (o : 'self_type)
                         (xml tag attrs attrexp [block ([], var name)]) in
               let open PrimaryKind in
               let (o, e, t) = o#formlet_body (xml "#" [] None contents) in
-              (o, fn_appl ~ppos plug_str [(Type, t); (Row, eff)] [context; e], t)
+              (o, fn_appl ~ppos (plug_str ()) [(Type, t); (Row, eff)] [context; e], t)
           | _ -> assert false
 
   method! phrasenode  : phrasenode -> ('self_type * phrasenode * Types.datatype) = function
@@ -177,9 +177,9 @@ object (o : 'self_type)
         let arg_type = tt ts in
         let open PrimaryKind in
         let e =
-          fn_appl_node atatat_str
+          fn_appl_node (atatat_str ())
              [(Type, arg_type); (Type, yields_type); (Row, eff)]
-             [body; fn_appl pure_str
+             [body; fn_appl (pure_str ())
                       [(Type, Types.Function (Types.make_tuple_type [arg_type], closed_wild, yields_type));
                        (Row, eff)]
                     [fun_lit ~args:[Types.make_tuple_type [arg_type], closed_wild] dl_unl pss yields]] in
