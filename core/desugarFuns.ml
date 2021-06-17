@@ -66,7 +66,7 @@ let unwrap_def (bndr, linearity, (tyvars, lam), location) =
           let g = Binder.make' ~ty:t ~name:(gensym ~prefix:"_fun_" ()) ~fresh:true () in
           let gid = Binder.to_name' g in
           let rt = TypeUtils.return_type t in
-            NormalFunlit ([ps], block ([fun_binding' ~linearity ~location (binder ~ty:t g) (make_lam rt (NormalFunlit (pss, body)))], freeze_var gid))
+            NormalFunlit ([ps], block ([fun_binding' ~linearity ~location (binder ~ty:t gid) (make_lam rt (NormalFunlit (pss, body)))], freeze_var gid))
         | _ -> assert false
     in make_lam rt lam
   in
@@ -137,17 +137,20 @@ object (o : 'self_type)
 
         let r = Record (Row (StringMap.add name (Present a) fields, rho, false)) in
 
-        let f = gensym ~prefix:"_fun_" () in
         let x = gensym ~prefix:"_fun_" () in
+        let xb = Binder.make' ~name:x ~ty:r ~fresh:true () in
+        let x = Binder.to_name' xb in
         let ft : datatype = ForAll ( [ab; rhob;  effb]
                                    , Function (Types.make_tuple_type [r], row, a)) in
-
-        let pss = [[variable_pat ~ty:r x]] in
+        let f = gensym ~prefix:"_fun_" () in
+        let fb = Binder.make' ~name:f ~ty:ft () in
+        let f = Binder.to_name' fb in
+        let pss = [[variable_pat' xb]] in
         let body = with_dummy_pos (Projection (var x, name)) in
         let tyvars = List.map SugarQuantifier.mk_resolved [ab; rhob; effb] in
         let e : phrasenode =
           block_node
-            ([fun_binding' ~tyvars:tyvars (binder ~ty:ft f) (NormalFunlit (pss, body))],
+            ([fun_binding' ~tyvars:tyvars fb (NormalFunlit (pss, body))],
              freeze_var f)
         in (o, e, ft)
     | e -> super#phrasenode e

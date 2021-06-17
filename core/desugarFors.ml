@@ -49,6 +49,11 @@ let tt = function
   | [t] -> t
   | ts -> Types.make_tuple_type ts
 
+let map () = failwith "TODO: primitive map"
+let as_list () = failwith "TODO: primitive AsList"
+let concat_map () = failwith "TODO: primitive concatMap"
+let sort_by_base () = failwith "TODO: primitive sortByBase"
+
 (**
   This function generates the code to extract the results.
   It roughly corresponds to [[qs]].
@@ -83,9 +88,9 @@ let results :  Types.row ->
               let a = Types.make_tuple_type (t :: ts) in
                 fun_lit ~args:[Types.make_tuple_type [t], eff]
                         dl_unl [[qb]]
-                        (fn_appl "map" [(Type, qst); (Row, eff); (Type, a)] [inner; r]) in
+                        (fn_appl (map ()) [(Type, qst); (Row, eff); (Type, a)] [inner; r]) in
             let a = Types.make_tuple_type (t :: ts) in
-            fn_appl "concatMap" [(Type, qt); (Row, eff); (Type, a)] [outer; e]
+            fn_appl (concat_map ()) [(Type, qt); (Row, eff); (Type, a)] [outer; e]
         | _, _, _ -> assert false
     in
       results (es, xs, ts)
@@ -115,9 +120,9 @@ object (o : 'self_type)
                    let element_type = TypeUtils.element_type t in
 
                    let var = Utility.gensym ~prefix:"_for_" () in
-                   let xb = binder ~ty:element_type var in
+                   let xb = Binder.make' ~ty:element_type ~name:var () in
                      o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
-                         var::xs, element_type::ts)
+                         Binder.to_name' xb :: xs, element_type::ts)
                | Table (p, e) ->
                    let (o, e, t) = o#phrase e in
                    let (o, p) = o#pattern p in
@@ -129,11 +134,11 @@ object (o : 'self_type)
                    let n = TypeUtils.table_needed_type t in
 
                    let open PrimaryKind in
-                   let e = fn_appl "AsList" [(Type, r); (Type, w); (Type, n)] [e] in
+                   let e = fn_appl (as_list ()) [(Type, r); (Type, w); (Type, n)] [e] in
                    let var = Utility.gensym ~prefix:"_for_" () in
-                   let xb = binder ~ty:element_type var in
+                   let xb = Binder.make' ~name:var ~ty:element_type () in
                      o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
-                         var::xs, element_type::ts))
+                         Binder.to_name' xb::xs, element_type::ts))
           (o, ([], [], [], []))
           qs
       in
@@ -175,7 +180,7 @@ object (o : 'self_type)
             | None, None -> results
             | Some sort, Some sort_type ->
                let sort_by, sort_row =
-                 "sortByBase", TypeUtils.extract_row sort_type in
+                 sort_by_base (), TypeUtils.extract_row sort_type in
                let g : phrase =
                  fun_lit ~args:[Types.make_tuple_type [arg_type], eff]
                    dl_unl [arg] sort in
@@ -184,7 +189,7 @@ object (o : 'self_type)
             | _, _ -> assert false in
 
         let e : phrasenode =
-          fn_appl_node "concatMap" [(Type, arg_type); (Row, eff); (Type, elem_type)]
+          fn_appl_node (concat_map ()) [(Type, arg_type); (Row, eff); (Type, elem_type)]
                        [f; results] in
         let o = o#restore_envs envs in
         (o, e, body_type)

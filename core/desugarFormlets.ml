@@ -52,8 +52,9 @@ object (o : 'self_type)
               Unify.datatypes
                 (ft, Instantiate.alias "Formlet" [(PrimaryKind.Type, t)] tycon_env) in
             let name = Utility.gensym ~prefix:"_formlet_" () in
-            let (xb, x) = (binder name ~ty:t, var name) in
-              [with_dummy_pos (Pattern.As (xb, p))], [x], [t]
+            let xb = Binder.make' ~ty:t ~name () in
+            let x = Binder.to_name' xb in
+              [with_dummy_pos (Pattern.As (xb, p))], [var x], [t]
         | Xml (_, _, _, [node]) ->
             o#formlet_patterns node
         | Xml (_, _, _, contents) ->
