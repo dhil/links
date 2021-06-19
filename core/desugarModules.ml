@@ -109,18 +109,20 @@ module BasicScope = struct
       = fun names scope ->
       match names with
       | [] -> assert false
-      | [name] -> StringMap.find name scope.modules
-      | prefix :: names -> module' names (StringMap.find prefix scope.modules)
+      | [Name.Unresolved name] -> StringMap.find name scope.modules
+      | (Name.Unresolved prefix) :: names -> module' names (StringMap.find prefix scope.modules)
+      | _ -> assert false
 
     let rec var : Name.t list -> t -> Name.t
       = fun names scope ->
       match names with
       | [] -> assert false
-      | [name] -> StringMap.find name scope.terms
-      | prefix :: names ->
+      | [Name.Unresolved name] -> Name.unresolved (StringMap.find name scope.terms)
+      | (Name.Unresolved prefix) :: names ->
          var names (StringMap.find prefix scope.modules)
+      | _ -> assert false
 
-    let rec typename : Name.t list -> t -> Name.t
+    let rec typename : Label.t list -> t -> Label.t
       = fun names scope ->
       match names with
       | [] -> assert false
@@ -145,21 +147,22 @@ module BasicScope = struct
 
   module Extend = struct
     let module' module_name module_scope scope =
-      { scope with modules = StringMap.add module_name module_scope scope.modules }
+      { scope with modules = StringMap.add (Name.to_string module_name) module_scope scope.modules }
 
     let typename typename typename' scope =
       { scope with typenames = StringMap.add typename typename' scope.typenames }
 
     let var name name' scope =
-      { scope with terms = StringMap.add name name' scope.terms }
+      { scope with terms = StringMap.add (Name.to_string name) name' scope.terms }
 
     let rec synthetic_module path module_scope scope =
       match path with
       | [] -> assert false
-      | [name] ->
+      | [Name.Unresolved name] ->
          { scope with modules = StringMap.add name module_scope scope.modules }
-      | prefix :: path ->
+      | (Name.Unresolved prefix) :: path ->
          synthetic_module path module_scope (StringMap.find prefix scope.modules)
+      | _ -> assert false
   end
 end
 
@@ -182,27 +185,29 @@ module Scope = struct
        type checker. We produce a "best guess" of its name, which is
        simply its qualified form. *)
     let best_guess : Name.t list -> Name.t
+      = fun path ->
+      Name.unresolved (String.concat "." (List.map Name.to_string path))
+    let best_guess' : Label.t list -> Label.t
       = String.concat "."
-
-    let generic_name_resolve : (Name.t list -> scope -> Name.t) -> Name.t list -> t -> Name.t
-      = fun resolver prefix scopes ->
-      try resolver prefix scopes.visible
-      with Notfound.NotFound _ -> best_guess prefix
 
     let module' : Name.t list -> t -> scope
       = fun names scopes ->
       S.Resolve.module' names scopes.visible (* Allow any errors to propagate. *)
 
     let qualified_var : Name.t list -> t -> Name.t
-      = generic_name_resolve S.Resolve.var
+      = fun path scopes ->
+      try S.Resolve.var path scopes.visible
+      with Notfound.NotFound _ -> best_guess path
 
-    let qualified_typename : Name.t list -> t -> Name.t
-      = generic_name_resolve S.Resolve.typename
+    let qualified_typename : Label.t list -> t -> Label.t
+      = fun path scopes ->
+      try S.Resolve.typename path scopes.visible
+      with Notfound.NotFound _ -> best_guess' path
 
     let var : Name.t -> t -> Name.t
       = fun name scopes -> qualified_var [name] scopes
 
-    let typename : Name.t -> t -> Name.t
+    let typename : Label.t -> t -> Label.t
       = fun name scopes -> qualified_typename [name] scopes
   end
 
@@ -219,7 +224,7 @@ module Scope = struct
       let visible = S.Extend.var term_name prefixed_name scopes.visible in
       { visible; delta }
 
-    let typename : Name.t -> string -> t -> t
+    let typename : Label.t -> string -> t -> t
       = fun typename prefixed_name scopes ->
       let delta = S.Extend.typename typename prefixed_name scopes.delta in
       let visible = S.Extend.typename typename prefixed_name scopes.visible in
@@ -244,8 +249,8 @@ let rec desugar_module : ?toplevel:bool -> Epithet.t -> Scope.t -> Sugartypes.bi
   = fun ?(toplevel=false) renamer scope binding ->
   match binding.node with
   | Module { binder; members } ->
-     let name = Binder.to_name binder in
-     let visitor = desugar ~toplevel (Epithet.remember ~escapes:(not toplevel) name renamer) (Scope.renew scope) in
+     let name = Binder.to_name' binder in
+     let visitor = desugar ~toplevel (Epithet.remember ~escapes:(not toplevel) (Name.to_string name) renamer) (Scope.renew scope) in
      let bs'    = visitor#bindings members in
      let scope' = visitor#get_scope in
      let scope'' = Scope.Extend.module' name scope' scope in
@@ -264,7 +269,7 @@ and desugar ?(toplevel=false) (renamer' : Epithet.t) (scope' : Scope.t) =
     method clone =
       desugar ~toplevel:false renamer scope
 
-    method type_binder : Name.t -> Name.t
+    method type_binder : Label.t -> Label.t
       = fun name ->
       (* Construct a prefixed name for [name]. *)
       let name' =
@@ -275,15 +280,15 @@ and desugar ?(toplevel=false) (renamer' : Epithet.t) (scope' : Scope.t) =
 
     method! binder : Binder.with_pos -> Binder.with_pos
       = fun bndr ->
-      let name = Binder.to_name bndr in
-      let name' = if toplevel then Epithet.expand renamer name else name in
+      let name = Binder.to_name' bndr in
+      let name' = if toplevel then Epithet.expand renamer (Name.to_string name) else (Name.to_string name) in
       self#bind_term name name';
       Binder.set_name bndr name'
 
     method fixity : string -> string
       = fun name ->
       let name' = if toplevel then Epithet.expand renamer name else name in
-      self#bind_term name name';
+      self#bind_term (Name.unresolved name) name';
       name'
 
     method bind_term name name' =
@@ -297,14 +302,14 @@ and desugar ?(toplevel=false) (renamer' : Epithet.t) (scope' : Scope.t) =
         let module_scope = Scope.Resolve.module' path scope in
         scope <- Scope.open_module module_scope scope;
       with Notfound.NotFound _ ->
-        raise (Errors.module_error ~pos (Printf.sprintf "Unbound module %s" (Scope.Resolve.best_guess path)))
+        raise (Errors.module_error ~pos (Printf.sprintf "Unbound module %s" (Name.to_string (Scope.Resolve.best_guess path))))
 
     method import_module pos path =
       try
         let module_scope = Scope.Resolve.module' path scope in
         scope <- Scope.Extend.synthetic_module path module_scope scope
       with Notfound.NotFound _ ->
-        raise (Errors.module_error ~pos (Printf.sprintf "Unbound module %s" (Scope.Resolve.best_guess path)))
+        raise (Errors.module_error ~pos (Printf.sprintf "Unbound module %s" (Name.to_string (Scope.Resolve.best_guess path))))
 
     method! funlit : funlit -> funlit
       = fun f ->
@@ -334,20 +339,21 @@ and desugar ?(toplevel=false) (renamer' : Epithet.t) (scope' : Scope.t) =
     method! binop op =
       let open Operators.BinaryOp in
       match op with
-      | Name name -> Name (Scope.Resolve.var name scope)
+      | Name.Unresolved _ -> Scope.Resolve.var op scope
       | _ -> super#binop op
 
     method! unary_op op =
       let open Operators.UnaryOp in
       match op with
-      | Name name -> Name (Scope.Resolve.var name scope)
+      | Name.Unresolved name -> Scope.Resolve.var op scope
       | _ -> super#unary_op op
 
-    method! section sect =
-      let open Operators.Section in
-      match sect with
-      | Name name -> Name (Scope.Resolve.var name scope)
-      | _ -> super#section sect
+    method! section _sect =
+      (* let open Operators.Section in *)
+      failwith "TODO reimplement method section"
+      (* match sect with
+       * | Name name -> Name (Scope.Resolve.var name scope)
+       * | _ -> super#section sect *)
 
     method! phrasenode = function
       | Block (bs, body) ->
@@ -500,11 +506,13 @@ and desugar ?(toplevel=false) (renamer' : Epithet.t) (scope' : Scope.t) =
     method bindings = function
       | [] -> []
       | { node = Import { path; pollute }; pos } :: bs ->
+         let path = List.map Name.unresolved path in
          self#import_module pos path;
          (if pollute then self#open_module pos path);
          self#bindings bs
       | { node = Open names; pos } :: bs ->
         (* Affects [scope]. *)
+         let  names = List.map Name.unresolved names in
          self#open_module pos names; self#bindings bs
       | ({ node = Module _; _ } as module') :: bs ->
       (* Affects [scope] and hoists [bs'] *)

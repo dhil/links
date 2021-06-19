@@ -5,14 +5,14 @@ open SourceCode.WithPos
 
 module TyEnv = Env.String
 
-let accept_str    = "accept"
-let close_str     = "closeBang"
-let link_sync_str = "linkSync"
-let new_str       = "new"
-let receive_str   = "receive"
-let request_str   = "request"
-let send_str      = "send"
-let wait_str      = "wait"
+let accept_str    () = failwith "TODO: primitive accept"
+let close_str     () = failwith "TODO: primitive closeBang"
+let link_sync_str () = failwith "TODO: primitive linkSync"
+let new_str       () = failwith "TODO: primitive new"
+let receive_str   () = failwith "TODO: primitive receive"
+let request_str   () = failwith "TODO: primitive request"
+let send_str      () = failwith "TODO: primitive send"
+let wait_str      () = failwith "TODO: primitive wait"
 let wild_str      = "wild"
 
 class desugar_cp env =
@@ -32,8 +32,9 @@ object (o : 'self_type)
             o, block_node (bs, e), t
          | CPGrab ((c, _), None, p) ->
             let (o, e, t) = desugar_cp o p in
+            let chan = failwith ("TODO convert " ^ c ^ " to name") in
             o, block_node
-                ([val_binding (any_pat dp) (fn_appl_var wait_str c)],
+                ([val_binding (any_pat dp) (fn_appl_var (wait_str ()) chan)],
                  with_dummy_pos e), t
          | CPGrab ((c, Some (Types.Input (_a, s), grab_tyargs)), Some bndr, p) -> (* FYI: a = u *)
             let x = Binder.to_name bndr in
@@ -45,17 +46,19 @@ object (o : 'self_type)
             in
             let o = {< var_env = venv >} in
             let (o, e, t) = desugar_cp o p in
+            let chan = failwith ("TODO convert " ^ c ^ " to name") in
             let o = o#restore_envs envs in
             o, block_node
                  ([val_binding (with_dummy_pos (
                                     Pattern.Record ([("1", variable_pat ~ty:u x);
-                                                     ("2", variable_pat ~ty:s c)], None)))
-                               (fn_appl receive_str grab_tyargs [var c])],
+                                                     ("2", variable_pat ~ty:s chan)], None)))
+                               (fn_appl (receive_str ()) grab_tyargs [var c])],
                  with_dummy_pos e), t
          | CPGive ((c, _), None, p) ->
             let (o, e, t) = desugar_cp o p in
+            let chan = failwith ("TODO convert " ^ c ^ " to name") in
             o, block_node
-                ([val_binding (any_pat dp) (fn_appl_var close_str c)],
+                ([val_binding (any_pat dp) (fn_appl_var (close_str ()) chan)],
                  with_dummy_pos e), t
          | CPGive ((c, Some (Types.Output (_t, s), give_tyargs)), Some e, p) ->
             let envs = o#backup_envs in
@@ -63,9 +66,11 @@ object (o : 'self_type)
             let (o, e, _typ) = o#phrase e in
             let (o, p, t) = desugar_cp o p in
             let o = o#restore_envs envs in
+            let chan = failwith ("TODO convert " ^ c ^ " to name") in
+            let chan' = Binder.to_name' chan in
             o, block_node
-                ([val_binding (variable_pat ~ty:s c)
-                              (fn_appl send_str give_tyargs [e; var c])],
+                ([val_binding (variable_pat ~ty:s chan)
+                              (fn_appl (send_str ()) give_tyargs [e; var chan'])],
                  with_dummy_pos p), t
          | CPGiveNothing bndr ->
             let c = Binder.to_name bndr in
@@ -101,7 +106,7 @@ object (o : 'self_type)
             let c = Binder.to_name bndr in
             let ct = Binder.to_type bndr in
             let d = Binder.to_name bndr' in
-            o, fn_appl_node link_sync_str [(Type, ct); (Row, o#lookup_effects)]
+            o, fn_appl_node (link_sync_str ()) [(Type, ct); (Row, o#lookup_effects)]
                             [var c; var d],
             Types.make_endbang_type
          | CPComp (bndr, left, right) ->
@@ -124,10 +129,10 @@ object (o : 'self_type)
 
             let left_block =
                 spawn Angel NoSpawnLocation (block (
-                    [ val_binding (variable_pat ~ty:s c) (fn_appl_var accept_str c);
+                    [ val_binding (variable_pat ~ty:s c) (fn_appl_var (accept_str ()) c);
                       val_binding (variable_pat ~ty:Types.make_endbang_type c)
                                   (with_dummy_pos left)],
-                    fn_appl_var close_str c))
+                    fn_appl_var (close_str ()) c))
                       ~row:(Types.Row (eff_fields, eff_row, eff_closed)) in
             let o = o#restore_envs envs in
             o, block_node
@@ -135,7 +140,7 @@ object (o : 'self_type)
                                 (fn_appl new_str [] []);
                     val_binding (any_pat dp) left_block;
                     val_binding (variable_pat ~ty:(Types.dual_type s) c)
-                                (fn_appl_var request_str c)],
+                                (fn_appl_var (request_str ()) c)],
                    with_dummy_pos right), t
          | _ -> assert false in
        desugar_cp o p

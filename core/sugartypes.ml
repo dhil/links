@@ -207,7 +207,7 @@ type fieldconstraint = Readonly | Default
 module Datatype = struct
   type t =
     | TypeVar         of SugarTypeVar.t
-    | QualifiedTypeApplication of Name.t list * type_arg list
+    | QualifiedTypeApplication of Label.t list * type_arg list
     | Function        of with_pos list * row * with_pos
     | Lolli           of with_pos list * row * with_pos
     | Mu              of SugarTypeVar.t * with_pos
@@ -219,7 +219,7 @@ module Datatype = struct
     | Effect          of row
     | Table           of with_pos * with_pos * with_pos
     | List            of with_pos
-    | TypeApplication of string * type_arg list
+    | TypeApplication of Label.t * type_arg list
     | Primitive       of Primitive.t
     | DB
     | Input           of with_pos * with_pos

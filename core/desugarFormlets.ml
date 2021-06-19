@@ -146,11 +146,13 @@ object (o : 'self_type)
               let eff = o#lookup_effects in
               let context : phrase =
                 let name = Utility.gensym ~prefix:"_formlet_" () in
+                let bndr = Binder.make' ~name ~ty:Types.xml_type ~fresh:true () in
+                let ident = Binder.to_name' bndr in
                 fun_lit ~ppos
                         ~args:[Types.make_tuple_type [Types.xml_type], closed_wild]
                         dl_unl
-                        [[variable_pat ~ty:(Types.xml_type) name]]
-                        (xml tag attrs attrexp [block ([], var name)]) in
+                        [[variable_pat' bndr]]
+                        (xml tag attrs attrexp [block ([], var ident)]) in
               let open PrimaryKind in
               let (o, e, t) = o#formlet_body (xml "#" [] None contents) in
               (o, fn_appl ~ppos (plug_str ()) [(Type, t); (Row, eff)] [context; e], t)

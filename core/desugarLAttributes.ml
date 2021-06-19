@@ -24,14 +24,22 @@ let has_lattrs : phrase -> bool = function
 
 let apply name args : phrase = fn_appl name [] args
 
+(* TODO define primitives *)
+let assoc_default () = failwith "TODO: primitive assocDefault"
+let environment () = failwith "TODO: primitive environment"
+let register_event_handlers () = failwith "TODO: primitive registerEventHandlers"
+let get_input_value () = failwith "TODO: primitive getInputValue"
+let get_radio_group_value () = failwith "TODO: primitive getRadioGroupValue"
+let pickle_cont () = failwith "TODO: primitive pickleCont"
+
 let server_use name =
-  apply "assocDefault" [constant_str name; apply "environment" []; constant_str ""]
+  apply (assoc_default ()) [constant_str name; apply (environment ()) []; constant_str ""]
 
 let client_use id =
-  apply "getInputValue" [constant_str id]
+  apply (get_input_value ()) [constant_str id]
 
 let client_radiogroup_use ids =
-  apply "getRadioGroupValue" [list (List.map constant_str ids)]
+  apply (get_radio_group_value ()) [list (List.map constant_str ids)]
 
 let fresh_names () =
   let id = gensym ~prefix:"_lnameid_" () in
@@ -46,7 +54,7 @@ let desugar_lhref : phrase -> phrase = function
           | [_,[target]], rest ->
               ("href",
                [constant_str "?_k=";
-                apply "pickleCont" [fun_lit ~location:loc_server dl_unl [[]]
+                apply (pickle_cont ()) [fun_lit ~location:loc_server dl_unl [[]]
                                             target]])
               :: rest
           | _ ->
@@ -65,7 +73,7 @@ let desugar_laction : phrase -> phrase = function
               xml "input"
                   ["type",  [constant_str "hidden"];
                    "name",  [constant_str "_k"];
-                   "value", [apply "pickleCont"
+                   "value", [apply (pickle_cont ())
                                    [fun_lit ~location:loc_server dl_unl [[]]
                                             action_expr]]]
                   None []
@@ -82,10 +90,10 @@ let desugar_laction : phrase -> phrase = function
 let desugar_lonevent : phrase -> phrase =
   let event_handler_pair = function
     | (name, [rhs]) ->
-        let event_name = StringLabels.sub ~pos:4 ~len:(String.length name - 4)
-                                          name in
+       let event_name = StringLabels.sub ~pos:4 ~len:(String.length name - 4) name in
+       let bndr = Binder.make' ~name:"event" () in
           tuple [constant_str event_name;
-                 fun_lit ~location:loc_client dl_unl [[variable_pat "event"]]
+                 fun_lit ~location:loc_client dl_unl [[variable_pat' bndr]]
                          rhs]
     | _ -> assert false
   in function
@@ -94,7 +102,7 @@ let desugar_lonevent : phrase -> phrase =
         let lons, others = partition (fst ->- start_of ~is:"l:on") attrs in
         let idattr =
           ("key",
-           [apply "registerEventHandlers"
+           [apply (register_event_handlers ())
                   [list (List.map (event_handler_pair) lons)]]) in
           WithPos.make ~pos (Xml (tag, idattr::others, attrexp, children))
     | e -> e
@@ -167,15 +175,16 @@ let let_in name rhs body : phrase =
 let bind_lname_vars lnames = function
   | "l:action" as attr, es ->
       attr, (List.map (StringMap.fold
-                         (fun var (_,name) -> let_in var (server_use name))
+                         (fun var (_,name) ->
+                           let_in (Name.unresolved var) (server_use name))
                          lnames)
                es)
   | attr, es when start_of attr ~is:"l:on" ->
     attr, (List.map (StringMap.fold
                        (fun var binding ->
                          match binding with
-                           | (Single id,_) -> let_in var (client_use id)
-                           | (RadioGroup ids,_) -> let_in var (client_radiogroup_use ids)
+                           | (Single id,_) -> let_in (Name.unresolved var) (client_use id)
+                           | (RadioGroup ids,_) -> let_in (Name.unresolved var) (client_radiogroup_use ids)
                        )
                        lnames)
              es)
