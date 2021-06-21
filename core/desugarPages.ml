@@ -64,12 +64,14 @@ let rec desugar_page (o, page_type) =
         | Xml ("#", [], _, children) ->
             desugar_nodes children
         | Xml (name, attrs, dynattrs, children) ->
-            let x = Utility.gensym ~prefix:"xml" () in
-            fn_appl (plug_p ()) [(PrimaryKind.Row, o#lookup_effects)]
-               [fun_lit ~args:[Types.make_tuple_type [Types.xml_type], closed_wild]
-                        dl_unl [[variable_pat ~ty:Types.xml_type x]]
-                        (xml name attrs dynattrs [block ([], var x)]);
-                desugar_nodes children]
+           let x = Utility.gensym ~prefix:"xml" () in
+           let bndr = Binder.make' ~name:x ~ty:Types.xml_type () in
+           let x = Binder.to_name' bndr in
+           fn_appl (plug_p ()) [(PrimaryKind.Row, o#lookup_effects)]
+             [fun_lit ~args:[Types.make_tuple_type [Types.xml_type], closed_wild]
+                dl_unl [[variable_pat' bndr]]
+                (xml name attrs dynattrs [block ([], var x)]);
+              desugar_nodes children]
         | _ -> raise_invalid_element pos
 
 and desugar_pages env =

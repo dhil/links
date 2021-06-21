@@ -14,6 +14,13 @@ open SugarConstructors.DummyPositions
 *)
 
 
+let spawn_wait () = failwith "TODO: primitive spawnWait"
+let spawn_at () = failwith "TODO: primitive spawnAt"
+let spawn_angel_at () = failwith "TODO: primitive spawnAngelAt"
+let recv () = failwith "TODO: primitive recv"
+let there () = failwith "TODO: primitive there"
+let here () = failwith "TODO: primitive here"
+
 class desugar_processes env =
 let open PrimaryKind in
 object (o : 'self_type)
@@ -31,7 +38,7 @@ object (o : 'self_type)
         let o = o#with_effects outer_eff in
 
         let e : phrasenode =
-          fn_appl_node "spawnWait" [(Row, inner_eff); (Type, body_type); (Row, outer_eff)]
+          fn_appl_node (spawn_wait ()) [(Row, inner_eff); (Type, body_type); (Row, outer_eff)]
             [fun_lit ~args:[(Types.make_tuple_type [], inner_eff)] dl_unl [[]] body]
         in
           (o, e, body_type)
@@ -56,13 +63,13 @@ object (o : 'self_type)
         let spawn_loc_phr =
           match spawn_loc with
             | ExplicitSpawnLocation phr -> phr
-            | SpawnClient -> fn_appl "there" [(Row, outer_eff)] []
-            | NoSpawnLocation -> fn_appl "here" [(Row, outer_eff)] [] in
+            | SpawnClient -> fn_appl (there ()) [(Row, outer_eff)] []
+            | NoSpawnLocation -> fn_appl (here ()) [(Row, outer_eff)] [] in
 
         let spawn_fun =
           match k with
-          | Demon  -> "spawnAt"
-          | Angel  -> "spawnAngelAt"
+          | Demon  -> spawn_at ()
+          | Angel  -> spawn_angel_at ()
           | Wait   -> assert false in
 
         (* At this point, the location in the funlit doesn't matter -- we'll have an explicit
@@ -82,7 +89,7 @@ object (o : 'self_type)
             match StringMap.find "hear" fields with
               | (Types.Present mbt) ->
                   o#phrasenode
-                    (Switch (fn_appl "recv" [(Type, mbt); (Row, other_effects)] [],
+                    (Switch (fn_appl (recv ()) [(Type, mbt); (Row, other_effects)] [],
                              cases,
                              Some t))
               | _ -> assert false
