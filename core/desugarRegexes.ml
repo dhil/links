@@ -1,5 +1,5 @@
 open Utility
-open Operators
+open CommonTypes
 open SourceCode.WithPos
 open Sugartypes
 open SugarConstructors.DummyPositions
@@ -34,8 +34,10 @@ let desugar_regex phrase regex_type repeat_type regex : phrase =
   let expr e =
     let (_, e, t) = phrase e in
     let v = Utility.gensym ~prefix:"_regex_" () in
-      begin
-        exprs := (v, e, t) :: !exprs;
+    begin
+      let bndr = Binder.make' ~ty:t ~name:v () in
+      let v = Binder.to_name' bndr in
+        exprs := (bndr, e) :: !exprs;
         var v
       end in
   let rec aux : regex -> phrase =
@@ -62,8 +64,8 @@ let desugar_regex phrase regex_type repeat_type regex : phrase =
         constructor' replace_str ~body:(tuple [aux re; constant_str tmpl])
       | Replace (re, (SpliceExpr e)) ->
          constructor' replace_str ~body:(tuple [aux re; expr e])
-  in block (List.map (fun (v, e1, t) ->
-                val_binding (variable_pat ~ty:t v) e1) !exprs,
+  in block (List.map (fun (bndr, e1) ->
+                val_binding (variable_pat' bndr) e1) !exprs,
             aux regex)
 
 let desugar_regexes env =
@@ -74,24 +76,27 @@ object(self)
   val repeat_type = Instantiate.alias "Repeat" [] env.Types.tycon_env
 
   method! phrase ({node=p; pos} as ph) = match p with
-    | InfixAppl ((tyargs, BinaryOp.RegexMatch flags), e1, {node=Regex((Replace(_,_) as r)); _}) ->
+    | InfixAppl ((tyargs, Name.(Special (Special.RegexMatch flags))), e1, {node=Regex((Replace(_,_) as r)); _}) ->
         let libfn =
-          if List.exists ((=)RegexNative) flags
+          if List.exists ((=)Name.Special.RegexNative) flags
           then "sntilde"
           else "stilde" in
-          self#phrase (fn_appl libfn tyargs
+        let libfn () = failwith ("TODO: primitive " ^ libfn) in
+          self#phrase (fn_appl (libfn ()) tyargs
                             [e1; desugar_regex self#phrase regex_type repeat_type r])
-    | InfixAppl ((tyargs, BinaryOp.RegexMatch flags), e1, {node=Regex r; _}) ->
-        let nativep = List.exists ((=) RegexNative) flags
-        and listp   = List.exists ((=) RegexList)   flags in
+    | InfixAppl ((tyargs, Name.(Special (Special.RegexMatch flags))), e1, {node=Regex r; _}) ->
+        let nativep = List.exists ((=) Name.Special.RegexNative) flags
+        and listp   = List.exists ((=) Name.Special.RegexList)   flags in
         let libfn = match listp, nativep with
           | true, true   -> "lntilde"
           | true, false  -> "ltilde"
           | false, false -> "tilde"
-          | false, true  -> "ntilde" in
-          self#phrase (fn_appl libfn tyargs
-                            [e1; desugar_regex self#phrase regex_type repeat_type r])
-    | InfixAppl ((_tyargs, BinaryOp.RegexMatch _), _, _) ->
+          | false, true  -> "ntilde"
+        in
+        let libfn () = failwith ("TODO: primitive " ^ libfn) in
+        self#phrase (fn_appl (libfn ()) tyargs
+                       [e1; desugar_regex self#phrase regex_type repeat_type r])
+    | InfixAppl ((_tyargs, Name.(Special (Special.RegexMatch _flags))), _, _) ->
         let (_, expr) = SourceCode.Position.resolve_start_expr pos in
         let message = "Unexpected RHS of regex operator: " ^ expr in
         raise (Errors.internal_error ~filename:"desugarRegexes.ml" ~message)

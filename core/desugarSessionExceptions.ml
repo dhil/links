@@ -55,7 +55,8 @@ object (o: 'self_type)
 
         (* Next, we need to construct a try-as-in-otherwise with the above body *)
         let as_var = Utility.gensym ~prefix:"spawn_aspat" () in
-        let as_pat = variable_pat ~ty:(Types.unit_type) as_var in
+        let bndr = Binder.make' ~ty:Types.unit_type ~name:as_var () in
+        let as_pat = variable_pat' bndr in
         let (o, spawn_loc) = o#given_spawn_location spawn_loc in
         let envs = o#backup_envs in
         (* Now, process body using inner effects *)
@@ -67,7 +68,7 @@ object (o: 'self_type)
         let o = o#with_effects outer_effects in
         let body =
           TryInOtherwise (body, as_pat,
-                          var as_var, unit_phr, Some (Types.unit_type)) in
+                          var (Binder.to_name' bndr), unit_phr, Some Types.unit_type) in
         let o = o#restore_envs envs in
         (o, Spawn (k, spawn_loc, with_dummy_pos body, Some inner_effects), process_type)
     | e -> super#phrasenode e
@@ -115,9 +116,13 @@ object (o : 'self_type)
             |> Types.row_with (failure_op_name, Types.Present fail_cont_ty)
             |> Types.flatten_row in
 
-        let cont_pat = variable_pat ~ty:(Types.make_function_type [] inner_effects (Types.empty_type))
-          (Utility.gensym ~prefix:"dsh" ()) in
-
+        let cont_pat =
+          let dsh = Binder.make'
+                      ~ty:(Types.make_function_type [] inner_effects (Types.empty_type))
+                      ~name:(Utility.gensym ~prefix:"dsh" ()) ()
+          in
+          variable_pat' dsh
+        in
         let otherwise_pat : Sugartypes.Pattern.with_pos =
           with_dummy_pos (Pattern.Effect (failure_op_name, [], cont_pat)) in
 
@@ -182,20 +187,20 @@ let wrap_linear_handlers =
     inherit SugarTraversals.map as super
     method! phrase = function
       | {node=TryInOtherwise (l, x, m, n, dtopt); _} ->
-          let fresh_var = Utility.gensym ?prefix:(Some "try_x") () in
-          let fresh_pat = variable_pat fresh_var in
-          with_dummy_pos
-          (Switch (
-            with_dummy_pos
-             (TryInOtherwise
-              (super#phrase l,
-               fresh_pat,
-               constructor ~body:(var fresh_var) "Just",
-               constructor "Nothing", dtopt)),
-            [
-              (with_dummy_pos (Pattern.Variant ("Just", (Some x))), super#phrase m);
-              (with_dummy_pos (Pattern.Variant ("Nothing", None)), super#phrase n)
-            ], None))
+         let fresh_var = Utility.gensym ?prefix:(Some "try_x") () in
+         let bndr = Binder.make' ~name:fresh_var () in
+         let fresh_pat = variable_pat' bndr in
+         with_dummy_pos
+           (Switch (
+                with_dummy_pos
+                  (TryInOtherwise
+                     (super#phrase l,
+                      fresh_pat,
+                      constructor ~body:(var (Binder.to_name' bndr)) "Just",
+                      constructor "Nothing", dtopt)),
+                [ (with_dummy_pos (Pattern.Variant ("Just", (Some x))), super#phrase m);
+                  (with_dummy_pos (Pattern.Variant ("Nothing", None)), super#phrase n)
+                ], None))
       | p -> super#phrase p
   end
 

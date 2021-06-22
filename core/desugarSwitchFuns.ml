@@ -61,16 +61,17 @@ let construct_normal_funlit funlit_pos patterns cases =
   nullary_guard patterns funlit_pos;
   (* bind the arguments with unique var name *)
   let pat_first_pos = WithPos.pos (List.nth patterns 0) in
-  let name_list = List.map (fun pat -> (pat, Utility.gensym())) patterns in
-  let switch_tuple = List.map (fun (_, name) -> with_pos (Var name)) name_list in
+  let pat_bndr_list = List.map (fun pat -> (pat, Binder.make' ~pos:funlit_pos ~name:(Utility.gensym()) () )) patterns in
+  let switch_tuple = List.map (fun (_, bndr) -> with_pos (Var (Binder.to_name' bndr))) pat_bndr_list in
   (* assemble exhaustive handler *)
   let exhaustive_patterns = with_pos (Pattern.Any) in
   let exhaustive_position = Format.sprintf "non-exhaustive pattern matching at %s" (SourceCode.Position.show funlit_pos) in
-  let exhaustive_case = FnAppl (with_pos (Var "error"), [with_pos (Constant (CommonTypes.Constant.String exhaustive_position))]) in
+  let error () = failwith "TODO: primitive error" in
+  let exhaustive_case = FnAppl (with_pos (Var (error ())), [with_pos (Constant (CommonTypes.Constant.String exhaustive_position))]) in
   let normal_args =
     List.map
-      (fun (pat, name) -> with_pos (Pattern.As (with_pos ~pos:funlit_pos (Binder.make ~name ()), pat)))
-      name_list
+      (fun (pat, bndr) -> with_pos (Pattern.As (bndr, pat)))
+      pat_bndr_list
   in
   let cases = cases@[(exhaustive_patterns, with_pos exhaustive_case)] in
   let switch_body = Switch (with_pos ~pos:pat_first_pos (TupleLit switch_tuple), cases, None) in
