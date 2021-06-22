@@ -45,10 +45,6 @@ open SugarConstructors.DummyPositions
     (q; qs)_v = (q_v, qs_v)
 *)
 
-let tt = function
-  | [t] -> t
-  | ts -> Types.make_tuple_type ts
-
 let map () = failwith "TODO: primitive map"
 let as_list () = failwith "TODO: primitive AsList"
 let concat_map () = failwith "TODO: primitive concatMap"
@@ -69,7 +65,7 @@ let results :  Types.row ->
         | (e::es, x::xs, t::ts) ->
             let r = results (es, xs, ts) in
             let qt = t in
-            let qst = tt ts in
+            let qst = TypeUtils.pack_types ts in
 
             let ((qsb, qs) : Sugartypes.Pattern.with_pos list * Sugartypes.phrase list) =
               List.split
@@ -82,7 +78,7 @@ let results :  Types.row ->
                 match qsb with
                   | [p] -> [p]
                   | _ -> [tuple_pat qsb] in
-              let a = Types.make_tuple_type [tt ts] in
+              let a = Types.make_tuple_type [TypeUtils.pack_types ts] in
               fun_lit ~args:[a, eff] dl_unl [ps] (tuple (q::qs)) in
             let outer : Sugartypes.phrase =
               let a = Types.make_tuple_type (t :: ts) in
@@ -167,7 +163,7 @@ object (o : 'self_type)
             | [p] -> [p]
             | ps -> [tuple_pat ps] in
 
-        let arg_type = tt ts in
+        let arg_type = TypeUtils.pack_types ts in
 
         let f : phrase = fun_lit ~args:[Types.make_tuple_type [arg_type], eff]
                                  dl_unl [arg] body in

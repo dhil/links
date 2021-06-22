@@ -9,8 +9,6 @@ let raise_invalid_element pos =
   raise (desugaring_error ~pos ~stage:DesugarPages
     ~message:"Invalid element in page literal")
 
-let closed_wild = Types.make_singleton_closed_row ("wild", Types.Present Types.unit_type)
-
 let unit_p () = failwith "TODO: primitive unitP"
 let join_p () = failwith "TODO: primitive joinP"
 let body_p () = failwith "TODO: primitive bodyP"
@@ -68,7 +66,7 @@ let rec desugar_page (o, page_type) =
            let bndr = Binder.make' ~name:x ~ty:Types.xml_type () in
            let x = Binder.to_name' bndr in
            fn_appl (plug_p ()) [(PrimaryKind.Row, o#lookup_effects)]
-             [fun_lit ~args:[Types.make_tuple_type [Types.xml_type], closed_wild]
+             [fun_lit ~args:[Types.make_tuple_type [Types.xml_type], Types.closed_wild_row]
                 dl_unl [[variable_pat' bndr]]
                 (xml name attrs dynattrs [block ([], var x)]);
               desugar_nodes children]
