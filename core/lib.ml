@@ -1550,19 +1550,33 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
      IMPURE)
 ]
 
+let env : (string * (Binder.t * located_primitive * Types.datatype * pure)) list =
+  List.map
+    (fun (name, (prim, ty, purity)) ->
+      (name, (Binder.fresh ~scope:Binder.Scope.Global ~ty ~name (), prim, ty, purity)))
+    env
+
 let impl : located_primitive -> primitive option = function
   | `Client -> None
   | `Server p
   | (#primitive as p) -> Some p
 
+let use_legacy_names = Settings.get Basicsettings.Names.legacy_names
+
 let nenv =
   List.fold_left
-    (fun nenv (n, _) -> Env.String.bind n (Var.fresh_raw_var ()) nenv)
-    Env.String.empty
+    (fun nenv (n, (b, _, _, _)) ->
+      let n' =
+        if use_legacy_names
+        then Name.legacy n
+        else Name.resolved n (Binder.var b)
+      in
+      Env.Name.bind n' (Binder.var b) nenv)
+    Env.Name.empty
     env
 
 let venv =
-  Env.String.fold
+  Env.Name.fold
     (fun name var venv ->
        Env.Int.bind var name venv)
     nenv
@@ -1570,50 +1584,57 @@ let venv =
 
 let value_env : primitive option Env.Int.t =
   List.fold_right
-    (fun (name, (p, _, _)) env ->
-       Env.Int.bind (Env.String.find name nenv) (impl p) env)
+    (fun (_name, (b, p, _, _)) env ->
+       Env.Int.bind (Binder.var b) (impl p) env)
     env
     Env.Int.empty
 
 let maxvar =
-  Env.String.fold
-    (fun _name var x -> max var x)
+  Env.Name.fold
+    (fun name var x -> max var x)
     nenv 0
 
 let minvar =
-  Env.String.fold
-    (fun _name var x -> min var x)
+  Env.Name.fold
+    (fun name var x -> min var x)
     nenv maxvar
-
-let value_array : primitive option array =
-  let array = Array.make (maxvar+1) None in
-  List.iter (fun (name, (p, _, _)) ->
-    Array.set array (Env.String.find name nenv) (impl p)) env;
-  array
 
 let is_primitive_var var =
   minvar <= var && var <= maxvar
 
 let type_env : Types.environment =
-  List.fold_right (fun (n, (_,t,_)) env -> Env.String.bind n t env) env Env.String.empty
+  List.fold_right
+    (fun (n, (b,_,t,_)) env ->
+      let n' =
+        if use_legacy_names
+        then Name.legacy n
+        else Name.resolved n (Binder.var b)
+      in
+      Env.Name.bind n' t env)
+    env Env.Name.empty
 
-let typing_env = {Types.var_env = type_env;
-                  Types.rec_vars = StringSet.empty;
-                  tycon_env = alias_env;
-                  Types.effect_row = Types.closed_wild_row;
-                  Types.desugared = false }
+let typing_env = { Types.var_env = type_env
+                 ; Types.rec_vars = Env.Name.Dom.empty
+                 ; tycon_env = alias_env
+                 ; Types.effect_row = Types.closed_wild_row
+                 ; Types.desugared = false }
 
-let primitive_names = StringSet.elements (Env.String.domain type_env)
+let primitive_names = List.map Name.to_string (Env.Name.Dom.elements (Env.Name.domain type_env))
 
-let primitive_vars = Env.String.fold (fun _name var vars -> IntSet.add var vars) nenv IntSet.empty
+let primitive_vars = Env.Name.fold (fun _name var vars -> IntSet.add var vars) nenv IntSet.empty
 
 let primitive_name n = Env.Int.find n venv
 
+let primitive_var str_name =
+  let (b, _, _, _) = List.assoc str_name env in
+  Binder.var b
+
 let primitive_location (name:string) =
-  match fst3 (List.assoc name env) with
-    | `Client    -> Location.Client
-    | `Server _  -> Location.Server
-    | #primitive -> Location.Unknown
+  let (_, p, _, _) = List.assoc name env in
+  match p with
+  | `Client    -> Location.Client
+  | `Server _  -> Location.Server
+  | #primitive -> Location.Unknown
 
 let rec function_arity =
   let open Types in
@@ -1625,29 +1646,33 @@ let rec function_arity =
     | _ -> None
 
 let primitive_arity (name : string) =
-  let _, t, _ = List.assoc name env in
+  let _, _, t, _ = List.assoc name env in
     function_arity t
 
 (*let primitive_by_code var = Env.Int.lookup value_env var*)
 (* use array instead? seems faster for primop-intensive code *)
-let primitive_by_code var = Array.get value_array var
+let value_store : (int, primitive option) Hashtbl.t =
+  let tbl = Hashtbl.create (maxvar+1) in
+  List.iter (fun (_name, (b, p, _, _)) ->
+      Hashtbl.add tbl (Binder.var b) (impl p))
+    env;
+  tbl
 
+let primitive_by_code var = Hashtbl.find value_store var
 
 
 let primitive_stub (name : string) : Value.t =
-  match Env.String.find_opt name nenv with
-    | Some var ->
-        begin
-          match primitive_by_code var with
-            | Some (#Value.t as r) -> r
-            | Some _ -> `PrimitiveFunction (name,Some var)
-            | None -> `ClientFunction name
-        end
-    | None -> assert false
+  try
+    let var = primitive_var name in
+    match primitive_by_code var with
+    | Some (#Value.t as r) -> r
+    | Some _ -> `PrimitiveFunction (name,Some var)
+    | None -> `ClientFunction name
+  with _ -> assert false
 
 (* jcheney: added to avoid Env.String.lookup *)
 let primitive_stub_by_code (var : Var.var) : Value.t =
-  let name = Env.Int.find var venv in
+  let name = Name.to_string (Env.Int.find var venv) in
   match primitive_by_code var with
   | Some (#Value.t as r) -> r
   | Some _ -> `PrimitiveFunction (name,Some var)
@@ -1665,25 +1690,22 @@ let apply_pfun_by_code var args req_data =
 
 
 let apply_pfun name args req_data =
-  let var =
-    Env.String.find name nenv
-  in
-  apply_pfun_by_code var args req_data
+  (* TODO FIXME: clients should know the canonical name in advance. *)
+  apply_pfun_by_code (primitive_var name) args req_data
 
 let is_primitive name = List.mem_assoc name env
 
 let is_pure_primitive name =
-  if List.mem_assoc name env then
-    match List.assoc name env with
-      | (_, _, PURE) -> true
-      | _ -> false
-  else
-    false
+  match List.assoc_opt name env with
+  | Some (_, _, _, PURE) -> true
+  | _                    -> false
+
 
 (** Construct IR for application of the primitive [name] to the
     arguments [args]. *)
-let prim_appln name args = Ir.Apply( Ir.Variable(Env.String.find name nenv),
-                                  args)
+let prim_appln name args =
+  (* TODO FIXME: clients should know the canonical name in advance. *)
+  Ir.Apply ( Ir.Variable (primitive_var name), args )
 
 let cohttp_server_response headers body req_data =
   let open Lwt in

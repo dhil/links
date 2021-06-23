@@ -19,6 +19,8 @@ let show_pattern_compilation
               |> convert parse_bool
               |> sync)
 
+let use_legacy_names = Settings.get Basicsettings.Names.legacy_names
+
 module type CONSTSET = Set with type elt = Constant.t
 module ConstSet = Set.Make(Constant)
 module ConstMap = Map.Make(Constant)
@@ -108,69 +110,74 @@ let rec desugar_pattern : Types.row -> Sugartypes.Pattern.with_pos -> Pattern.t 
       assert (Sugartypes.Binder.has_type bndr);
       let name = Sugartypes.Binder.to_name bndr in
       let t = Sugartypes.Binder.to_type bndr in
-      let xb, x = Var.(fresh_var (make_local_info (t, name))) in
+      let xb, x =
+        if use_legacy_names
+        then Var.(fresh_var (make_local_info (t, name)))
+        else let bndr = WithPos.node bndr in
+             (bndr, Binder.var bndr)
+      in
       xb, (NEnv.bind name x nenv, TEnv.bind x t tenv, eff)
     in
-      let open Sugartypes.Pattern in
-      match p with
-        | Any -> Pattern.Any, empty
-        | Nil -> Pattern.Nil, empty
-        | Cons (p, ps) ->
-            let p, env = desugar_pattern p in
-            let ps, env' = desugar_pattern ps in
-              Pattern.Cons (p, ps), env ++ env'
-        | List [] -> desugar_pattern (WithPos.make ~pos Nil)
-        | List (p::ps) ->
-            let p, env = desugar_pattern p in
-            let ps, env' = desugar_pattern (WithPos.make ~pos (List ps)) in
-              Pattern.Cons (p, ps), env ++ env'
-        | Variant (name, None) -> Pattern.Variant (name, Pattern.Any), empty
-        | Variant (name, Some p) ->
-            let p, env = desugar_pattern p in
-            Pattern.Variant (name, p), env
-        | Effect (name, ps, k) ->
-           let ps, env =
-             List.fold_right
-               (fun p (ps, env) ->
-                 let p', env' = desugar_pattern p in
-                 (p' :: ps, env ++ env'))
-               ps ([], empty)
-           in
-           let k, env' = desugar_pattern k in
-           Pattern.Effect (name, ps, k), env ++ env'
-        | Negative names -> Pattern.Negative (StringSet.from_list names), empty
-        | Record (bs, p) ->
-            let bs, env =
-              List.fold_right
-                (fun (name, p) (bs, env) ->
-                   let p, env' = desugar_pattern p in
-                     StringMap.add name p bs, env ++ env')
-                bs
-                (StringMap.empty, empty) in
-            let p, env =
-              match p with
-                | None -> None, env
-                | Some p ->
-                    let p, env' = desugar_pattern p in
-                      Some p, env ++ env'
-            in
-              Pattern.Record (bs, p), env
-        | Tuple ps ->
-            let bs = mapIndex (fun p i -> (string_of_int (i+1), p)) ps in
-              desugar_pattern (WithPos.make ~pos (Record (bs, None)))
-        | Constant constant ->
-            Pattern.Constant constant, empty
-        | Variable b ->
-            let xb, env = fresh_binder empty b in
-              Pattern.Variable xb, env
-        | As (b, p) ->
-            let xb, env = fresh_binder empty b in
+    let open Sugartypes.Pattern in
+    match p with
+    | Any -> Pattern.Any, empty
+    | Nil -> Pattern.Nil, empty
+    | Cons (p, ps) ->
+       let p, env = desugar_pattern p in
+       let ps, env' = desugar_pattern ps in
+       Pattern.Cons (p, ps), env ++ env'
+    | List [] -> desugar_pattern (WithPos.make ~pos Nil)
+    | List (p::ps) ->
+       let p, env = desugar_pattern p in
+       let ps, env' = desugar_pattern (WithPos.make ~pos (List ps)) in
+       Pattern.Cons (p, ps), env ++ env'
+    | Variant (name, None) -> Pattern.Variant (name, Pattern.Any), empty
+    | Variant (name, Some p) ->
+       let p, env = desugar_pattern p in
+       Pattern.Variant (name, p), env
+    | Effect (name, ps, k) ->
+       let ps, env =
+         List.fold_right
+           (fun p (ps, env) ->
+             let p', env' = desugar_pattern p in
+             (p' :: ps, env ++ env'))
+           ps ([], empty)
+       in
+       let k, env' = desugar_pattern k in
+       Pattern.Effect (name, ps, k), env ++ env'
+    | Negative names -> Pattern.Negative (StringSet.from_list names), empty
+    | Record (bs, p) ->
+       let bs, env =
+         List.fold_right
+           (fun (name, p) (bs, env) ->
+             let p, env' = desugar_pattern p in
+             StringMap.add name p bs, env ++ env')
+           bs
+           (StringMap.empty, empty) in
+       let p, env =
+         match p with
+         | None -> None, env
+         | Some p ->
             let p, env' = desugar_pattern p in
-              Pattern.As (xb, p), env ++ env'
-        | HasType (p, (_, Some t)) ->
-            let p, env = desugar_pattern p in
-              Pattern.HasType (p, t), env
-        | HasType (_, (_, None)) -> assert false
+            Some p, env ++ env'
+       in
+       Pattern.Record (bs, p), env
+    | Tuple ps ->
+       let bs = mapIndex (fun p i -> (string_of_int (i+1), p)) ps in
+       desugar_pattern (WithPos.make ~pos (Record (bs, None)))
+    | Constant constant ->
+       Pattern.Constant constant, empty
+    | Variable b ->
+       let xb, env = fresh_binder empty b in
+       Pattern.Variable xb, env
+    | As (b, p) ->
+       let xb, env = fresh_binder empty b in
+       let p, env' = desugar_pattern p in
+       Pattern.As (xb, p), env ++ env'
+    | HasType (p, (_, Some t)) ->
+       let p, env = desugar_pattern p in
+       Pattern.HasType (p, t), env
+    | HasType (_, (_, None)) -> assert false
 
 type raw_bound_computation = raw_env -> computation
 type bound_computation = env -> computation
@@ -188,14 +195,14 @@ struct
   let lookup_effects (_nenv, _tenv, eff) = eff
 
   let nil _env t : value =
-    TApp (Variable (NEnv.find "Nil" Lib.nenv),
+    TApp (Variable (Lib.primitive_var "Nil"),
            [(Type, t)])
 
   let list_head env t : value -> tail_computation = fun v ->
     let eff = lookup_effects env in
       Apply
         (TApp
-           (Variable (NEnv.find "$$hd" Lib.nenv),
+           (Variable (Lib.primitive_var "$$hd"),
             [(Type, t); (Row, eff)]),
          [v])
 
@@ -203,7 +210,7 @@ struct
     let eff = lookup_effects env in
       Apply
         (TApp
-           (Variable (NEnv.find "$$tl" Lib.nenv),
+           (Variable (Lib.primitive_var "$$tl"),
             [(Type, t); (Row, eff)]),
          [v])
 end
@@ -223,7 +230,7 @@ struct
     let eff = lookup_effects env in
     ApplyPure
       (TApp
-         (Variable (NEnv.find "==" Lib.nenv),
+         (Variable (Lib.primitive_var "=="),
           [(Type, t); (Row, eff)]),
        [v1; v2])
 end

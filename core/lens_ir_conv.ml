@@ -99,7 +99,7 @@ module Env = struct
         | Some _, Some v -> v (*eval_error "Variable %d bound twice" var*)
         | None, None -> (
             try
-              expression_of_value (Lib.primitive_stub (Lib.primitive_name var))
+              expression_of_value (Lib.primitive_stub (Name.to_string (Lib.primitive_name var)))
             with NotFound _ ->
               raise
                 (internal_error (Format.sprintf "Variable %d not found" var)) )

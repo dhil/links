@@ -787,7 +787,7 @@ end = functor (K : CONTINUATION) -> struct
         List.rev
           (Env.Int.fold
              (fun var _v funcs ->
-               let name = Lib.primitive_name var in
+               let name = Name.to_string (Lib.primitive_name var) in
                if Location.is_server (Lib.primitive_location name) then
                  (name, var)::funcs
                else

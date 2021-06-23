@@ -9,11 +9,11 @@ module Scope: sig
 end
 
 (** Term variables *)
-type var = int
+type var = Binder.Var.t
   [@@deriving show,eq,yojson]
-type var_info
+type var_info = Binder.Info.t
   [@@deriving show]
-type binder
+type binder = Binder.t
   [@@deriving show]
 
 val dummy_var : int
@@ -56,4 +56,4 @@ val globalise_binder : binder -> binder
 (** Create a copy of a type environment mapping vars (= ints) to types
     instead of strings to types
 *)
-val varify_env : (int Env.String.t * Types.datatype Env.String.t) -> Types.datatype Env.Int.t
+val varify_env : (int Env.Name.t * Types.datatype Env.Name.t) -> Types.datatype Env.Int.t

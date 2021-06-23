@@ -238,11 +238,10 @@ module Name = struct
       | Dummy _ -> true
       | _ -> false
 
-    let counter = ref (-1)
+    let counter = ref 0
     let make_dummy () =
-      let var = !counter in
-      counter := !counter - 1;
-      Dummy var
+      incr counter;
+      Dummy (!counter)
   end
 
   type t = Unresolved of string
@@ -294,6 +293,12 @@ module Name = struct
   let equal x y =
     compare x y = 0
 end
+
+(* module type NAMESET = Set with type elt = Name.t
+ * module type NAMEMAP = Map with type key = Name.t
+ * 
+ * module NameSet : NAMESET = Set.Make(Name)
+ * module NameMap : NAMEMAP = Map.Make(Name) *)
 
 module Label = struct
   type t = string

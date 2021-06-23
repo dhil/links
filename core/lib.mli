@@ -12,7 +12,8 @@ val is_pure_primitive : string -> bool
 val value_env : primitive option Env.Int.t
 val type_env : Types.environment
 val typing_env : Types.typing_environment
-val nenv : Var.var Env.String.t
+val nenv : Var.var Env.Name.t
+val primitive_var : string -> Var.var
 
 val primitive_vars : Utility.IntSet.t
 
@@ -23,12 +24,12 @@ val primitive_stub : string -> Value.t
 val apply_pfun_by_code : Var.var -> Value.t list -> RequestData.request_data -> Value.t
 val primitive_stub_by_code : Var.var -> Value.t
 
-val primitive_name : Var.var -> string
+val primitive_name : Var.var -> CommonTypes.Name.t
 val primitive_location : string -> CommonTypes.Location.t
 val primitive_arity : string -> int option
 
 val cohttp_server_response : (string * string) list -> string -> RequestData.request_data -> Cohttp_lwt_unix.Server.response_action Lwt.t
 val print_http_response : (string * string) list -> string -> RequestData.request_data -> unit
 
-val prim_appln : Env.String.name -> Ir.value list -> Ir.tail_computation
+val prim_appln : string -> Ir.value list -> Ir.tail_computation
 

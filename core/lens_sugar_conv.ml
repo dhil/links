@@ -2,43 +2,46 @@ open Lens.Operators
 open Operators
 open SourceCode
 open Lens.Utility
+open CommonTypes
 module LPS = Lens.Phrase.Sugar
 module S = Sugartypes
 
 let unary_of_sugartype_op v =
   let open Unary in
   match v with
-  | UnaryOp.Minus -> Some Minus
-  | UnaryOp.FloatMinus -> Some Minus
-  | _ -> None
+  (* | UnaryOp.Minus -> Some Minus
+   * | UnaryOp.FloatMinus -> Some Minus
+   * | _ -> None *)
+  | _ -> failwith "TODO: lens primitive unary operators"
 
 let binary_of_sugartype_op v =
   let open Binary in
   match v with
-  | BinaryOp.Minus -> Some Minus
-  | BinaryOp.FloatMinus -> Some Minus
-  | BinaryOp.And -> Some LogicalAnd
-  | BinaryOp.Or -> Some LogicalOr
-  | BinaryOp.Name "+" -> Some Plus
-  | BinaryOp.Name "*" -> Some Multiply
-  | BinaryOp.Name "/" -> Some Divide
-  | BinaryOp.Name ">" -> Some Greater
-  | BinaryOp.Name "<" -> Some Less
-  | BinaryOp.Name ">=" -> Some GreaterEqual
-  | BinaryOp.Name "<=" -> Some LessEqual
-  | BinaryOp.Name "==" -> Some Equal
-  | _ -> None
+  (* | BinaryOp.Minus -> Some Minus
+   * | BinaryOp.FloatMinus -> Some Minus
+   * | BinaryOp.And -> Some LogicalAnd
+   * | BinaryOp.Or -> Some LogicalOr
+   * | BinaryOp.Name "+" -> Some Plus
+   * | BinaryOp.Name "*" -> Some Multiply
+   * | BinaryOp.Name "/" -> Some Divide
+   * | BinaryOp.Name ">" -> Some Greater
+   * | BinaryOp.Name "<" -> Some Less
+   * | BinaryOp.Name ">=" -> Some GreaterEqual
+   * | BinaryOp.Name "<=" -> Some LessEqual
+   * | BinaryOp.Name "==" -> Some Equal *)
+(* | _ -> None *)
+  | _ -> failwith "TODO: lens primitive binary operators"
 
 let cols_of_phrase key : string list =
   let open Sugartypes in
   let var_name (var : phrase) =
     match WithPos.node var with
-    | Var name -> name
-    | _ -> failwith "Expected a `Var type"
+    | Var name -> Name.to_string name
+    | _ -> failwith "Expected a Var type"
   in
   match WithPos.node key with
   | TupleLit keys -> List.map ~f:var_name keys
-  | Var name -> [ name ]
+  | Var _ -> [ var_name key ]
   | _ -> failwith "Expected a tuple or a variable."
 
 module Error = struct
@@ -52,7 +55,7 @@ let is_static _typ p =
     match p |> WithPos.node with
     | S.Block ([], body) -> no_ext_deps v body
     | S.InfixAppl (_, left, right) -> no_ext_deps v left && no_ext_deps v right
-    | S.Var v' -> S.Binder.to_name v = v'
+    | S.Var v' -> S.Binder.to_name v = (Name.to_string v') (* FIXME: this is rather fragile as it depends on both binder and var preserving the source name. *)
     | S.Projection (body, _) -> no_ext_deps v body
     | S.Constant _ -> true
     | _ -> false
@@ -87,10 +90,10 @@ let rec lens_sugar_phrase_of_body v p =
   | S.Projection (var, field) ->
       ( match var |> WithPos.node with
       | S.Var v' ->
-          if v = v' then Result.return ()
-          else
-            Format.asprintf "Unexpected external variable: %s" v'
-            |> Error.internal_error_res
+         if v = (Name.to_string v') then Result.return () (* FIXME again very fragile, see the comment above. *)
+         else
+           Format.asprintf "Unexpected external variable: %s" (Name.to_string v')
+           |> Error.internal_error_res
       | _ ->
           Format.asprintf "Unexpected expression to project on: %a" S.pp_phrase
             var

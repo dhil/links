@@ -10,7 +10,7 @@ let internal_error message =
 
 module Binder: sig
   type var = int
-  and t
+  and t = Binder.t
   and with_pos = t WithPos.t
   [@@deriving show]
 
@@ -35,37 +35,35 @@ module Binder: sig
                      -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
                      -> 'c * with_pos
 end = struct
-  type var = int
-  and t = string * Types.datatype * var
+  type var = Binder.Var.t
+  and t = Binder.t
   and with_pos = t WithPos.t
   [@@deriving show]
 
   let make ?(name="") ?(ty=Types.Not_typed) ?(fresh=false) () =
-    let v =
-      if fresh
-      then Var.fresh_raw_var ()
-      else -1
+    let var =
+      if fresh then Binder.Var.next ()
+      else Binder.Var.dummy
     in
-    (name, ty, v)
+    Binder.make Binder.Scope.Local ty name var
 
   let make' ?(pos=Position.dummy) ?(name="") ?(ty=Types.Not_typed) ?(fresh=false) ()
     = WithPos.make ~pos (make ~name ~ty ~fresh ())
 
-  let to_name b = let (n, _, _)  = WithPos.node b in n
-  let to_type b = let (_, ty, _) = WithPos.node b in ty
-  let to_var b  = let (_, _, v)  = WithPos.node b in v
+  let to_name b = Binder.name (WithPos.node b)
+  let to_type b = Binder.datatype (WithPos.node b)
+  let to_var b  = Binder.var (WithPos.node b)
 
   let use_legacy_names = Settings.get Basicsettings.Names.legacy_names
   let to_name' b =
-    let (n, _, v) = WithPos.node b in
-    if use_legacy_names then Name.legacy n
-    else Name.resolved n v
+    if use_legacy_names then Name.legacy (to_name b)
+    else Name.resolved (to_name b) (to_var b)
 
-  let set_name b name = WithPos.map ~f:(fun (_   , typ, v) -> name, typ, v) b
-  let set_type b typ  = WithPos.map ~f:(fun (name, _  , v) -> name, typ, v) b
-  let set_var  b v    = WithPos.map ~f:(fun (name, typ, _) -> name, typ, v) b
+  let set_name b name = WithPos.map ~f:(fun b -> Binder.set_name name b) b
+  let set_type b typ  = WithPos.map ~f:(fun b -> Binder.set_datatype typ b) b
+  let set_var  b v    = WithPos.map ~f:(fun b -> Binder.set_var v b) b
 
-  let erase_type b = WithPos.map ~f:(fun (name, _, v) -> name, Types.Not_typed, v) b
+  let erase_type b = WithPos.map ~f:(fun b -> Binder.set_datatype Types.Not_typed b) b
   let has_type   b = match to_type b with Types.Not_typed -> false | _ -> true
 
   let traverse_map : with_pos -> o:'o
@@ -73,10 +71,15 @@ end = struct
             -> f_name:('a -> string -> 'b * string)
             -> f_ty:('b -> Types.datatype -> 'c * Types.datatype)
             -> 'c * with_pos = fun b ~o ~f_pos ~f_name ~f_ty ->
-    WithPos.traverse_map b ~o ~f_pos ~f_node:(fun o (n, ty, v) ->
-        let o, name = f_name o n  in
-        let o, typ  = f_ty   o ty in
-        o, (name, typ, v))
+    WithPos.traverse_map b ~o ~f_pos ~f_node:(fun o b ->
+        let o, name = f_name o (Binder.name b)  in
+        let o, ty   = f_ty   o (Binder.datatype b) in
+        let var     = Binder.var b in
+        let scope   = if Binder.is_global b
+                      then Binder.Scope.Global
+                      else Binder.Scope.Local
+        in
+        (o, Binder.make scope ty name var))
 end
 
 type tyarg = Types.type_arg

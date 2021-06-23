@@ -624,7 +624,7 @@ struct
             let rec is_pure_function = function
               | TApp (v, _)
               | TAbs (_, v) -> is_pure_function v
-              | Variable var when Lib.is_primitive_var var -> Lib.is_pure_primitive (Lib.primitive_name var)
+              | Variable var when Lib.is_primitive_var var -> Lib.is_pure_primitive (Name.to_string (Lib.primitive_name var))
               | _ -> false in
 
             let (o, f, ft) = o#value f in
