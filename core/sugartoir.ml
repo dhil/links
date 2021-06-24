@@ -58,7 +58,7 @@ let show_compiled_ir
 
 type datatype = Types.datatype
 
-module NEnv = Env.String
+module NEnv = Env.Name
 module TEnv = Env.Int
 
 type nenv = var NEnv.t
@@ -799,7 +799,7 @@ struct
         match WithPos.node e with
           | TAbstr (_, e)
           | TAppl (e, _) -> is_pure_primitive e
-          | Var f when Lib.is_pure_primitive f -> true
+          | Var f when Lib.is_pure_primitive (Name.to_string f) (* TODO FIXME name hack. *) -> true
           | _ -> false in
 
       let eff = lookup_effects env in
@@ -862,10 +862,10 @@ struct
            *     cofv (I.apply_pure(instantiate n tyargs, [ev e]))
            * | UnaryAppl ((tyargs, UnaryOp.Name n), e) ->
            *     I.apply (instantiate n tyargs, [ev e]) *)
-          | FnAppl ({node=Var f; _}, es) when Lib.is_pure_primitive f ->
+          | FnAppl ({node=Var f; _}, es) when Lib.is_pure_primitive (Name.to_string f) ->
               cofv (I.apply_pure (I.var (lookup_name_and_type f env), evs es))
           | FnAppl ({node=TAppl ({node=Var f; _}, tyargs); _}, es)
-               when Lib.is_pure_primitive f ->
+               when Lib.is_pure_primitive (Name.to_string f) ->
               cofv (I.apply_pure (instantiate f (List.map (snd ->- val_of) tyargs), evs es))
           | FnAppl (e, es) when is_pure_primitive e ->
               cofv (I.apply_pure (ev e, evs es))
@@ -1090,7 +1090,7 @@ struct
           | FreezeSection (Section.Project _)
           | FunLit _
           | Iteration _
-          | InfixAppl ((_, BinaryOp.RegexMatch _), _, _)
+          | InfixAppl ((_, Name.Special Name.Special.RegexMatch _), _, _)
           | Regex _
           | Formlet _
           | Page _

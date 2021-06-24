@@ -55,22 +55,20 @@ let sort_by_base () = failwith "TODO: primitive sortByBase"
   It roughly corresponds to [[qs]].
 *)
 let results :  Types.row ->
-  (Sugartypes.phrase list * Name.t list * Types.datatype list) -> Sugartypes.phrase =
-  fun eff (es, xs, ts) ->
-    (* let results_type = Types.make_tuple_type ts in *)
-    let rec results =
-      function
+  (Sugartypes.phrase list * Binder.with_pos list * Types.datatype list) -> Sugartypes.phrase =
+  fun eff (es, (xs : Binder.with_pos list), ts) ->
+    let rec results = function
         | ([], [], []) -> list ~ty:Types.unit_type [tuple []]
         | ([e], [_x], [_t]) -> e
-        | (e::es, x::xs, t::ts) ->
+        | (e::es, (x : Binder.with_pos)::xs, t::ts) ->
             let r = results (es, xs, ts) in
             let qt = t in
             let qst = TypeUtils.pack_types ts in
 
             let ((qsb, qs) : Sugartypes.Pattern.with_pos list * Sugartypes.phrase list) =
               List.split
-                (List.map2 (fun x t -> (variable_pat ~ty:t x, var x)) xs ts) in
-            let qb, q = (variable_pat ~ty:t x, var x) in
+                (List.map (fun x -> (variable_pat' x, var (Binder.to_name' x))) xs) in
+            let qb, q = (variable_pat' x, var (Binder.to_name' x)) in
 
             let open PrimaryKind in
             let inner : Sugartypes.phrase =
@@ -89,7 +87,7 @@ let results :  Types.row ->
             fn_appl (concat_map ()) [(Type, qt); (Row, eff); (Type, a)] [outer; e]
         | _, _, _ -> assert false
     in
-      results (es, xs, ts)
+    results (es, xs, ts)
 
 
 class desugar_fors env =
@@ -102,7 +100,7 @@ object (o : 'self_type)
   *)
   method qualifiers : Sugartypes.iterpatt list ->
     'self_type *
-      (Sugartypes.phrase list * Sugartypes.Pattern.with_pos list * Name.t list *
+      (Sugartypes.phrase list * Sugartypes.Pattern.with_pos list * Binder.with_pos list *
          Types.datatype list) =
     fun qs ->
       let o, (es, ps, xs, ts) =
@@ -118,7 +116,7 @@ object (o : 'self_type)
                    let var = Utility.gensym ~prefix:"_for_" () in
                    let xb = Binder.make' ~ty:element_type ~name:var () in
                      o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
-                         Binder.to_name' xb :: xs, element_type::ts)
+                         xb :: xs, element_type::ts)
                | Table (p, e) ->
                    let (o, e, t) = o#phrase e in
                    let (o, p) = o#pattern p in
@@ -134,7 +132,7 @@ object (o : 'self_type)
                    let var = Utility.gensym ~prefix:"_for_" () in
                    let xb = Binder.make' ~name:var ~ty:element_type () in
                      o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
-                         Binder.to_name' xb::xs, element_type::ts))
+                         xb::xs, element_type::ts))
           (o, ([], [], [], []))
           qs
       in

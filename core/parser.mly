@@ -157,16 +157,16 @@ let attach_row_subkind (r, subkind) =
 
 let labels xs = fst (List.split xs)
 
-let parseRegexFlags f =
+let parse_regex_flags f =
   let rec asList f i l =
     if (i == String.length f) then
       List.rev l
     else
       asList f (i+1) ((String.get f i)::l) in
     List.map (function
-                'l' -> RegexList
-              | 'n' -> RegexNative
-              | 'g' -> RegexGlobal
+                'l' -> Name.Special.RegexList
+              | 'n' -> Name.Special.RegexNative
+              | 'g' -> Name.Special.RegexGlobal
               | _ -> assert false) (asList f 0 [])
 
 
@@ -372,9 +372,6 @@ arg:
 | TRUE                                                         { "true"  }
 | FALSE                                                        { "false" }
 
-var:
-| VARIABLE                                                     { with_pos $loc $1 }
-
 mutual_decl_block:
 | MUTUAL LBRACE mutual_decls RBRACE                            { MutualBindings.flatten $3 }
 
@@ -401,7 +398,7 @@ nofun_declaration:
                                                                  in
                                                                  with_pos $loc (Foreign alien) }
 | FIXITY UINTEGER? op SEMICOLON                                { let precedence = from_option default_fixity $2 in
-                                                                 let node = Infix { name = WithPos.node $3; precedence; assoc = $1 } in
+                                                                 let node = Infix { name = Name.to_string (WithPos.node $3); precedence; assoc = $1 } in
                                                                  with_pos $loc node }
 | signature? tlvarbinding SEMICOLON                            { val_binding' ~ppos:$loc($2) $1 $2 }
 | typedecl SEMICOLON | links_module | links_open SEMICOLON     { $1 }
@@ -440,13 +437,13 @@ fun_kind:
 | FROZEN_LINFUN                                                { (dl_lin, true) }
 
 tlfunbinding:
-| fun_kind VARIABLE arg_lists perhaps_location block           { ($1, $2, $3, $4, $5)                }
+| fun_kind VARIABLE arg_lists perhaps_location block           { ($1, Name.unresolved $2, $3, $4, $5) }
 | OP pattern sigop pattern perhaps_location block              { ((dl_unl, false), WithPos.node $3, [[$2; $4]], $5, $6) }
-| OP OPERATOR pattern perhaps_location block                   { ((dl_unl, false), $2, [[$3]], $4, $5)          }
-| OP pattern OPERATOR perhaps_location block                   { ((dl_unl, false), $3, [[$2]], $4, $5)          }
+| OP OPERATOR pattern perhaps_location block                   { ((dl_unl, false), Name.unresolved $2, [[$3]], $4, $5)          }
+| OP pattern OPERATOR perhaps_location block                   { ((dl_unl, false), Name.unresolved $3, [[$2]], $4, $5)          }
 
 switch_tlfunbinding:
-| fun_kind VARIABLE arg_lists perhaps_location switch_funlit_body     { ($1, $2, $3, $4, $5)   }
+| fun_kind VARIABLE arg_lists perhaps_location switch_funlit_body     { ($1, Name.unresolved $2, $3, $4, $5)   }
 
 switch_funlit_body:
 | SWITCH LBRACE case+ RBRACE                                   { $3 }
@@ -459,7 +456,7 @@ signatures:
 | UNSAFE signature                                             { (Some $2, true) }
 
 signature:
-| SIG var COLON datatype                                       { with_pos $loc ($2, datatype $4) }
+| SIG VARIABLE COLON datatype                                  { with_pos $loc ((with_pos $loc($2) (Name.unresolved $2)), datatype $4) }
 | SIG sigop COLON datatype                                     { with_pos $loc ($2, datatype $4) }
 
 typedecl:
@@ -563,24 +560,24 @@ constructor_expression:
 | CONSTRUCTOR parenthesized_thing?                             { constructor ~ppos:$loc ?body:$2 $1 }
 
 parenthesized_thing:
-| LPAREN binop RPAREN                                          { with_pos $loc (Section $2)              }
+/* | LPAREN binop RPAREN                                          { with_pos $loc (Section $2)              } */
 | LPAREN DOT record_label RPAREN                               { with_pos $loc (Section (Section.Project $3))   }
 | LPAREN RPAREN                                                { record ~ppos:$loc []                     }
 | LPAREN labeled_exps preceded(VBAR, exp)? RPAREN              { record ~ppos:$loc $2 ?exp:$3             }
 | LPAREN exps RPAREN                                           { with_pos $loc (TupleLit ($2))           }
 | LPAREN exp WITH labeled_exps RPAREN                          { with_pos $loc (With ($2, $4))           }
 
-binop:
-| MINUS                                                        { Section.Minus          }
-| MINUSDOT                                                     { Section.FloatMinus     }
-| sigop                                                        { Section.Name (WithPos.node $1) }
+/* binop: */
+/* | MINUS                                                        { Section.Minus          } */
+/* | MINUSDOT                                                     { Section.FloatMinus     } */
+/* | sigop                                                        { Section.Name (WithPos.node $1) } */
 
 sigop:
-| DOLLAR                                                       { with_pos $loc "$" }
+| DOLLAR                                                       { with_pos $loc (Name.unresolved "$") }
 | op                                                           { $1 }
 
 op:
-| OPERATOR                                                     { with_pos $loc $1 }
+| OPERATOR                                                     { with_pos $loc (Name.unresolved $1) }
 
 spawn_expression:
 | SPAWNAT LPAREN exp COMMA block RPAREN                        { spawn ~ppos:$loc Demon (ExplicitSpawnLocation $3) $5 }
@@ -635,7 +632,7 @@ infix_appl:
 | unary_expression DOLLAR infix_appl                           { infix_appl' ~ppos:$loc $1 (Name.unresolved "$") $3 }
 | unary_expression BANG infix_appl                             { infix_appl' ~ppos:$loc $1 (Name.unresolved "!") $3 }
 | unary_expression EQUALSTILDE regex                           { let r, flags = $3 in
-                                                                 infix_appl' ~ppos:$loc $1 Name.(Special (Special.RegexMatch flags)) r }
+                                                                 infix_appl' ~ppos:$loc $1 (Name.Special (Name.Special.RegexMatch flags)) r }
 logical_expression:
 | infix_appl                                                   { $1 }
 | logical_expression BARBAR infix_appl                         { infix_appl' ~ppos:$loc $1 Name.or'  $3 }
@@ -836,10 +833,10 @@ links_open:
 binding:
 | VAR pattern EQ exp SEMICOLON                                 { val_binding ~ppos:$loc $2 $4 }
 | exp SEMICOLON                                                { with_pos $loc (Exp $1) }
-| signatures fun_kind VARIABLE arg_lists block                 { fun_binding ~ppos:$loc (fst $1) ~unsafe_sig:(snd $1) ($2, $3, $4, loc_unknown, $5) }
-| fun_kind VARIABLE arg_lists block                            { fun_binding ~ppos:$loc None ($1, $2, $3, loc_unknown, $4) }
-| signatures fun_kind VARIABLE arg_lists switch_funlit_body    { switch_fun_binding ~ppos:$loc (fst $1) ~unsafe_sig:(snd $1) ($2, $3, $4, loc_unknown, $5) }
-| fun_kind VARIABLE arg_lists switch_funlit_body               { switch_fun_binding ~ppos:$loc None ($1, $2, $3, loc_unknown, $4) }
+| signatures fun_kind VARIABLE arg_lists block                 { fun_binding ~ppos:$loc (fst $1) ~unsafe_sig:(snd $1) ($2, Name.unresolved $3, $4, loc_unknown, $5) }
+| fun_kind VARIABLE arg_lists block                            { fun_binding ~ppos:$loc None ($1, Name.unresolved $2, $3, loc_unknown, $4) }
+| signatures fun_kind VARIABLE arg_lists switch_funlit_body    { switch_fun_binding ~ppos:$loc (fst $1) ~unsafe_sig:(snd $1) ($2, Name.unresolved $3, $4, loc_unknown, $5) }
+| fun_kind VARIABLE arg_lists switch_funlit_body               { switch_fun_binding ~ppos:$loc None ($1, Name.unresolved $2, $3, loc_unknown, $4) }
 | typedecl SEMICOLON | links_module
 | links_open SEMICOLON                                         { $1 }
 
@@ -873,7 +870,7 @@ block_contents:
 | /* empty */                                                  { ([], with_pos $loc (TupleLit [])) }
 
 labeled_exp:
-| preceded(EQ, VARIABLE)                                       { ($1, with_pos $loc (Var $1)) }
+| preceded(EQ, VARIABLE)                                       { ($1, with_pos $loc (Var (Name.unresolved $1))) }
 | separated_pair(record_label, EQ, exp)                        { $1 }
 
 labeled_exps:
@@ -1114,11 +1111,11 @@ regex:
 | SLASH regex_flags_opt                                        { with_pos $loc (Regex (Simply "")), $2 }
 | SSLASH regex_pattern_alternate SLASH regex_replace
     regex_flags_opt                                            { with_pos $loc (Regex (Replace ($2, $4))),
-                                                                 RegexReplace :: $5 }
+                                                                 Name.Special.RegexReplace :: $5 }
 
 regex_flags_opt:
 | SLASH                                                        { [] }
-| SLASHFLAGS                                                   { parseRegexFlags $1 }
+| SLASHFLAGS                                                   { parse_regex_flags $1 }
 
 regex_replace:
 | /* empty */                                                  { Literal "" }

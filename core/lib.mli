@@ -14,6 +14,7 @@ val type_env : Types.environment
 val typing_env : Types.typing_environment
 val nenv : Var.var Env.Name.t
 val primitive_var : string -> Var.var
+val primitive_type : string -> Types.datatype
 
 val primitive_vars : Utility.IntSet.t
 

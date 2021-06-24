@@ -98,13 +98,12 @@ module SugarConstructors (Position : Pos)
   (** Binders **)
 
   let binder ?(ppos=dp) ?ty name =
-    let name' = Name.to_string name in
-    with_pos ppos (Binder.make ~name:name' ?ty ())
+    with_pos ppos (Binder.make ~name ?ty ())
 
   (** Imports **)
 
   let import ?(ppos=dp) ?(pollute=false) names =
-    with_pos ppos (Import { path = List.map Name.to_string names; pollute })
+    with_pos ppos (Import { path = names; pollute })
 
   (** Patterns *)
 
@@ -161,9 +160,12 @@ module SugarConstructors (Position : Pos)
 
   (** Bindings *)
   (* Create a function binding. *)
-  let fun_binding ?(ppos=dp) sig_opt ?(unsafe_sig=false) ((linearity, frozen), bndr, args, location, blk) =
-    let fun_signature = datatype_opt_of_sig_opt sig_opt bndr in
-      with_pos ppos (Fun { fun_binder = binder bndr;
+  (* TODO FIXME: These functions are doing too much, as in they
+     construct function and binder nodes. They should only construct
+     the former. *)
+  let fun_binding ?(ppos=dp) sig_opt ?(unsafe_sig=false) ((linearity, frozen), name, args, location, blk) =
+    let fun_signature = datatype_opt_of_sig_opt sig_opt name in
+      with_pos ppos (Fun { fun_binder = binder (Name.to_string name);
                            fun_linearity = linearity;
                            fun_definition = ([], NormalFunlit (args, blk));
                            fun_location = location;
@@ -181,9 +183,9 @@ module SugarConstructors (Position : Pos)
                          fun_frozen = false;
                          fun_unsafe_signature = false })
 
-  let switch_fun_binding ?(ppos=dp) sig_opt ?(unsafe_sig=false) ((linearity, frozen), bndr, args, location, blk) =
-    let fun_signature = datatype_opt_of_sig_opt sig_opt bndr in
-      with_pos ppos (Fun { fun_binder = binder bndr;
+  let switch_fun_binding ?(ppos=dp) sig_opt ?(unsafe_sig=false) ((linearity, frozen), name, args, location, blk) =
+    let fun_signature = datatype_opt_of_sig_opt sig_opt name in
+      with_pos ppos (Fun { fun_binder = binder (Name.to_string name);
                            fun_linearity = linearity;
                            fun_definition = ([], SwitchFunlit (args, blk));
                            fun_location = location;
@@ -194,10 +196,13 @@ module SugarConstructors (Position : Pos)
   (* Create a Val binding.  This function takes either a name for a variable
      pattern or an already constructed pattern.  In the latter case no signature
      should be passed. *)
+  (* TODO FIXME functions such as val_binding' below should NEVER take
+     arguments of Name.t as input. It is wrong to construct a binder
+     from Name.t! *)
   let val_binding' ?(ppos=dp) sig_opt (name_or_pat, phrase, location) =
     let pat, datatype = match name_or_pat with
       | PatName name ->
-         let pat      = variable_pat ~ppos name in
+         let pat      = variable_pat ~ppos (Name.to_string name) in
          let datatype = datatype_opt_of_sig_opt sig_opt name in
          (pat, datatype)
       | Pat pat ->

@@ -39,7 +39,7 @@ let make_local_info  (t, name) = make_info t name Scope.Local
 let make_global_info (t, name) = make_info t name Scope.Global
 
 let make_binder var info = Binder.of_info info var
-let update_type newtype b = Binder.set_datatype b
+let update_type newtype b = Binder.set_datatype newtype b
 
 let fresh_binder_of_type = info_of_type ->- fresh_binder
 let fresh_var_of_type = info_of_type ->- fresh_var
@@ -59,7 +59,7 @@ let globalise_binder b = Binder.globalise b
     instead of strings to types
 *)
 let varify_env (nenv, tenv) : Types.datatype Env.Int.t =
-  Env.String.fold
+  Env.Name.fold
     (fun name t tenv ->
        Env.Int.bind (Env.Name.find name nenv) t tenv)
     tenv

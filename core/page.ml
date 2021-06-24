@@ -28,23 +28,23 @@ module Make_RealPage (C : JS_PAGE_COMPILER) (G : JS_CODEGEN) = struct
        - add stringifyB64 to lib.ml as a built-in function?
        - get rid of ConcatMap here?
      *)
-    let tyenv =
-      {Types.var_env =
-         (Env.String.bind "stringifyB64" (dt "(a) -> String") tyenv.Types.var_env
-          |> Env.String.bind "ConcatMap" (dt "((a) -> [b], [a]) -> [b]"));
-       Types.rec_vars = StringSet.empty;
-       Types.tycon_env = tyenv.Types.tycon_env;
-       Types.effect_row = tyenv.Types.effect_row;
-       Types.desugared = tyenv.Types.desugared } in
-    let nenv =
-      Env.String.bind "ConcatMap" (Var.fresh_raw_var ()) nenv
-      |>  Env.String.bind "stringifyB64" (Var.fresh_raw_var ())
-
-    in
-
+    (* TODO complete the above todo *)
+    (* let tyenv =
+     *   {Types.var_env =
+     *      (Env.String.bind "stringifyB64" (dt "(a) -> String") tyenv.Types.var_env
+     *       |> Env.String.bind "ConcatMap" (dt "((a) -> [b], [a]) -> [b]"));
+     *    Types.rec_vars = StringSet.empty;
+     *    Types.tycon_env = tyenv.Types.tycon_env;
+     *    Types.effect_row = tyenv.Types.effect_row;
+     *    Types.desugared = tyenv.Types.desugared } in
+     * let nenv =
+     *   Env.String.bind "ConcatMap" (Var.fresh_raw_var ()) nenv
+     *   |>  Env.String.bind "stringifyB64" (Var.fresh_raw_var ())
+     * 
+     * in *)
     let venv =
-      Env.String.fold
-        (fun name v venv -> VEnv.bind v name venv)
+      Env.Name.fold
+        (fun name v venv -> VEnv.bind v (CommonTypes.Name.to_string name) venv)
         nenv
         VEnv.empty
     in
@@ -114,7 +114,7 @@ module Make_RealPage (C : JS_PAGE_COMPILER) (G : JS_CODEGEN) = struct
 
   let page : ?cgi_env:(string * string) list ->
              wsconn_url:(Webserver_types.websocket_url option) ->
-             (Var.var Env.String.t * Types.typing_environment) ->
+             (Var.var Env.Name.t * Types.typing_environment) ->
              Ir.binding list -> (Value.env * Value.t) -> string list -> string
     = fun ?(cgi_env=[]) ~wsconn_url (nenv, tyenv) defs (valenv, v) deps ->
     let open Json in

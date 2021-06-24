@@ -70,14 +70,14 @@ module type SugarConstructorsSig = sig
   val constant_char : ?ppos:t -> char       -> phrase
 
   (* Binders *)
-  val binder   : ?ppos:t -> ?ty:Types.datatype -> Name.t -> Binder.with_pos
+  val binder   : ?ppos:t -> ?ty:Types.datatype -> string -> Binder.with_pos
 
   (* Imports *)
-  val import : ?ppos:t -> ?pollute:bool -> Name.t list -> binding
+  val import : ?ppos:t -> ?pollute:bool -> string list -> binding
 
   (* Patterns *)
   val variable_pat' : ?ppos:t -> Binder.with_pos -> Pattern.with_pos
-  val variable_pat : ?ppos:t -> ?ty:Types.datatype -> Name.t -> Pattern.with_pos
+  val variable_pat : ?ppos:t -> ?ty:Types.datatype -> string -> Pattern.with_pos
   val tuple_pat    : ?ppos:t -> Pattern.with_pos list -> Pattern.with_pos
   val any_pat      : t -> Pattern.with_pos
 

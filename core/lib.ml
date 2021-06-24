@@ -1629,6 +1629,10 @@ let primitive_var str_name =
   let (b, _, _, _) = List.assoc str_name env in
   Binder.var b
 
+let primitive_type str_name =
+  let (_, _, t, _) = List.assoc str_name env in
+  t
+
 let primitive_location (name:string) =
   let (_, p, _, _) = List.assoc name env in
   match p with

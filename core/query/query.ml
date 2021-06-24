@@ -127,7 +127,7 @@ struct
         | Constant (Constant.String _) -> Types.string_type
         | Project (Var (_, field_types), name) -> StringMap.find name field_types
         | Apply (Primitive "Empty", _) -> Types.bool_type (* HACK *)
-        | Apply (Primitive f, _) -> TypeUtils.return_type (Env.String.find f Lib.type_env)
+        | Apply (Primitive f, _) -> TypeUtils.return_type (Lib.primitive_type f)
         | e -> Debug.print("Can't deduce type for: " ^ show e); assert false
 
   let default_of_base_type =
@@ -610,7 +610,7 @@ struct
         | Some _, Some v -> v (*query_error "Variable %d bound twice" var*)
         | None, None ->
           begin
-            try expression_of_value env (Lib.primitive_stub (Lib.primitive_name var)) with
+            try expression_of_value env (Lib.primitive_stub (Name.to_string (Lib.primitive_name var))) (* TODO FIXME name hack *) with
             | NotFound _ ->
                 raise (internal_error ("Variable " ^ string_of_int var ^ " not found"));
           end

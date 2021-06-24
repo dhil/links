@@ -13,8 +13,8 @@
 
 open CommonTypes
 
-type regexflag = RegexList | RegexNative | RegexGlobal | RegexReplace
-    [@@deriving show]
+(* type regexflag = RegexList | RegexNative | RegexGlobal | RegexReplace
+ *     [@@deriving show] *)
 
 module Associativity = struct
   type t = Left | Right | None
@@ -38,7 +38,7 @@ module BinaryOp = struct
   type t =
     | Minus
     | FloatMinus
-    | RegexMatch of regexflag list
+    (* | RegexMatch of regexflag list *)
     | And
     | Or
     | Cons
@@ -48,7 +48,7 @@ module BinaryOp = struct
   let to_string = function
     | Minus        -> "-"
     | FloatMinus   -> ".-"
-    | RegexMatch _ -> "<some regex nonsense>"
+    (* | RegexMatch _ -> "<some regex nonsense>" *)
     | And          -> "&&"
     | Or           -> "||"
     | Cons         -> "::"

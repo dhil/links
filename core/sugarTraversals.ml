@@ -608,7 +608,7 @@ class map =
       | TypeVar _x ->
           let _x = o#type_variable _x in TypeVar _x
       | QualifiedTypeApplication (ns, args) ->
-          let ns = o#list (fun o -> o#name) ns in
+          let ns = o#list (fun o -> o#string) ns in
           let args = o#list (fun o -> o#type_arg) args in
           QualifiedTypeApplication (ns, args)
       | Function (_x, _x_i1, _x_i2) ->
@@ -1326,7 +1326,7 @@ class fold =
       | TypeVar _x ->
           let o = o#type_variable _x in o
       | QualifiedTypeApplication (ns, args) ->
-          let o = o#list (fun o -> o#name) ns in
+          let o = o#list (fun o -> o#string) ns in
           let o = o#list (fun o -> o#type_arg) args in
           o
       | Function (_x, _x_i1, _x_i2) ->
@@ -2162,7 +2162,7 @@ class fold_map =
       | TypeVar _x ->
           let (o, _x) = o#type_variable _x in (o, (TypeVar _x))
       | QualifiedTypeApplication (ns, args) ->
-          let (o, ns) = o#list (fun o -> o#name) ns in
+          let (o, ns) = o#list (fun o -> o#string) ns in
           let (o, args) = o#list (fun o -> o#type_arg) args in
           (o, QualifiedTypeApplication (ns, args))
       | Function (_x, _x_i1, _x_i2) ->
