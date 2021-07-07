@@ -75,6 +75,7 @@ let restriction_of_string p =
   | "Any"     -> res_any
   | "Base"    -> res_base
   | "Session" -> res_session
+  | "Mono"    -> res_mono
   | rest      ->
      raise (ConcreteSyntaxError (pos p, "Invalid kind restriction: " ^ rest))
 
@@ -743,7 +744,7 @@ perhaps_orderby:
 | ORDERBY LPAREN exps RPAREN                                   { Some (orderby_tuple ~ppos:$loc($3) $3) }
 
 escape_expression:
-| ESCAPE VARIABLE IN postfix_expression                        { with_pos $loc (Escape (binder ~ppos:$loc($2) $2, $4)) }
+| ESCAPE VARIABLE IN exp                        { with_pos $loc (Escape (binder ~ppos:$loc($2) $2, $4)) }
 
 formlet_expression:
 | FORMLET xml YIELDS exp                                       { with_pos $loc (Formlet ($2, $4)) }
@@ -1054,8 +1055,8 @@ record_label:
 
 vfields:
 | vfield                                                       { ([$1], Datatype.Closed) }
-| row_var                                                      { ([]  , $1             ) }
-| kinded_row_var                                               { ([]  , $1             ) }
+| vrow_var                                                     { ([]  , $1             ) }
+| kinded_vrow_var                                              { ([]  , $1             ) }
 | vfield VBAR vfields                                          { ($1::fst $3, snd $3   ) }
 
 vfield:
@@ -1063,7 +1064,7 @@ vfield:
 | CONSTRUCTOR fieldspec                                        { ($1, $2)      }
 
 efields:
-| fields_def(efield, nonrec_row_var, kinded_nonrec_row_var)    { $1 }
+| fields_def(efield, row_var, kinded_row_var)                  { $1 }
 
 efield:
 | effect_label                                                 { ($1, present) }
@@ -1089,19 +1090,25 @@ nonrec_row_var:
 | UNDERSCORE                                                   { Datatype.Open (fresh_typevar `Rigid)    }
 | PERCENT                                                      { Datatype.Open (fresh_typevar `Flexible) }
 
-/* FIXME:
- *
- * recursive row vars shouldn't be restricted to vfields.
- */
 row_var:
 | nonrec_row_var                                               { $1 }
-| LPAREN MU VARIABLE DOT vfields RPAREN                        { Datatype.Recursive (named_typevar $3 `Rigid, $5) }
+| LPAREN MU VARIABLE DOT fields RPAREN                         { Datatype.Recursive (named_typevar $3 `Rigid, $5) }
 
 kinded_nonrec_row_var:
 | nonrec_row_var subkind                                       { attach_row_subkind ($1, $2) }
 
 kinded_row_var:
 | row_var subkind                                              { attach_row_subkind ($1, $2) }
+
+
+vrow_var:
+/* This uses the usual nonrec_row_var, because a variant version would be exactly the same. */
+| nonrec_row_var                                               { $1 }
+| LPAREN MU VARIABLE DOT vfields RPAREN                        { Datatype.Recursive (named_typevar $3 `Rigid, $5) }
+
+kinded_vrow_var:
+| vrow_var subkind                                             { attach_row_subkind ($1, $2) }
+
 
 /*
  * Regular expression grammar
