@@ -54,6 +54,7 @@ let json_of_lens (db, lens) : Yojson.Basic.t =
     db.serialize () in
   let l = Lens.Value.serialize lens in
   `Assoc [
+    ("_tag", `String "Lens");
     ("_lens",
      `Assoc [
        ("db", `String db);
@@ -63,9 +64,9 @@ let json_of_lens (db, lens) : Yojson.Basic.t =
 let jsonize_location loc = `String (Location.to_string loc)
 
 let rec cons_listify : Yojson.Basic.t list -> Yojson.Basic.t = function
-  | [] -> `Null
+  | [] -> `Assoc [("_tag", `String "List")]
   | x::xs ->
-      `Assoc [("_head", x); ("_tail", cons_listify xs)]
+      `Assoc [("_tag", `String "List"); ("_head", x); ("_tail", cons_listify xs)]
 
 let rec jsonize_value' : Value.t -> Yojson.Basic.t =
   function
@@ -84,50 +85,55 @@ let rec jsonize_value' : Value.t -> Yojson.Basic.t =
       | None     -> []
       | Some fvs -> [("environment", jsonize_value' fvs)] in
     let entries = [
+      ("_tag", `String "FunctionPtr");
       ("func", `String (Js.var_name_var f));
-      ("location", location)] @ env_entry in
+      ("location", location)] @ env_entry
+    in
     `Assoc entries
   | `ClientDomRef i ->
-      `Assoc [("_domRefKey", `String (string_of_int i))]
-  | `ClientFunction name -> `Assoc [("func", `String name)]
+      `Assoc [("_tag", `String "ClientDomRef"); ("_domRefKey", `String (string_of_int i))]
+  | `ClientFunction name -> `Assoc [("_tag", `String "ClientFunction"); ("func", `String name)]
   | #Value.primitive_value as p -> jsonize_primitive p
   | `Variant (label, value) ->
-      `Assoc [("_label", `String label); ("_value", jsonize_value' value)]
+      `Assoc [("_tag", `String "Variant"); ("_label", `String label); ("_value", jsonize_value' value)]
   | `Record fields ->
-    `Assoc (List.map (fun (k, v) -> (k, jsonize_value' v )) fields)
+    `Assoc ([("_tag", `String "Record")] @ List.map (fun (k, v) -> (k, jsonize_value' v )) fields)
   | `List l ->  cons_listify (List.map jsonize_value' l)
   | `AccessPointID (`ClientAccessPoint (cid, apid)) ->
       `Assoc
-        [("_clientAPID", AccessPointID.to_json apid);
+        [("_tag", `String "ClientAccessPoint");
+         ("_clientAPID", AccessPointID.to_json apid);
          ("_clientId", ClientID.to_json cid)]
   | `AccessPointID (`ServerAccessPoint (apid)) ->
-      `Assoc [("_serverAPID", AccessPointID.to_json apid)]
+      `Assoc [("_tag", `String "ServerAccessPoint"); ("_serverAPID", AccessPointID.to_json apid)]
   | `Pid (`ClientPid (client_id, process_id)) ->
       `Assoc
-        [("_clientPid", ProcessID.to_json process_id);
+        [("_tag", `String "ClientPid");
+         ("_clientPid", ProcessID.to_json process_id);
          ("_clientId", ClientID.to_json client_id) ]
   | `Pid (`ServerPid (process_id)) ->
-      `Assoc [("_serverPid", ProcessID.to_json process_id)]
+      `Assoc [("_tag", `String "ServerPid"); ("_serverPid", ProcessID.to_json process_id)]
   | `SessionChannel (ep1, ep2) ->
       `Assoc
-        [("_sessEP1", ChannelID.to_json ep1);
+        [("_tag", `String "SessionChannel");
+         ("_sessEP1", ChannelID.to_json ep1);
          ("_sessEP2", ChannelID.to_json ep2)]
   | `SpawnLocation (`ClientSpawnLoc client_id) ->
       `Assoc
-        [("_clientSpawnLoc", ClientID.to_json client_id)]
+        [("_tag", `String "ClientSpawnLoc"); ("_clientSpawnLoc", ClientID.to_json client_id)]
   | `SpawnLocation (`ServerSpawnLoc) ->
-      `Assoc [("_serverSpawnLoc", `List [])]
+      `Assoc [("_tag", `String "ServerSpawnLoc"); ("_serverSpawnLoc", `List [])]
   | `Alien -> raise (Errors.runtime_error "Can't jsonize alien")
 and jsonize_primitive : Value.primitive_value -> Yojson.Basic.t  = function
-  | `Bool value -> `Bool value
-  | `Int value -> `Int value
-  | `Float value -> `Float value
+  | `Bool value -> `Assoc [("_tag", `String "Bool"); ("_value", `Bool value)]
+  | `Int value -> `Assoc [("_tag", `String "Int"); ("_value", `Int value)]
+  | `Float value -> `Assoc [("_tag", `String "Float"); ("_value", `Float value)]
   | `Char c ->
-      `Assoc [("_c", `String (String.make 1 c))]
-  | `Database db -> json_of_db db
-  | `Table t -> json_of_table t
-  | `XML xmlitem -> json_of_xmlitem xmlitem
-  | `String s -> `String s
+      `Assoc [("_tag", `String "Char"); ("_c", `String (String.make 1 c))]
+  | `Database db -> `Assoc [("_tag", `String "Database"); ("_value", json_of_db db)]
+  | `Table t -> `Assoc [("_tag", `String "Table"); ("_value", json_of_table t)]
+  | `XML xmlitem -> `Assoc [("_tag", `String "XML"); ("_value", json_of_xmlitem xmlitem)]
+  | `String s -> `Assoc [("_tag", `String "String"); ("_value", `String s)]
 and json_of_xmlitem = function
   | Value.Text s ->
       `Assoc [("type", `String "TEXT"); ("text", `String s)]
