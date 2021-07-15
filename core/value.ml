@@ -727,7 +727,7 @@ type t = [
 | `SessionChannel of chan
 | `Socket of in_channel * out_channel
 | `SpawnLocation of spawn_location
-| `Alien
+| `Alien of string
 ]
 and continuation = t Continuation.t
 and resumption = t Continuation.resumption
@@ -797,7 +797,7 @@ let rec p_value (ppf : formatter) : t -> 'a = function
      fprintf ppf "Server access point %s" (AccessPointID.to_string apid)
   | `Pid (`ServerPid i) -> fprintf ppf "Pid Server (%s)" (ProcessID.to_string i)
   | `Pid (`ClientPid (cid, i)) -> fprintf ppf "Pid Client num %s, process %s" (ClientID.to_string cid) (ProcessID.to_string i)
-  | `Alien -> fprintf ppf "alien"
+  | `Alien _ -> fprintf ppf "alien"
 and p_record_fields ppf = function
   | [] -> fprintf ppf ""
   | [(l, v)] -> fprintf ppf "@[@{<recordlabel>%a@} = %a@]"

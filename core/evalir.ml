@@ -522,7 +522,7 @@ struct
        eval_error "Continuation applied to multiple (or zero) arguments"
     | `Resumption r, vs ->
        resume env cont r vs
-    | `Alien, _ -> eval_error "Cannot make alien call on the server.";
+    | `Alien _, _ -> eval_error "Cannot make alien call on the server.";
     | v, _ -> type_error ~action:"apply" "function" v
   and resume env (cont : continuation) (r : resumption) vs =
     Proc.yield (fun () -> K.Eval.resume ~env cont r vs)
@@ -551,7 +551,7 @@ struct
          | Alien { binder; _ } ->
             let var = Var.var_of_binder binder in
             let scope = Var.scope_of_binder binder in
-            computation (Value.Env.bind var (`Alien, scope) env) cont (bs, tailcomp)
+            computation (Value.Env.bind var (`Alien (name_of_binder binder), scope) env) cont (bs, tailcomp)
          | Module _ -> raise (internal_error "Not implemented interpretation of modules yet")
   and tail_computation env (cont : continuation) : Ir.tail_computation -> result = function
     | Ir.Return v   ->

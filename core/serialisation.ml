@@ -115,7 +115,7 @@ module Compressible = struct
       | `ClientFunction of string
       | `Continuation of K.compressed_t
       | `Resumption of K.compressed_r
-      | `Alien ]
+      | `Alien of string]
       [@@deriving yojson]
 
     let compress_primitive_value : primitive_value -> [>compressed_primitive_value]=
@@ -150,7 +150,7 @@ module Compressible = struct
       | `SessionChannel _ -> assert false (* mmmmm *)
       | `AccessPointID _ -> assert false (* mmmmm *)
       | `SpawnLocation _sl -> assert false (* wheeee! *)
-      | `Alien -> `Alien
+      | `Alien s -> `Alien s
 
     let decompress_primitive : compressed_primitive_value -> [> primitive_value] = function
       | #primitive_value_basis as v -> v
@@ -180,7 +180,7 @@ module Compressible = struct
       | `ClientFunction f -> `ClientFunction f
       | `Continuation cont -> `Continuation (K.decompress ~globals cont)
       | `Resumption res -> `Resumption (K.decompress_r ~globals res)
-      | `Alien -> `Alien
+      | `Alien s -> `Alien s
       | `Lens (cstr, l) ->
         let db = decompress (`Database cstr) in
         let db =

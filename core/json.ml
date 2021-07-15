@@ -123,7 +123,7 @@ let rec jsonize_value' : Value.t -> Yojson.Basic.t =
         [("_tag", `String "ClientSpawnLoc"); ("_clientSpawnLoc", ClientID.to_json client_id)]
   | `SpawnLocation (`ServerSpawnLoc) ->
       `Assoc [("_tag", `String "ServerSpawnLoc"); ("_serverSpawnLoc", `List [])]
-  | `Alien -> raise (Errors.runtime_error "Can't jsonize alien")
+  | `Alien s -> `Assoc [("_tag", `String "Alien"); ("_value", `String s)]
 and jsonize_primitive : Value.primitive_value -> Yojson.Basic.t  = function
   | `Bool value -> `Assoc [("_tag", `String "Bool"); ("_value", `Bool value)]
   | `Int value -> `Assoc [("_tag", `String "Int"); ("_value", `Int value)]
@@ -176,7 +176,8 @@ let show_processes procs =
   let show_process (pid, (proc, msgs)) =
     let ms = `List (List.map jsonize_value' msgs) in
     `Assoc
-      [("pid", ProcessID.to_json pid);
+      [("_tag", `String "Process");
+       ("pid", ProcessID.to_json pid);
        ("process", jsonize_value' proc);
        ("messages", ms)] in
   let bnds = PidMap.bindings procs in
