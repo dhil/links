@@ -68,13 +68,13 @@ function resolveServerValueCPS(state, obj, k) {
         });
     case "Record":
         delete obj._tag;
-        var chain = k;
+        var chain = function () { return k(obj) };
         function createChain(obj, i, k) {
             return function() {
                 return resolveServerValueCPS(state, obj[i], function(ith) {
                     obj[i] = ith;
                     // console.log(k + '');
-                    return k(obj);
+                    return k();
                 });
             };
         }
