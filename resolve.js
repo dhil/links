@@ -1,147 +1,147 @@
-class Yield {
-    constructor(state, obj, k) {
-        this.state = state;
-        this.obj = obj;
-        this.k = k;
-    }
-}
+// class Yield {
+//     constructor(state, obj, k) {
+//         this.state = state;
+//         this.obj = obj;
+//         this.k = k;
+//     }
+// }
 
-let resolveDepth = 0;
+// let resolveDepth = 0;
 
-function resolveServerValue(state, obj) {
-    let k = function(x) { return x; };
-    while (true) {
-        try {
-            return resolveServerValueCPS(state, obj, k);
-        } catch (e) {
-            if (e instanceof Yield) {
-                state = e.state;
-                obj   = e.obj;
-                k     = e.k;
-            } else {
-                throw e;
-            }
-        }
-    }
-}
+// function resolveServerValue(state, obj) {
+//     let k = function(x) { return x; };
+//     while (true) {
+//         try {
+//             return resolveServerValueCPS(state, obj, k);
+//         } catch (e) {
+//             if (e instanceof Yield) {
+//                 state = e.state;
+//                 obj   = e.obj;
+//                 k     = e.k;
+//             } else {
+//                 throw e;
+//             }
+//         }
+//     }
+// }
 
-function resolveServerValueCPS(state, obj, k) {
-    resolveDepth++;
-    if (resolveDepth >= 5) {
-        resolveDepth = 0;
-        // console.log("Yielding obj: " + JSON.stringify(obj) + ", k: " + k);
-        throw new Yield(state, obj, k);
-    }
+// function resolveServerValueCPS(state, obj, k) {
+//     resolveDepth++;
+//     if (resolveDepth >= 5) {
+//         resolveDepth = 0;
+//         // console.log("Yielding obj: " + JSON.stringify(obj) + ", k: " + k);
+//         throw new Yield(state, obj, k);
+//     }
 
-    if (obj._tag == null && obj.key != null) {
-        obj.key = _lookupMobileKey(state, obj.key)
-        return k(obj);
-    }
-    // console.log("Obj: " + JSON.stringify(obj));
-    switch (obj._tag) {
-    case "Bool":
-    case "Float":
-    case "Int":
-    case "String":
-    case "XML":
-    case "Database":
-    case "Table":
-        return k(obj._value);
-    case "Char":
-    case "ClientDomRef":
-    case "ClientAccessPoint":
-    case "ServerAccessPoint":
-    case "ClientPid":
-    case "ServerPid":
-    case "SessionChannel":
-    case "ServerSpawnLoc":
-    case "ClientSpawnLoc":
-        delete obj._tag;
-        return k(obj);
-    case "List":
-        if (obj._head == null && obj._tail == null) return k({});
-        return resolveServerValueCPS(state, obj._head, function(head) {
-            return resolveServerValueCPS(state, obj._tail,
-                                         function(tail) {
-                                             return k({"_head": head, "_tail": tail})
-                                         })
-        });
-    case "Record":
-        delete obj._tag;
-        var chain = function () { return k(obj) };
-        function createChain(obj, i, k) {
-            return function() {
-                return resolveServerValueCPS(state, obj[i], function(ith) {
-                    obj[i] = ith;
-                    // console.log(k + '');
-                    return k();
-                });
-            };
-        }
-        for (let i in obj) {
-            chain = createChain(obj, i, chain);
-        }
-        return chain();
-        // return resolveServerValueCPS(state, obj[1], function(fst) {
-        //     obj[1] = fst;
-        //     return resolveServerValueCPS(state, obj[2], function(snd) {
-        //         obj[2] = snd;
-        //         return k(obj);
-        //     });
-        // });
-    case "Variant":
-        delete obj._tag;
-        return resolveServerValueCPS(state, obj._value, function(value) {
-            return k({'_label': obj._label, '_value': value});
-        });
-    case "FunctionPtr":
-    case "ClientFunction":
-        if (obj.environment == null) {
-            let f = eval(obj.func);
-            // console.log(f + "");
-            f.location = obj.location;
-            f.func = obj.func;
-            return k(f);
-        } else {
-            console.log(obj.environment);
-            return resolveServerValueCPS(state, obj.environment, function(env) {
-                // console.log("env: " + obj.environment + ", func: " + obj.func);
-                let f = eval(obj.func)(env);
-                // console.log(f + "");
-                f.location = obj.location;
-                f.func = obj.func;
-                return k(f);
-            });
-        }
-    case "Alien":
-        return k(eval(obj._value));
-    case "Process":
-        delete obj._tag;
-        return resolveServerValue(state, obj.process, function(process) {
-            obj.process = process;
-            function createChain(messages, i, k) {
-                return function() {
-                    return resolveServerValueCPS(state, messages[i], function(ith) {
-                        messages[i] = ith;
-                        return k(messages);
-                    });
-                };
-            }
+//     if (obj._tag == null && obj.key != null) {
+//         obj.key = _lookupMobileKey(state, obj.key)
+//         return k(obj);
+//     }
+//     // console.log("Obj: " + JSON.stringify(obj));
+//     switch (obj._tag) {
+//     case "Bool":
+//     case "Float":
+//     case "Int":
+//     case "String":
+//     case "XML":
+//     case "Database":
+//     case "Table":
+//         return k(obj._value);
+//     case "Char":
+//     case "ClientDomRef":
+//     case "ClientAccessPoint":
+//     case "ServerAccessPoint":
+//     case "ClientPid":
+//     case "ServerPid":
+//     case "SessionChannel":
+//     case "ServerSpawnLoc":
+//     case "ClientSpawnLoc":
+//         delete obj._tag;
+//         return k(obj);
+//     case "List":
+//         if (obj._head == null && obj._tail == null) return k({});
+//         return resolveServerValueCPS(state, obj._head, function(head) {
+//             return resolveServerValueCPS(state, obj._tail,
+//                                          function(tail) {
+//                                              return k({"_head": head, "_tail": tail})
+//                                          })
+//         });
+//     case "Record":
+//         delete obj._tag;
+//         var chain = function () { return k(obj) };
+//         function createChain(obj, i, k) {
+//             return function() {
+//                 return resolveServerValueCPS(state, obj[i], function(ith) {
+//                     obj[i] = ith;
+//                     // console.log(k + '');
+//                     return k();
+//                 });
+//             };
+//         }
+//         for (let i in obj) {
+//             chain = createChain(obj, i, chain);
+//         }
+//         return chain();
+//         // return resolveServerValueCPS(state, obj[1], function(fst) {
+//         //     obj[1] = fst;
+//         //     return resolveServerValueCPS(state, obj[2], function(snd) {
+//         //         obj[2] = snd;
+//         //         return k(obj);
+//         //     });
+//         // });
+//     case "Variant":
+//         delete obj._tag;
+//         return resolveServerValueCPS(state, obj._value, function(value) {
+//             return k({'_label': obj._label, '_value': value});
+//         });
+//     case "FunctionPtr":
+//     case "ClientFunction":
+//         if (obj.environment == null) {
+//             let f = eval(obj.func);
+//             // console.log(f + "");
+//             f.location = obj.location;
+//             f.func = obj.func;
+//             return k(f);
+//         } else {
+//             console.log(obj.environment);
+//             return resolveServerValueCPS(state, obj.environment, function(env) {
+//                 // console.log("env: " + obj.environment + ", func: " + obj.func);
+//                 let f = eval(obj.func)(env);
+//                 // console.log(f + "");
+//                 f.location = obj.location;
+//                 f.func = obj.func;
+//                 return k(f);
+//             });
+//         }
+//     case "Alien":
+//         return k(eval(obj._value));
+//     case "Process":
+//         delete obj._tag;
+//         return resolveServerValue(state, obj.process, function(process) {
+//             obj.process = process;
+//             function createChain(messages, i, k) {
+//                 return function() {
+//                     return resolveServerValueCPS(state, messages[i], function(ith) {
+//                         messages[i] = ith;
+//                         return k(messages);
+//                     });
+//                 };
+//             }
 
-            var chain = function(messages) {
-                obj.messages = messages;
-                return k(obj);
-            };
+//             var chain = function(messages) {
+//                 obj.messages = messages;
+//                 return k(obj);
+//             };
 
-            for (let i in obj) {
-                chain = createChain(obj, i, chain);
-            }
-            return chain();
-        });
-    default:
-        throw "Untagged server value \"" + JSON.stringify(obj) + "\"";
-    }
-}
+//             for (let i in obj) {
+//                 chain = createChain(obj, i, chain);
+//             }
+//             return chain();
+//         });
+//     default:
+//         throw "Untagged server value \"" + JSON.stringify(obj) + "\"";
+//     }
+// }
 
 // function resolveServerValue(state, obj) {
 //     let worklist = [obj];
@@ -314,6 +314,191 @@ function resolveServerValueCPS(state, obj, k) {
 
 // console.log(JSON.stringify(test()));
 
+   class ServerValueResolutionYield extends Error {
+     constructor(k) {
+       super("resolveServerValueCPS yielding");
+       this.k = k;
+     }
+   }
+
+let _resolveDepth = 0;
+let _resolveDepthMax = 1000;
+let yieldCount = 0;
+
+function resolveServerValue(state, obj) {
+    let k = function() { return resolveServerValueCPS(state, obj, function(x) { return x; }) };
+    while (true) {
+        return k();
+    }
+}
+
+function resolveServerValueCPS(state, obj, k) {
+    function applyK(k, arg) {
+        if (arg === undefined) throw "applyK " + k + " with undefined";
+        _resolveDepth++;
+        if (_resolveDepth >= _resolveDepthMax) {
+            _resolveDepth = 0;
+            //yieldCount++;
+            // console.log("Yielding obj: " + JSON.stringify(obj) + ", k: " + k);
+            throw new ServerValueResolutionYield(function() { return k(arg); });
+        }
+        return k(arg);
+    }
+    function _yield(f) {
+        _resolveDepth++;
+        if (_resolveDepth >= _resolveDepthMax) {
+            _resolveDepth = 0;
+            throw new ServerValueResolutionYield(f);
+        }
+        return f();
+    }
+
+    if (obj._tag == null && obj.key != null) {
+        obj.key = _lookupMobileKey(state, obj.key)
+        return applyK(k, obj);
+    }
+    let tag = obj._tag;
+    delete obj._tag;
+
+    switch (tag) {
+    case "Bool":
+    case "Float":
+    case "Int":
+    case "String":
+    case "Database":
+    case "Table":
+        return applyK(k, obj._value);
+    case "XML":
+            return resolveServerValueCPS(state, obj._value, function(xml) {
+                return applyK(k, xml);
+            });
+    case "Text":
+        return applyK(k, obj);
+    case "NsNode":
+            return resolveServerValueCPS(state, obj.children, function(children) {
+                console.log("Resolved children: " + JSON.stringify(children));
+                obj.children = children;
+                return applyK(k, obj);
+            });
+    case "Char":
+    case "ClientDomRef":
+    case "ClientAccessPoint":
+    case "ServerAccessPoint":
+    case "ClientPid":
+    case "ServerPid":
+    case "SessionChannel":
+    case "ServerSpawnLoc":
+    case "ClientSpawnLoc":
+        return k(obj);
+    case "List":
+        if (obj._head == null && obj._tail == null) return applyK(k, null);
+            return resolveServerValueCPS(state, obj._head, function(head) {
+                obj._head = head;
+                console.log("head = " + JSON.stringify(head));
+                return _yield(function () {
+                    return resolveServerValueCPS(state, obj._tail, function(tail) {
+                        obj._tail = tail;
+                        console.log("tail = " + JSON.stringify(tail));
+                        console.log("obj = " + JSON.stringify(obj));
+                        return applyK(k, obj);
+                    })
+                });
+            });
+    case "Record":
+        var chain0 = function(dummy) {
+            console.log("bottom k" + k);
+            return applyK(k, obj);
+        };
+        function createChain(obj, i, k) {
+            return function() {
+                return _yield(function() {
+                    resolveServerValueCPS(state, obj[i], function(ith) {
+                        console.log("obj[" + i + "] = " + JSON.stringify(obj[i]));
+                        obj[i] = ith;
+                        return applyK(k, obj);
+                    });
+                });
+            };
+        };
+        for (let i in obj) {
+            chain0 = createChain(obj, i, chain0);
+        }
+        return chain0(obj);
+    case "Variant":
+        return _yield(function () {
+            return resolveServerValueCPS(state, obj._value, function(value) {
+                return applyK(k, {'_label': obj._label, '_value': value});
+            });
+        });
+    case "FunctionPtr":
+    case "ClientFunction":
+        if (obj.environment == null) {
+            let f = eval(obj.func);
+            f.location = obj.location;
+            f.func = obj.func;
+            return applyK(k, f);
+        } else {
+                return resolveServerValueCPS(state, obj.environment, function(env) {
+                    let f = partialApply(eval(obj.func),env);
+                    f.location = obj.location;
+                    f.func = obj.func;
+                    return applyK(k, f);
+                });
+        }
+    case "Alien":
+        return applyK(k, eval(obj._value));
+    case "Process":
+        function _createChain(messages, i, k) {
+            return function() {
+                return _yield(function() {
+                    return resolveServerValueCPS(state, messages[i], function(ith) {
+                        messages[i] = ith;
+                        return applyK(k, messages);
+                    });
+                });
+            };
+        }
+
+        var chain1 = function(dummy) {
+            return applyK(k, obj);
+        };
+
+        for (let i in obj.messages) {
+            chain = _createChain(obj.messages, i, chain);
+        }
+
+        return _yield(function() {
+            return resolveServerValueCPS(state, obj.process, function(process) {
+                obj.process = process;
+                obj.pid     = obj.pid;
+                return chain1({});
+            });
+        });
+    default:
+        throw "Unrecognised tag " + tag + " for object \"" + JSON.stringify(obj) + "\"";
+    }
+}
+
+var x = {
+    "_tag": "List",
+    "_head": {
+        "1": {
+            "_tag": "String",
+            "_value": "submit"
+        },
+        "2": {
+            "_tag": "ClientFunction",
+            "func": "_2260"
+        },
+        "_tag": "Record"
+    },
+    "_tail": {
+        "_tag": "List"
+    }
+};
+
+function _2260() { return "2260"; }
+
 function foobar() { return "foobar"; }
 function quux(env) { return function() { return "inner" + env[1] } }
 
@@ -340,6 +525,7 @@ function testCPS() {
     return resolveServerValue(null, obj);
 }
 
-var result = testCPS();
+//var result = testCPS();
 // console.log(JSON.stringify(result));
-console.log(result.bar[2]._tail._head[1]._value());
+//console.log(result.bar[2]._tail._head[1]._value());
+console.log(resolveServerValue(null, x));
