@@ -174,6 +174,7 @@ let opchar = [ '.' '!' '$' '&' '*' '+' '/' '<' '=' '>' '@' '\\' '^' '-' '|' ]
 
 rule lex ctxt nl = parse
   | eof                                 { EOF }
+  | "#{"                                { multi_line ctxt nl lexbuf }
   | '#' ([^ '\n'] *)                    { lex ctxt nl lexbuf }
   | ';'                                 { SEMICOLON }
   | directive_prefix (def_id as id)     { KEYWORD id}
@@ -263,6 +264,10 @@ and starttag ctxt nl = parse
   | '\n'                                { nl () ; bump_lines lexbuf 1; starttag ctxt nl lexbuf }
   | def_blank                           { starttag ctxt nl lexbuf }
   | _                                   { raise (LexicalError (lexeme lexbuf, lexeme_end_p lexbuf)) }
+and multi_line ctxt nl = parse
+  | "#}"                                { lex ctxt nl lexbuf }
+  | _                                   { multi_line ctxt nl lexbuf }
+  | eof                                 { raise (LexicalError (lexeme lexbuf, lexeme_end_p lexbuf)) }
 and xmlcomment_lex ctxt nl = parse
   | "-->"                               { ctxt#next_lexer lexbuf }
   | '\n'                                { nl() ; bump_lines lexbuf 1; xmlcomment_lex ctxt nl lexbuf }
