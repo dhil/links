@@ -266,6 +266,7 @@ and starttag ctxt nl = parse
   | _                                   { raise (LexicalError (lexeme lexbuf, lexeme_end_p lexbuf)) }
 and multi_line ctxt nl = parse
   | "#}"                                { lex ctxt nl lexbuf }
+  | '\n'                                { bump_lines lexbuf 1; multi_line ctxt nl lexbuf }
   | _                                   { multi_line ctxt nl lexbuf }
   | eof                                 { raise (LexicalError (lexeme lexbuf, lexeme_end_p lexbuf)) }
 and xmlcomment_lex ctxt nl = parse
