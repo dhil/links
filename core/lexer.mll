@@ -91,7 +91,7 @@ let keywords = [
  "delete"   , DELETE;
  "delete_left", DELETE_LEFT;
  "determined", DETERMINED;
- "do"       , DOOP;
+ "do"       , DO;
  "else"     , ELSE;
  "escape"   , ESCAPE;
  "false"    , FALSE;
@@ -134,7 +134,6 @@ let keywords = [
  "select"   , SELECT;
  "server"   , SERVER;
  "set"      , SET;
- "shallowhandle", SHALLOWHANDLE;
  "sig"      , SIG;
  "spawn"    , SPAWN;
  "spawnClient" , SPAWNCLIENT;

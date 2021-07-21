@@ -511,11 +511,15 @@ class map =
           let _x = o#name _x in
           let _x_i1 = o#option (fun o -> o#pattern) _x_i1
           in Variant ((_x, _x_i1))
-      | Effect (name, ps, k) ->
-         let name = o#name name in
+      | Effect (ops, k) ->
+         let ops = o#list (fun o -> o#pattern) ops in
+         let k  = o#option (fun o -> o#pattern) k in
+         Effect (ops, k)
+      | Operation (label, ps, k) ->
+         let label = o#label label in
          let ps = o#list (fun o -> o#pattern) ps in
-         let k  = o#pattern k in
-         Effect (name, ps, k)
+         let k = o#option (fun o -> o#pattern) k in
+         Operation (label, ps, k)
       | Negative _x ->
           let _x = o#list (fun o -> o#name) _x
           in Negative _x
@@ -545,6 +549,7 @@ class map =
     method foreign_language : ForeignLanguage.t -> ForeignLanguage.t
       = fun lang -> lang
 
+    method label : Label.t -> Label.t = o#string
     method name : Name.t -> Name.t = o#string
 
     method location : Location.t -> Location.t = o#unknown
@@ -1252,10 +1257,14 @@ class fold =
       | Variant ((_x, _x_i1)) ->
           let o = o#name _x in
           let o = o#option (fun o -> o#pattern) _x_i1 in o
-      | Effect (name, ps, k) ->
-         let o = o#name name in
+      | Effect (ops, k) ->
+         let o = o#list (fun o -> o#pattern) ops in
+         let o  = o#option (fun o -> o#pattern) k in
+         o
+      | Operation (label, ps, k) ->
+         let o = o#label label in
          let o = o#list (fun o -> o#pattern) ps in
-         let o = o#pattern k in
+         let o = o#option (fun o -> o#pattern) k in
          o
       | Negative _x ->
           let o = o#list (fun o -> o#name) _x in o
@@ -1284,6 +1293,7 @@ class fold =
     method foreign_language : ForeignLanguage.t -> 'self_type
       = fun _ -> o
 
+    method label : Label.t -> 'self_type = o#string
     method name : Name.t -> 'self_type = o#string
 
     method location : Location.t -> 'self_type = o#unknown
@@ -2083,11 +2093,15 @@ class fold_map =
           let (o, _x) = o#name _x in
           let (o, _x_i1) = o#option (fun o -> o#pattern) _x_i1
           in (o, (Variant ((_x, _x_i1))))
-      | Effect (name, ps, k) ->
-         let (o, name) = o#name name in
-         let (o, ps) = o#list (fun o -> o#pattern) ps in
-         let (o, k) = o#pattern k in
-         (o, Effect (name, ps, k))
+      | Effect (ops, k) ->
+         let (o, ops) = o#list (fun o -> o#pattern) ops in
+         let (o, k)   = o#option (fun o -> o#pattern) k in
+         (o, Effect (ops, k))
+      | Operation (label, ps, k) ->
+         let (o, label) = o#label label in
+         let (o, ps)    = o#list (fun o -> o#pattern) ps in
+         let (o, k)     = o#option (fun o -> o#pattern) k in
+         (o, Operation (label, ps, k))
       | Negative _x ->
           let (o, _x) = o#list (fun o -> o#name) _x in (o, (Negative _x))
       | Record ((_x, _x_i1)) ->
@@ -2119,6 +2133,7 @@ class fold_map =
     method foreign_language : ForeignLanguage.t -> ('self_type * ForeignLanguage.t)
       = fun lang -> o, lang
 
+    method label : Label.t -> ('self_type * Label.t) = o#string
     method name : Name.t -> ('self_type * Name.t) = o#string
 
     method location : Location.t -> ('self_type * Location.t) = o#unknown

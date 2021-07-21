@@ -31,7 +31,8 @@ struct
     | Nil
     | Cons     of t * t
     | Variant  of Name.t * t
-    | Effect   of Name.t * t list * t
+    | Effect   of t list * t option
+    | Operation of Label.t * t list * t option
     | Negative of StringSet.t
     | Record   of t StringMap.t * t option
     | Constant of Constant.t
@@ -56,6 +57,7 @@ struct
     | SConstant
     | SVariable
     | SEffect
+    | SOperation
 
   type annotation_element =
     | Binder of binder
@@ -128,7 +130,7 @@ let rec desugar_pattern : Types.row -> Sugartypes.Pattern.with_pos -> Pattern.t 
         | Variant (name, Some p) ->
             let p, env = desugar_pattern p in
             Pattern.Variant (name, p), env
-        | Effect (name, ps, k) ->
+        | Effect (ps, k) ->
            let ps, env =
              List.fold_right
                (fun p (ps, env) ->
@@ -136,8 +138,11 @@ let rec desugar_pattern : Types.row -> Sugartypes.Pattern.with_pos -> Pattern.t 
                  (p' :: ps, env ++ env'))
                ps ([], empty)
            in
-           let k, env' = desugar_pattern k in
-           Pattern.Effect (name, ps, k), env ++ env'
+           let k, env' =
+             failwith "TODO"
+           in
+           Pattern.Effect (ps, k), env'
+        | Operation (label, ps, k) -> failwith "TODO"
         | Negative names -> Pattern.Negative (StringSet.from_list names), empty
         | Record (bs, p) ->
             let bs, env =
@@ -343,6 +348,7 @@ let rec get_pattern_sort : Pattern.t -> Pattern.sort =
     | As (_, pattern) -> get_pattern_sort pattern
     | HasType (pattern, _) -> get_pattern_sort pattern
     | Effect _ -> SEffect
+    | Operation _ -> SOperation
 
 let get_clause_pattern_sort : clause -> Pattern.sort =
   function
@@ -963,151 +969,152 @@ let compile_handle_cases
      continuation binders for each raw clause, and bind them in their
      respective compiled clause bodies such that each raw continuation
      binder is an alias of the fresh continuation binder. *)
-  let (params, (with_parameters, outer_param_bindings)) =
-    compile_handle_parameters (nenv, tenv, eff) params
-  in
-  let compiled_effect_cases =  (* The compiled cases *)
-    if List.length raw_effect_clauses = 0 then
-      StringMap.empty
-    else begin
-        let (comp_eff, comp_ty, _, _) = Sugartypes.(desc.shd_types) in
-        let variant_type =
-          let (fields,_,_) = comp_eff |> TypeUtils.extract_row_parts in
-          let fields' =
-            StringMap.filter
-              (fun _ ->
-                function
-                | Types.Present _ -> true
-                | _ -> false)
-              fields
-          in
-          let fields'' =
-            StringMap.map
-              (function
-              | Types.Present t ->
-                 begin match TypeUtils.concrete_type t with
-                 | Types.Function (domain, _, _) ->
-                    let (fields, _, _) = TypeUtils.extract_row domain |> TypeUtils.extract_row_parts in
-                    let arity = StringMap.size fields in
-                    if arity = 1 then
-                      match StringMap.find "1" fields with
-                      | Types.Present t -> t
-                      | _ -> assert false
-                    else
-                      domain (* n-ary operation *)
-                 | _ -> Types.unit_type (* nullary operation *)
-                 end
-              | _ -> assert false)
-              fields'
-          in
-          Types.make_variant_type fields''
-        in
-        let transformed_effect_clauses =
-          let raw_cases =
-            List.map
-              (fun (ps, body) ->
-                let variant_pat =
-                  match ps with
-                  | [Pattern.Effect (name, [], _)] ->
-                     Pattern.Variant (name, Pattern.Any)
-                  | [Pattern.Effect (name, [p], _)] ->
-                     Pattern.Variant (name, p)
-                  | [Pattern.Effect (name, ps, _)] ->
-                     let packaged_args =
-                       let fields =
-                         List.mapi (fun i p -> (string_of_int (i+1), p)) ps
-                       in
-                       Pattern.Record (StringMap.from_alist fields, None)
-                     in
-                     Pattern.Variant (name, packaged_args)
-                  | _ -> assert false
-                in
-              [variant_pat], body)
-              raw_effect_clauses
-          in
-          List.map reduce_clause raw_cases
-        in
-        let compiled_transformed_effect_cases =
-          let dummy_var = Var.(make_local_info ->- fresh_binder ->- var_of_binder) (variant_type, "_m") in
-          let tenv = TEnv.bind dummy_var variant_type tenv in
-          let initial_env = (nenv, tenv, eff, PEnv.empty) in (* Need to bind raw continuation binders in tenv and nenv? *)
-          match snd @@ match_cases [dummy_var] transformed_effect_clauses (fun _ -> ([], Special (Wrong comp_ty))) initial_env with
-          | Case (_, clauses, _) -> clauses (* No default effect pattern *)
-          | _ -> assert false
-        in
-        let continuation_binders =
-          let upd effname ks map =
-            match StringMap.lookup effname map with
-            | None -> StringMap.add effname ks map
-            | Some ks' -> StringMap.add effname (ks @ ks') map
-          in
-          let rec gather_binders = function
-            | Pattern.Any -> []
-            | Pattern.Variable b -> [b]
-            | Pattern.As (b, p) -> b :: gather_binders p
-            | _ -> assert false
-          in
-          List.fold_left
-            (fun acc -> function
-              | [Pattern.Effect (name, _, k)] ->
-                 upd name (gather_binders k) acc
-              | _ -> assert false)
-            StringMap.empty (List.map fst raw_effect_clauses)
-        in
-        StringMap.mapi
-          (fun effname (x, body) ->
-            let body =
-              with_parameters body
-            in
-            match StringMap.find effname continuation_binders with
-            | [] ->
-               let resume =
-                 Var.(make_local_info ->- fresh_binder) (Types.Not_typed, "_resume")
-               in
-               (x, resume, body)
-            | [resume] -> (* micro-optimisation: if there is only one
-                             resumption binder then just use it. *)
-               (x, resume, body)
-            | ks ->
-               let resume_ty =
-                 Var.type_of_binder (List.hd ks)
-               in
-               let resume_b =
-                 Var.(make_local_info ->- fresh_binder) (resume_ty, "_resume")
-               in
-               let resume_v = Var.var_of_binder resume_b in
-               let body =
-                 List.fold_left
-                   (fun (bs, tc) kb ->
-                     letmv (kb, Variable resume_v) :: bs, tc)
-                   body ks
-               in
-               (x, resume_b, body))
-          compiled_transformed_effect_cases
-      end
-  in
-  let return : binder * computation =
-    let (_, comp_ty, _, _) = Sugartypes.(desc.shd_types) in
-    let scrutinee = Var.(make_local_info ->- fresh_binder) (comp_ty, "_return_value") in
-    let tenv = TEnv.bind (Var.var_of_binder scrutinee) comp_ty tenv in
-    let initial_env = (nenv, tenv, eff, PEnv.empty) in
-    let clauses = List.map reduce_clause raw_value_clauses in
-    let body = match_cases [Var.var_of_binder scrutinee] clauses (fun _ -> ([], Special (Wrong comp_ty))) initial_env in
-    scrutinee, with_parameters body
-  in
-  let handle =
-    Handle {
-        ih_comp   = m;
-        ih_return = return;
-        ih_cases  = compiled_effect_cases;
-        ih_depth  =
-          let open Sugartypes in
-          match desc.shd_depth  with
-          | Shallow -> Ir.Shallow
-          | Deep    -> Ir.Deep params
-      }
-  in
-  (outer_param_bindings, Special handle)
+  failwith "TODO"
+  (* let (params, (with_parameters, outer_param_bindings)) =
+   *   compile_handle_parameters (nenv, tenv, eff) params
+   * in
+   * let compiled_effect_cases =  (\* The compiled cases *\)
+   *   if List.length raw_effect_clauses = 0 then
+   *     StringMap.empty
+   *   else begin
+   *       let (comp_eff, comp_ty, _, _) = Sugartypes.(desc.shd_types) in
+   *       let variant_type =
+   *         let (fields,_,_) = comp_eff |> TypeUtils.extract_row_parts in
+   *         let fields' =
+   *           StringMap.filter
+   *             (fun _ ->
+   *               function
+   *               | Types.Present _ -> true
+   *               | _ -> false)
+   *             fields
+   *         in
+   *         let fields'' =
+   *           StringMap.map
+   *             (function
+   *             | Types.Present t ->
+   *                begin match TypeUtils.concrete_type t with
+   *                | Types.Function (domain, _, _) ->
+   *                   let (fields, _, _) = TypeUtils.extract_row domain |> TypeUtils.extract_row_parts in
+   *                   let arity = StringMap.size fields in
+   *                   if arity = 1 then
+   *                     match StringMap.find "1" fields with
+   *                     | Types.Present t -> t
+   *                     | _ -> assert false
+   *                   else
+   *                     domain (\* n-ary operation *\)
+   *                | _ -> Types.unit_type (\* nullary operation *\)
+   *                end
+   *             | _ -> assert false)
+   *             fields'
+   *         in
+   *         Types.make_variant_type fields''
+   *       in
+   *       let transformed_effect_clauses =
+   *         let raw_cases =
+   *           List.map
+   *             (fun (ps, body) ->
+   *               let variant_pat =
+   *                 match ps with
+   *                 | [Pattern.Effect (name, [], _)] ->
+   *                    Pattern.Variant (name, Pattern.Any)
+   *                 | [Pattern.Effect (name, [p], _)] ->
+   *                    Pattern.Variant (name, p)
+   *                 | [Pattern.Effect (name, ps, _)] ->
+   *                    let packaged_args =
+   *                      let fields =
+   *                        List.mapi (fun i p -> (string_of_int (i+1), p)) ps
+   *                      in
+   *                      Pattern.Record (StringMap.from_alist fields, None)
+   *                    in
+   *                    Pattern.Variant (name, packaged_args)
+   *                 | _ -> assert false
+   *               in
+   *             [variant_pat], body)
+   *             raw_effect_clauses
+   *         in
+   *         List.map reduce_clause raw_cases
+   *       in
+   *       let compiled_transformed_effect_cases =
+   *         let dummy_var = Var.(make_local_info ->- fresh_binder ->- var_of_binder) (variant_type, "_m") in
+   *         let tenv = TEnv.bind dummy_var variant_type tenv in
+   *         let initial_env = (nenv, tenv, eff, PEnv.empty) in (\* Need to bind raw continuation binders in tenv and nenv? *\)
+   *         match snd @@ match_cases [dummy_var] transformed_effect_clauses (fun _ -> ([], Special (Wrong comp_ty))) initial_env with
+   *         | Case (_, clauses, _) -> clauses (\* No default effect pattern *\)
+   *         | _ -> assert false
+   *       in
+   *       let continuation_binders =
+   *         let upd effname ks map =
+   *           match StringMap.lookup effname map with
+   *           | None -> StringMap.add effname ks map
+   *           | Some ks' -> StringMap.add effname (ks @ ks') map
+   *         in
+   *         let rec gather_binders = function
+   *           | Pattern.Any -> []
+   *           | Pattern.Variable b -> [b]
+   *           | Pattern.As (b, p) -> b :: gather_binders p
+   *           | _ -> assert false
+   *         in
+   *         List.fold_left
+   *           (fun acc -> function
+   *             | [Pattern.Effect (name, _, k)] ->
+   *                upd name (gather_binders k) acc
+   *             | _ -> assert false)
+   *           StringMap.empty (List.map fst raw_effect_clauses)
+   *       in
+   *       StringMap.mapi
+   *         (fun effname (x, body) ->
+   *           let body =
+   *             with_parameters body
+   *           in
+   *           match StringMap.find effname continuation_binders with
+   *           | [] ->
+   *              let resume =
+   *                Var.(make_local_info ->- fresh_binder) (Types.Not_typed, "_resume")
+   *              in
+   *              (x, resume, body)
+   *           | [resume] -> (\* micro-optimisation: if there is only one
+   *                            resumption binder then just use it. *\)
+   *              (x, resume, body)
+   *           | ks ->
+   *              let resume_ty =
+   *                Var.type_of_binder (List.hd ks)
+   *              in
+   *              let resume_b =
+   *                Var.(make_local_info ->- fresh_binder) (resume_ty, "_resume")
+   *              in
+   *              let resume_v = Var.var_of_binder resume_b in
+   *              let body =
+   *                List.fold_left
+   *                  (fun (bs, tc) kb ->
+   *                    letmv (kb, Variable resume_v) :: bs, tc)
+   *                  body ks
+   *              in
+   *              (x, resume_b, body))
+   *         compiled_transformed_effect_cases
+   *     end
+   * in
+   * let return : binder * computation =
+   *   let (_, comp_ty, _, _) = Sugartypes.(desc.shd_types) in
+   *   let scrutinee = Var.(make_local_info ->- fresh_binder) (comp_ty, "_return_value") in
+   *   let tenv = TEnv.bind (Var.var_of_binder scrutinee) comp_ty tenv in
+   *   let initial_env = (nenv, tenv, eff, PEnv.empty) in
+   *   let clauses = List.map reduce_clause raw_value_clauses in
+   *   let body = match_cases [Var.var_of_binder scrutinee] clauses (fun _ -> ([], Special (Wrong comp_ty))) initial_env in
+   *   scrutinee, with_parameters body
+   * in
+   * let handle =
+   *   Handle {
+   *       ih_comp   = m;
+   *       ih_return = return;
+   *       ih_cases  = compiled_effect_cases;
+   *       ih_depth  =
+   *         let open Sugartypes in
+   *         match desc.shd_depth  with
+   *         | Shallow -> Ir.Shallow
+   *         | Deep    -> Ir.Deep params
+   *     }
+   * in
+   * (outer_param_bindings, Special handle) *)
 
 (* Session typing choice compilation *)
 let match_choices : var -> clause list -> bound_computation =

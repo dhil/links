@@ -49,6 +49,7 @@ class map :
     method patternnode     : Pattern.t -> Pattern.t
     method pattern         : Pattern.with_pos -> Pattern.with_pos
     method foreign_language : ForeignLanguage.t -> ForeignLanguage.t
+    method label           : Label.t -> Label.t
     method name            : Name.t -> Name.t
     method location        : Location.t -> Location.t
     method iterpatt        : iterpatt -> iterpatt
@@ -128,6 +129,7 @@ class fold :
     method patternnode     : Pattern.t -> 'self
     method pattern         : Pattern.with_pos -> 'self
     method foreign_language : ForeignLanguage.t -> 'self
+    method label           : Label.t -> 'self
     method name            : Name.t -> 'self
     method location        : Location.t -> 'self
     method iterpatt        : iterpatt -> 'self
@@ -193,6 +195,7 @@ object ('self)
   method list            : 'a . ('self -> 'a -> 'self * 'a) -> 'a list -> 'self * 'a list
   method location        : Location.t -> 'self * Location.t
   method foreign_language : ForeignLanguage.t -> 'self * ForeignLanguage.t
+  method label           : Label.t -> 'self * Label.t
   method name            : Name.t -> 'self * Name.t
   method option          : 'a . ('self -> 'a -> 'self * 'a) -> 'a option -> 'self * 'a option
   method patternnode     : Pattern.t -> 'self * Pattern.t

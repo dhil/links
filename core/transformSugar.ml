@@ -683,10 +683,14 @@ class transform (env : Types.typing_environment) =
       | Variant (name, p) ->
           let (o, p) = optionu o (fun o -> o#pattern) p
           in (o, Variant (name, p))
-      | Effect (name, ps, k) ->
+      | Effect (ps, k) ->
          let (o, ps) = listu o (fun o -> o#pattern) ps in
-         let (o, k)  = o#pattern k in
-         (o, Effect (name, ps, k))
+         let (o, k)  = optionu o (fun o -> o#pattern) k in
+         (o, Effect (ps, k))
+      | Operation (label, ps, k) ->
+         let (o, ps) = listu o (fun o -> o#pattern) ps in
+         let (o, k)  = optionu o (fun o -> o#pattern) k in
+         (o, Operation (label, ps, k))
       | Negative name -> (o, Negative name)
       | Record (fields, rest) ->
           let (o, fields) =

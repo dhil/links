@@ -269,10 +269,9 @@ let parse_foreign_language pos lang =
 %token IF ELSE
 %token MINUS MINUSDOT
 %token SWITCH RECEIVE CASE
-%token HANDLE SHALLOWHANDLE
 %token SPAWN SPAWNAT SPAWNANGELAT SPAWNCLIENT SPAWNANGEL SPAWNWAIT
 %token OFFER SELECT
-%token DOOP
+%token DO HANDLE
 %token LPAREN RPAREN
 %token LBRACE RBRACE LBRACEBAR BARRBRACE LQUOTE RQUOTE
 %token RBRACKET LBRACKET LBRACKETBAR BARRBRACKET
@@ -624,7 +623,7 @@ unary_expression:
 | MINUSDOT unary_expression                                    { unary_appl ~ppos:$loc UnaryOp.FloatMinus $2 }
 | OPERATOR unary_expression                                    { unary_appl ~ppos:$loc (UnaryOp.Name $1)  $2 }
 | postfix_expression | constructor_expression                  { $1 }
-| DOOP CONSTRUCTOR loption(arg_spec)                           { with_pos $loc (DoOperation ($2, $3, None)) }
+| DO CONSTRUCTOR loption(arg_spec)                             { with_pos $loc (DoOperation ($2, $3, None)) }
 
 infix_appl:
 | unary_expression                                             { $1 }
@@ -708,7 +707,6 @@ case:
 case_expression:
 | SWITCH LPAREN exp RPAREN LBRACE case* RBRACE                 { with_pos $loc (Switch ($3, $6, None)) }
 | RECEIVE LBRACE case* RBRACE                                  { with_pos $loc (Receive ($3, None)) }
-| SHALLOWHANDLE LPAREN exp RPAREN LBRACE case* RBRACE          { with_pos $loc (Handle (untyped_handler $3 $6 Shallow)) }
 | HANDLE LPAREN separated_nonempty_list(COMMA,exp) RPAREN LBRACE handle_cases RBRACE          { with_pos $loc (Handle (untyped_handler (List.hd $3) $6 Deep   )) }
 | HANDLE LPAREN separated_nonempty_list(COMMA,exp) RPAREN LPAREN handle_params RPAREN LBRACE case* RBRACE
                                                                { with_pos $loc (Handle (untyped_handler ~parameters:$6 (List.hd $3) $9 Deep)) }
@@ -1171,7 +1169,7 @@ effect_pattern:
 | lt = OPERATOR operation_patterns gt = OPERATOR
     { if (lt <> "<") then raise (ConcreteSyntaxError (pos $loc(lt), ""))
       else if (gt <> ">") then raise (ConcreteSyntaxError (pos $loc(gt), ""))
-      else let (pats, kpat) = $2 in with_pos $loc (Pattern.Effect2 (pats, kpat)) }
+      else let (pats, kpat) = $2 in with_pos $loc (Pattern.Effect (pats, kpat)) }
 
 operation_patterns:
 | unary_operation_pattern
