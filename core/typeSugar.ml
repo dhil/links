@@ -616,7 +616,7 @@ end
       die pos ("The handle has effect type " ^ nl() ^
                   tab() ^ code (show_effectrow (TypeUtils.extract_row lt)) ^ nl() ^
           "but, the currently allowed effects are" ^ nl() ^
-                  tab() ^ code (show_effectrow (TypeUtils.extract_row rt)))
+               tab() ^ code (show_effectrow (TypeUtils.extract_row rt)))
 
 
     let type_resumption_with_annotation ~pos ~t1:(resume,lt) ~t2:(_,rt) ~error:_ =
@@ -3681,6 +3681,18 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
               then raise (Errors.disabled_extension
                             ~pos ~setting:("enable_handlers", true)
                             ~flag:"--enable-handlers" "Handlers"));
+           let check_arity ncomps val_cases eff_cases =
+             let rec check_arity case_description ncomps = function
+               | [] -> ()
+               | (ps, _) :: cases ->
+                 if List.length ps <> ncomps
+                 then Gripers.die pos (Printf.sprintf "Arity mismatch: The handler has arity %d, but its definition contains a %s with arity %d."
+                                                                                ncomps case_description (List.length ps))
+                 else check_arity case_description ncomps cases
+             in
+             check_arity "value case" ncomps val_cases; check_arity "effect case" ncomps eff_cases
+           in
+           check_arity (List.length [m]) [] [];
            failwith "TODO"
          (*   let rec pop_last = function
           *     | [] -> assert false
