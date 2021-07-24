@@ -119,7 +119,7 @@ object (o : 'self_type)
           (Utility.gensym ~prefix:"dsh" ()) in
 
         let otherwise_pat : Sugartypes.Pattern.with_pos =
-          with_dummy_pos (Pattern.Effect ([with_dummy_pos (Pattern.Operation (failure_op_name, [], Some cont_pat))], None))
+          with_dummy_pos (Pattern.Effect ([with_dummy_pos (Pattern.Operation (failure_op_name, [], cont_pat))], with_dummy_pos Pattern.Any))
         in
 
         let otherwise_clause = (otherwise_pat, otherwise_phr) in

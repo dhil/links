@@ -260,6 +260,8 @@ let parse_foreign_language pos lang =
     raise (ConcreteSyntaxError
              (pos, Printf.sprintf "Unrecognised foreign language '%s'." lang))
 
+let any = any_pat dp
+
 %}
 
 %token EOF
@@ -1182,8 +1184,8 @@ pattern:
 %inline
 chevrons(prod):
 | lt = OPERATOR prod gt = OPERATOR
-    { if (lt <> "<") then raise (ConcreteSyntaxError (pos $loc(lt), ""))
-      else if (gt <> ">") then raise (ConcreteSyntaxError (pos $loc(gt), ""))
+    { if (lt <> "<") then raise (ConcreteSyntaxError (pos $loc(lt), "Expected '<'"))
+      else if (gt <> ">") then raise (ConcreteSyntaxError (pos $loc(gt), "Expected '>'"))
       else $2 }
 
 unary_effect_pattern:
@@ -1192,15 +1194,19 @@ unary_effect_pattern:
 
 unary_operation_pattern:
 | operation_pattern
-    { (with_pos $loc (Pattern.Operation (fst $1, snd $1, None)), None) }
+    { (with_pos $loc (Pattern.Operation (fst $1, snd $1, any)), any) }
 | operation_pattern FATRARROW pattern
-    { (with_pos $loc (Pattern.Operation (fst $1, snd $1, None)), Some $3) }
+    { (with_pos $loc (Pattern.Operation (fst $1, snd $1, any)), $3) }
 | operation_pattern RARROW pattern
-    { (with_pos $loc (Pattern.Operation (fst $1, snd $1, Some $3)), None) }
-| LPAREN shallow_operation_pattern RPAREN FATRARROW pattern { ($2, Some $5) }
-| LPAREN shallow_operation_pattern RPAREN { ($2, None) }
-| LPAREN chevrons(shallow_operation_pattern) RPAREN FATRARROW pattern { ($2, Some $5) }
-| LPAREN chevrons(shallow_operation_pattern) RPAREN { ($2, None) }
+    { (with_pos $loc (Pattern.Operation (fst $1, snd $1, $3)), any) }
+| LPAREN shallow_operation_pattern RPAREN FATRARROW pattern
+    { ($2, $5) }
+| LPAREN shallow_operation_pattern RPAREN
+    { ($2, any) }
+| LPAREN chevrons(shallow_operation_pattern) RPAREN FATRARROW pattern
+    { ($2, $5) }
+| LPAREN chevrons(shallow_operation_pattern) RPAREN
+    { ($2, any) }
 
 nary_effect_pattern:
 | chevrons(nary_operation_patterns)
@@ -1208,9 +1214,9 @@ nary_effect_pattern:
 
 nary_operation_patterns:
 | LPAREN separated_nonempty_list(COMMA, operation_or_value_pattern) RPAREN FATRARROW pattern
-    { ($2, Some $5) }
+    { ($2, $5) }
 | LPAREN separated_nonempty_list(COMMA, operation_or_value_pattern) RPAREN
-    { ($2, None) }
+    { ($2, any) }
 
 operation_or_value_pattern:
 | chevrons(shallow_operation_pattern) { $1 }
@@ -1218,9 +1224,9 @@ operation_or_value_pattern:
 
 shallow_operation_pattern:
 | operation_pattern RARROW pattern
-    { with_pos $loc (Pattern.Operation (fst $1, snd $1, Some $3)) }
+    { with_pos $loc (Pattern.Operation (fst $1, snd $1, $3)) }
 | operation_pattern
-    { with_pos $loc (Pattern.Operation (fst $1, snd $1, None)) }
+    { with_pos $loc (Pattern.Operation (fst $1, snd $1, any)) }
 
 operation_pattern:
 | CONSTRUCTOR { ($1, []) }

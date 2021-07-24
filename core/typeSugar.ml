@@ -177,9 +177,9 @@ struct
     | HasType (p, _)
     | As (_, p) -> is_safe_pattern p
     | Effect (ops, k) ->
-       List.for_all is_safe_pattern ops && OptionUtils.from_option true (OptionUtils.opt_map is_safe_pattern k)
+       List.for_all is_safe_pattern ops && is_safe_pattern k
     | Operation (_, ps, k) ->
-       List.for_all is_safe_pattern ps && OptionUtils.from_option true (OptionUtils.opt_map is_safe_pattern k)
+       List.for_all is_safe_pattern ps && is_safe_pattern k
   and is_pure_regex = function
       (* don't check whether it can fail; just check whether it
          contains non-generilisable sub-expressions *)
@@ -2133,19 +2133,11 @@ let check_for_duplicate_names : Position.t -> Pattern.with_pos list -> string li
       | Effect (ops, k) ->
          let binderss' =
            List.fold_right (fun op binderss -> gather binderss op) ops binderss
-         in begin
-         match k with
-         | None -> binderss'
-         | Some k -> gather binderss' k
-         end
+         in gather binderss' k
       | Operation (_, ps, k) ->
          let binderss' =
            List.fold_right (fun p binderss -> gather binderss p) ps binderss
-         in begin
-         match k with
-         | None -> binderss'
-         | Some k -> gather binderss' k
-         end
+         in gather binderss' k
       | Negative _ -> binderss
       | Record (ps, p) ->
           let binderss = List.fold_right (fun (_, p) binderss -> gather binderss p) ps binderss in
@@ -2180,17 +2172,9 @@ let rec pattern_env : Pattern.with_pos -> Types.datatype Env.t =
     | Variant (_, Some p) -> pattern_env p
     | Variant (_, None) -> Env.empty
     | Effect (ps, k) ->
-       let env = List.fold_right (pattern_env ->- Env.extend) ps Env.empty in
-       begin match k with
-       | None -> env
-       | Some k -> Env.extend env (pattern_env k)
-       end
+      List.fold_right (pattern_env ->- Env.extend) ps (pattern_env k)
     | Operation (_, ps, k) ->
-       let env = List.fold_right (pattern_env ->- Env.extend) ps Env.empty in
-       begin match k with
-       | None -> env
-       | Some k -> Env.extend env (pattern_env k)
-       end
+       List.fold_right (pattern_env ->- Env.extend) ps (pattern_env k)
     | Negative _ -> Env.empty
     | Record (ps, Some p) ->
        List.fold_right (snd ->- pattern_env ->- Env.extend) ps (pattern_env p)

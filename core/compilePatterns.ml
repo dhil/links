@@ -31,8 +31,8 @@ struct
     | Nil
     | Cons     of t * t
     | Variant  of Name.t * t
-    | Effect   of t list * t option
-    | Operation of Label.t * t list * t option
+    | Effect   of t list * t
+    | Operation of Label.t * t list * t
     | Negative of StringSet.t
     | Record   of t StringMap.t * t option
     | Constant of Constant.t

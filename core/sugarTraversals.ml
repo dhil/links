@@ -513,12 +513,12 @@ class map =
           in Variant ((_x, _x_i1))
       | Effect (ops, k) ->
          let ops = o#list (fun o -> o#pattern) ops in
-         let k  = o#option (fun o -> o#pattern) k in
+         let k  = o#pattern k in
          Effect (ops, k)
       | Operation (label, ps, k) ->
          let label = o#label label in
          let ps = o#list (fun o -> o#pattern) ps in
-         let k = o#option (fun o -> o#pattern) k in
+         let k = o#pattern k in
          Operation (label, ps, k)
       | Negative _x ->
           let _x = o#list (fun o -> o#name) _x
@@ -1259,12 +1259,12 @@ class fold =
           let o = o#option (fun o -> o#pattern) _x_i1 in o
       | Effect (ops, k) ->
          let o = o#list (fun o -> o#pattern) ops in
-         let o  = o#option (fun o -> o#pattern) k in
+         let o = o#pattern k in
          o
       | Operation (label, ps, k) ->
          let o = o#label label in
          let o = o#list (fun o -> o#pattern) ps in
-         let o = o#option (fun o -> o#pattern) k in
+         let o = o#pattern k in
          o
       | Negative _x ->
           let o = o#list (fun o -> o#name) _x in o
@@ -2095,12 +2095,12 @@ class fold_map =
           in (o, (Variant ((_x, _x_i1))))
       | Effect (ops, k) ->
          let (o, ops) = o#list (fun o -> o#pattern) ops in
-         let (o, k)   = o#option (fun o -> o#pattern) k in
+         let (o, k)   = o#pattern k in
          (o, Effect (ops, k))
       | Operation (label, ps, k) ->
          let (o, label) = o#label label in
          let (o, ps)    = o#list (fun o -> o#pattern) ps in
-         let (o, k)     = o#option (fun o -> o#pattern) k in
+         let (o, k)     = o#pattern k in
          (o, Operation (label, ps, k))
       | Negative _x ->
           let (o, _x) = o#list (fun o -> o#name) _x in (o, (Negative _x))

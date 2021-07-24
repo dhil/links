@@ -238,8 +238,8 @@ module Pattern = struct
     | Cons     of with_pos * with_pos
     | List     of with_pos list
     | Variant  of Name.t * with_pos option
-    | Effect   of with_pos list * with_pos option
-    | Operation of Label.t * with_pos list * with_pos option
+    | Effect   of with_pos list * with_pos
+    | Operation of Label.t * with_pos list * with_pos
     | Negative of Name.t list
     | Record   of (Name.t * with_pos) list * with_pos option
     | Tuple    of with_pos list
@@ -431,7 +431,7 @@ and phrasenode =
   | Instantiate      of phrase
   | Generalise       of phrase
   | ConstructorLit   of Name.t * phrase option * Types.datatype option
-  | DoOperation      of Name.t * phrase list * Types.datatype option
+  | DoOperation      of Label.t * phrase list * Types.datatype option
   | Handle           of handler
   | Switch           of phrase * (Pattern.with_pos * phrase) list *
                           Types.datatype option
@@ -594,8 +594,8 @@ struct
     | List ps               -> union_map pattern ps
     | Cons (p1, p2)         -> union (pattern p1) (pattern p2)
     | Variant (_, popt)     -> option_map pattern popt
-    | Effect (ops, kopt)    -> union (union_map pattern ops) (option_map pattern kopt)
-    | Operation (_, ps, kopt)  -> union (union_map pattern ps) (option_map pattern kopt)
+    | Effect (ops, k)    -> union (union_map pattern ops) (pattern k)
+    | Operation (_, ps, k)  -> union (union_map pattern ps) (pattern k)
     | Record (fields, popt) ->
        union (option_map pattern popt)
          (union_map (snd ->- pattern) fields)
