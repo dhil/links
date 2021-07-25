@@ -134,14 +134,13 @@ object (o : 'self_type)
           (inner_effects, try_dt, outer_effects, otherwise_dt) in
 
         let hndl_desc = {
-          shd_depth = Deep;
           shd_types = types;
           shd_raw_row = raw_row;
           shd_params = None;
         } in
 
         let hndlr = {
-          sh_expr = try_phr;
+          sh_expr = [try_phr];
           sh_effect_cases = effect_cases;
           sh_value_cases = value_cases;
           sh_descr = hndl_desc

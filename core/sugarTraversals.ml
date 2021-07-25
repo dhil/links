@@ -285,7 +285,7 @@ class map =
           let t   = o#option (fun o -> o#typ) t in
           DoOperation (name, ps, t)
       | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
-         let m = o#phrase sh_expr in
+         let m = o#list (fun o -> o#phrase) sh_expr in
          let params =
             o#option (fun o -> o#handle_params) sh_descr.shd_params
          in
@@ -1051,7 +1051,7 @@ class fold =
      let o = o#option (fun o -> o#unknown) t in
      let o = o#list (fun o -> o#phrase) ps in o
       | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
-         let o = o#phrase sh_expr in
+         let o = o#list (fun o -> o#phrase) sh_expr in
          let o =
            o#option (fun o -> o#handle_params) sh_descr.shd_params
          in
@@ -1826,7 +1826,7 @@ class fold_map =
           let (o, ps) = o#list (fun o -> o#phrase) ps in
           (o, DoOperation (name, ps, t))
       | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
-          let (o, m) = o#phrase sh_expr in
+          let (o, m) = o#list (fun o -> o#phrase) sh_expr in
           let (o, params) =
             o#option (fun o -> o#handle_params) sh_descr.shd_params
           in

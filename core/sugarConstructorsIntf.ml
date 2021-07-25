@@ -160,6 +160,5 @@ module type SugarConstructorsSig = sig
   val untyped_handler
       : ?val_cases:(clause list)
      -> ?parameters:((Pattern.with_pos * phrase) list)
-     -> phrase -> clause list -> handler_depth
-     -> handler
+     -> phrase list -> clause list -> handler
 end

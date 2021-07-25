@@ -709,36 +709,49 @@ case:
 case_expression:
 | SWITCH LPAREN exp RPAREN LBRACE case* RBRACE                 { with_pos $loc (Switch ($3, $6, None)) }
 | RECEIVE LBRACE case* RBRACE                                  { with_pos $loc (Receive ($3, None)) }
-| HANDLE LPAREN exp RPAREN LBRACE unary_handle_cases RBRACE          { with_pos $loc (Handle (untyped_handler ($3) $6 Deep   )) }
+| HANDLE LPAREN exp RPAREN LBRACE unary_handle_cases RBRACE
+    { let (val_cases, eff_cases) = $6 in
+      with_pos $loc (Handle (untyped_handler ~val_cases [$3] eff_cases   )) }
 | HANDLE LPAREN exp COMMA separated_nonempty_list(COMMA,exp) RPAREN LBRACE nary_handle_cases RBRACE
-    { with_pos $loc (Handle (untyped_handler (List.hd ($3 :: $5)) $8 Deep   )) }
-| HANDLE LPAREN exp RPAREN LPAREN handle_params RPAREN LBRACE case* RBRACE
-                                                               { with_pos $loc (Handle (untyped_handler ~parameters:$6 $3 $9 Deep)) }
+    { let (val_cases, eff_cases) = $8 in
+      with_pos $loc (Handle (untyped_handler ~val_cases ($3 :: $5) eff_cases   )) }
+/* | HANDLE LPAREN exp RPAREN LPAREN handle_params RPAREN LBRACE case* RBRACE */
+/*     { with_pos $loc (Handle (untyped_handler ~parameters:$6 $3 $9 Deep)) } */
 | RAISE                                                        { with_pos $loc (Raise) }
 | TRY exp AS pattern IN exp OTHERWISE exp                      { with_pos $loc (TryInOtherwise ($2, $4, $6, $8, None)) }
 
-handle_params:
-| separated_nonempty_list(COMMA,
-    separated_pair(pattern, LARROW, exp))                      { $1 }
+/* handle_params: */
+/* | separated_nonempty_list(COMMA, */
+/*     separated_pair(pattern, LARROW, exp))                      { $1 } */
 
 nary_handle_cases:
-| nary_handle_cases nary_effect_case { [] }
-| nary_handle_cases nary_case { [] }
-| /* empty */ { [] }
+| nary_effect_case nary_handle_cases
+    { let (val_cases, eff_cases) = $2 in
+      (val_cases, $1 :: eff_cases) }
+| nary_case nary_handle_cases
+    { let (val_cases, eff_cases) = $2 in
+      ($1 :: val_cases, eff_cases) }
+| /* empty */
+    { ([], []) }
 
 nary_case:
-| CASE LPAREN patterns RPAREN RARROW case_contents             { $3, block ~ppos:$loc($6) $6 }
+| CASE LPAREN patterns RPAREN RARROW case_contents             { tuple_pat ~ppos:$loc($3) $3, block ~ppos:$loc($6) $6 }
 
 unary_handle_cases:
-| unary_handle_cases unary_effect_case { [] (* TODO *) }
-| unary_handle_cases case { [] (* TODO *) }
-| /* empty */ { [] }
+| unary_effect_case unary_handle_cases
+    { let (val_cases, eff_cases) = $2 in
+      (val_cases, $1 :: eff_cases) }
+| case unary_handle_cases
+    { let (val_cases, eff_cases) = $2 in
+      ($1 :: val_cases, eff_cases) }
+| /* empty */
+    { ([], []) }
 
 unary_effect_case:
-| CASE unary_effect_pattern RARROW case_contents { () (* TODO *) }
+| CASE unary_effect_pattern RARROW case_contents { $2, block ~ppos:$loc($4) $4 }
 
 nary_effect_case:
-| CASE nary_effect_pattern RARROW case_contents { () }
+| CASE nary_effect_pattern RARROW case_contents { $2, block ~ppos:$loc($4) $4 }
 
 iteration_expression:
 | FOR LPAREN perhaps_generators RPAREN

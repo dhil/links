@@ -949,8 +949,8 @@ let compile_handle_parameters : raw_env -> (Pattern.t * Ir.computation * Types.d
       ([], ((fun x -> x), [])) parameters
 
 let compile_handle_cases
-    : raw_env -> (raw_clause list * raw_clause list * (Pattern.t * Ir.computation * Types.datatype) list * Sugartypes.handler_descriptor) -> Ir.computation -> Ir.computation =
-  fun (nenv, tenv, eff) (raw_value_clauses, raw_effect_clauses, params, desc) m ->
+    : raw_env -> (raw_clause list * raw_clause list * (Pattern.t * Ir.computation * Types.datatype) list * Sugartypes.handler_descriptor) -> Ir.computation list -> Ir.computation =
+  fun (nenv, tenv, eff) (raw_value_clauses, raw_effect_clauses, params, desc) ms ->
   (* Observation: reduced continuation patterns are always trivial,
      i.e. a reduced continuation pattern is either a variable or a
      wildcard. Thus continuation patterns _always_ match and therefore

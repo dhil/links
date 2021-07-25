@@ -368,7 +368,9 @@ and desugar ?(toplevel=false) (renamer' : Epithet.t) (scope' : Scope.t) =
         let body' = visitor#phrase body in
         Escape (bndr', body')
       | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
-         let sh_expr = self#phrase sh_expr in
+       (* TODO(dhil): Check whether it is correct to simply map phrase,
+          or whether we need to clone the visitor for each component. *)
+         let sh_expr = List.map self#phrase sh_expr in
          let shd_params =
            self#option (fun o -> o#handle_params) sh_descr.shd_params
          in

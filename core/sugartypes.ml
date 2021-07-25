@@ -346,9 +346,6 @@ type spawn_kind = Angel | Demon | Wait
 type fn_dep = string * string
     [@@deriving show]
 
-type handler_depth = Deep | Shallow
-    [@@deriving show]
-
 type replace_rhs =
   | Literal     of string
   | SpliceExpr  of phrase
@@ -375,14 +372,13 @@ and switch_funlit = Pattern.with_pos list list * switch_funlit_body
 and switch_funlit_body = (Pattern.with_pos * phrase) list
 and normal_funlit = Pattern.with_pos list list * phrase
 and handler =
-  { sh_expr         : phrase
+  { sh_expr         : phrase list
   ; sh_effect_cases : clause list
   ; sh_value_cases  : clause list
   ; sh_descr        : handler_descriptor
   }
 and handler_descriptor =
-  { shd_depth   : handler_depth
-  ; shd_types   : Types.row * Types.datatype * Types.row * Types.datatype
+  { shd_types   : Types.row * Types.datatype * Types.row * Types.datatype
   ; shd_raw_row : Types.row
   ; shd_params  : handler_parameterisation option
   }
@@ -704,7 +700,7 @@ struct
            (fun params -> union_map (fst ->- pattern) params.shp_bindings)
            descr.shd_params
        in
-       union_all [phrase e;
+       union_all [union_map phrase e;
                   union_map case eff_cases;
                   union_map case val_cases;
                   diff (option_map (fun params -> union_map (snd ->- phrase)

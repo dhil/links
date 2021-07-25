@@ -144,7 +144,7 @@ sig
 
   val do_operation : Name.t * (value sem) list * Types.datatype -> tail_computation sem
 
-  val handle : env -> (tail_computation sem *
+  val handle : env -> (tail_computation sem list *
                          (CompilePatterns.Pattern.t * (env -> tail_computation sem)) list *
                          (CompilePatterns.Pattern.t * (env -> tail_computation sem)) list *
                          ((env -> tail_computation sem) * CompilePatterns.Pattern.t * Types.datatype) list *
@@ -722,7 +722,7 @@ struct
     let vs = lift_list vs in
     M.bind vs (fun vs -> lift (Special (DoOperation (name, vs, t)), t))
 
-  let handle env (m, val_cases, eff_cases, params, desc) =
+  let handle env (ms, val_cases, eff_cases, params, desc) =
     let params =
       List.map
         (fun (body, p, t) -> p, reify (body env), t) params
@@ -734,8 +734,8 @@ struct
       in
       reify val_cases, reify eff_cases
     in
-    let comp = reify m in
-    let (bs, tc) = CompilePatterns.compile_handle_cases env (val_cases, eff_cases, params, desc) comp in
+    let comps = List.map reify ms in
+    let (bs, tc) = CompilePatterns.compile_handle_cases env (val_cases, eff_cases, params, desc) comps in
     let (_,_,_,t) = desc.Sugartypes.shd_types in
     reflect (bs, (tc, t))
 
@@ -953,7 +953,7 @@ struct
                     (p, fun env -> eval ((env ++ henv) ++ penv) body))
                   sh_value_cases
              in
-             I.handle env (ec sh_expr, val_cases, eff_cases, params, sh_descr)
+             I.handle env (List.map ec sh_expr, val_cases, eff_cases, params, sh_descr)
           | Switch (e, cases, Some t) ->
               let cases =
                 List.map

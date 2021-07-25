@@ -283,12 +283,11 @@ module SugarConstructors (Position : Pos)
     node
 
   (** Handlers *)
-  let untyped_handler ?(val_cases = []) ?parameters expr eff_cases depth =
-    { sh_expr         = expr;
+  let untyped_handler ?(val_cases = []) ?parameters exprs eff_cases =
+    { sh_expr         = exprs;
       sh_effect_cases = eff_cases;
       sh_value_cases  = val_cases;
       sh_descr = {
-          shd_depth = depth;
           shd_types = ( Types.make_empty_closed_row (), Types.Not_typed
                       , Types.make_empty_closed_row (), Types.Not_typed);
           shd_raw_row = Types.make_empty_closed_row ();

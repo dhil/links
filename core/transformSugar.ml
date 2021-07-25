@@ -476,7 +476,7 @@ class transform (env : Types.typing_environment) =
          (o, DoOperation (name, ps, Some t), t)
       | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
          let (input_row, input_t, output_row, output_t) = sh_descr.shd_types in
-         let (o, expr, _) = o#phrase sh_expr in
+         let (o, expr, _) = list o (fun o expr -> o#phrase expr) sh_expr in
          let envs = o#backup_envs in
          let (o, params) =
            match sh_descr.shd_params with
@@ -513,7 +513,6 @@ class transform (env : Types.typing_environment) =
          let (o, output_t) = o#datatype output_t in
          let (o, raw_row) = o#row sh_descr.shd_raw_row in
          let descr = {
-           shd_depth = sh_descr.shd_depth;
            shd_types = (input_row, input_t, output_row, output_t);
            shd_raw_row = raw_row;
            shd_params = params}
