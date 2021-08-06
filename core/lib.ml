@@ -591,7 +591,7 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
              | (Value.NsNode _) -> true
              | _ -> false) children in
            `List (List.map (fun x -> `XML x) children)
-         | _ -> raise (runtime_type_error "non-XML given to childNodes")),
+         | x -> raise (runtime_type_error ("non-XML given to childNodes: " ^ (Value.show x)))),
    datatype "(Xml) -> Xml",
   IMPURE);
 

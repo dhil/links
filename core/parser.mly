@@ -261,7 +261,18 @@ let parse_foreign_language pos lang =
              (pos, Printf.sprintf "Unrecognised foreign language '%s'." lang))
 
 let any = any_pat dp
+let unit = tuple_pat []
 
+let split_handler_cases cases =
+  List.fold_right
+    (fun case (eff_cases, val_cases) ->
+      match case with
+      | `ValueCase case -> (eff_cases, case :: val_cases)
+      | `EffectCase case -> case :: eff_cases, val_cases)
+    cases ([], [])
+
+let modify_loc newloc node =
+  with_pos newloc (WithPos.node node)
 %}
 
 %token EOF
@@ -708,49 +719,73 @@ case:
 case_expression:
 | SWITCH LPAREN exp RPAREN LBRACE case* RBRACE                 { with_pos $loc (Switch ($3, $6, None)) }
 | RECEIVE LBRACE case* RBRACE                                  { with_pos $loc (Receive ($3, None)) }
-| HANDLE LPAREN exp RPAREN LBRACE unary_handle_cases RBRACE
-    { let (val_cases, eff_cases) = $6 in
-      with_pos $loc (Handle (untyped_handler ~val_cases [$3] eff_cases   )) }
-| HANDLE LPAREN exp COMMA separated_nonempty_list(COMMA,exp) RPAREN LBRACE nary_handle_cases RBRACE
-    { let (val_cases, eff_cases) = $8 in
-      with_pos $loc (Handle (untyped_handler ~val_cases ($3 :: $5) eff_cases   )) }
+| HANDLE LPAREN separated_nonempty_list(COMMA, exp) RPAREN LBRACE list(handle_case) RBRACE
+    { let (eff_cases, val_cases) = split_handler_cases $6 in
+      with_pos $loc (Handle (untyped_handler ~val_cases $3 eff_cases   )) }
+/* | HANDLE LPAREN exp COMMA separated_nonempty_list(COMMA,exp) RPAREN LBRACE nary_handle_cases RBRACE */
+/*     { let (val_cases, eff_cases) = $8 in */
+/*       with_pos $loc (Handle (untyped_handler ~val_cases ($3 :: $5) eff_cases   )) } */
 /* | HANDLE LPAREN exp RPAREN LPAREN handle_params RPAREN LBRACE case* RBRACE */
 /*     { with_pos $loc (Handle (untyped_handler ~parameters:$6 $3 $9 Deep)) } */
 | RAISE                                                        { with_pos $loc (Raise) }
 | TRY exp AS pattern IN exp OTHERWISE exp                      { with_pos $loc (TryInOtherwise ($2, $4, $6, $8, None)) }
 
+handle_case:
+| case
+    { let is_operation p =
+        match WithPos.node p with
+        | Pattern.Operation _ -> true | _ -> false
+     in
+     let is_effect_case =
+       match WithPos.node (fst $1) with
+       | Pattern.Operation _ -> true
+       | Pattern.Tuple ps    -> List.exists is_operation ps
+       | _ -> false
+     in
+     if is_effect_case
+     then `EffectCase (effect_case (fst $1) (snd $1))
+     else `ValueCase $1 }
+| unary_effect_case
+   { `EffectCase $1 }
+| CASE LPAREN pattern FATRARROW pattern RPAREN RARROW case_contents
+   { `EffectCase (effect_case ~resumption:$5 $3 (block ~ppos:$loc($8) $8)) }
+
+unary_effect_case:
+| CASE chevrons(separated_pair(parenthesised(shallow_operation_pattern), FATRARROW, pattern)) RARROW case_contents
+   { effect_case ~resumption:(snd $2) (fst $2) (block ~ppos:$loc($4) $4) }
+
 /* handle_params: */
 /* | separated_nonempty_list(COMMA, */
 /*     separated_pair(pattern, LARROW, exp))                      { $1 } */
 
-nary_handle_cases:
-| nary_effect_case nary_handle_cases
-    { let (val_cases, eff_cases) = $2 in
-      (val_cases, $1 :: eff_cases) }
-| nary_case nary_handle_cases
-    { let (val_cases, eff_cases) = $2 in
-      ($1 :: val_cases, eff_cases) }
-| /* empty */
-    { ([], []) }
+/* nary_handle_cases: */
+/* | nary_effect_case nary_handle_cases */
+/*     { let (val_cases, eff_cases) = $2 in */
+/*       (val_cases, $1 :: eff_cases) } */
+/* | nary_case nary_handle_cases */
+/*     { let (val_cases, eff_cases) = $2 in */
+/*       ($1 :: val_cases, eff_cases) } */
+/* | /\* empty *\/ */
+/*     { ([], []) } */
 
-nary_case:
-| CASE LPAREN patterns RPAREN RARROW case_contents             { tuple_pat ~ppos:$loc($3) $3, block ~ppos:$loc($6) $6 }
+/* nary_case: */
+/* | CASE LPAREN patterns RPAREN RARROW case_contents             { tuple_pat ~ppos:$loc($3) $3, block ~ppos:$loc($6) $6 } */
 
-unary_handle_cases:
-| unary_effect_case unary_handle_cases
-    { let (val_cases, eff_cases) = $2 in
-      (val_cases, $1 :: eff_cases) }
-| case unary_handle_cases
-    { let (val_cases, eff_cases) = $2 in
-      ($1 :: val_cases, eff_cases) }
-| /* empty */
-    { ([], []) }
+/* unary_handle_cases: */
+/* | unary_effect_case unary_handle_cases */
+/*     { let (val_cases, eff_cases) = $2 in */
+/*       (val_cases, $1 :: eff_cases) } */
+/* | case unary_handle_cases */
+/*     { let (val_cases, eff_cases) = $2 in */
+/*       ($1 :: val_cases, eff_cases) } */
+/* | /\* empty *\/ */
+/*     { ([], []) } */
 
-unary_effect_case:
-| CASE unary_effect_pattern RARROW case_contents { $2, block ~ppos:$loc($4) $4 }
+/* unary_effect_case: */
+/* | CASE unary_effect_pattern RARROW case_contents { $2, block ~ppos:$loc($4) $4 } */
 
-nary_effect_case:
-| CASE nary_effect_pattern RARROW case_contents { $2, block ~ppos:$loc($4) $4 }
+/* nary_effect_case: */
+/* | CASE nary_effect_pattern RARROW case_contents { $2, block ~ppos:$loc($4) $4 } */
 
 iteration_expression:
 | FOR LPAREN perhaps_generators RPAREN
@@ -1186,9 +1221,24 @@ regex_pattern_sequence:
  * Pattern grammar
  */
 pattern:
+| operation_pattern { $1 }
+| chevrons(shallow_operation_pattern)
+    { modify_loc $loc $1 }
+
+shallow_operation_pattern:
+| CONSTRUCTOR parenthesized_pattern? RARROW pattern
+    { with_pos $loc (Pattern.Operation ($1, OptionUtils.from_option unit $2, $4)) }
+| CONSTRUCTOR parenthesized_pattern?
+    { with_pos $loc (Pattern.Operation ($1, OptionUtils.from_option unit $2, any)) }
+
+operation_pattern:
 | typed_pattern                                              { $1 }
 | typed_pattern COLON primary_datatype_pos                   { with_pos $loc (Pattern.HasType ($1, datatype $3)) }
 
+
+%inline
+parenthesised(prod):
+| LPAREN prod RPAREN { $2 }
 
 %inline
 chevrons(prod):
@@ -1197,49 +1247,50 @@ chevrons(prod):
       else if (gt <> ">") then raise (ConcreteSyntaxError (pos $loc(gt), "Expected '>'"))
       else $2 }
 
-unary_effect_pattern:
-| chevrons(unary_operation_pattern)
-    { let (pat, kpat) = $1 in with_pos $loc (Pattern.Effect ([pat], kpat)) }
+/* unary_effect_pattern: */
+/* |  */
+/* /\* | chevrons(unary_operation_pattern) *\/ */
+/* /\*     { let (pat, kpat) = $1 in with_pos $loc (Pattern.Effect ([pat], kpat)) } *\/ */
 
-unary_operation_pattern:
-| operation_pattern
-    { (with_pos $loc (Pattern.Operation (fst $1, snd $1, any)), any) }
-| operation_pattern FATRARROW pattern
-    { (with_pos $loc (Pattern.Operation (fst $1, snd $1, any)), $3) }
-| operation_pattern RARROW pattern
-    { (with_pos $loc (Pattern.Operation (fst $1, snd $1, $3)), any) }
-| LPAREN shallow_operation_pattern RPAREN FATRARROW pattern
-    { ($2, $5) }
-| LPAREN shallow_operation_pattern RPAREN
-    { ($2, any) }
-| LPAREN chevrons(shallow_operation_pattern) RPAREN FATRARROW pattern
-    { ($2, $5) }
-| LPAREN chevrons(shallow_operation_pattern) RPAREN
-    { ($2, any) }
+/* unary_operation_pattern: */
+/* | operation_pattern */
+/*     { (with_pos $loc (Pattern.Operation (fst $1, snd $1, any)), any) } */
+/* | operation_pattern FATRARROW pattern */
+/*     { (with_pos $loc (Pattern.Operation (fst $1, snd $1, any)), $3) } */
+/* | operation_pattern RARROW pattern */
+/*     { (with_pos $loc (Pattern.Operation (fst $1, snd $1, $3)), any) } */
+/* | LPAREN shallow_operation_pattern RPAREN FATRARROW pattern */
+/*     { ($2, $5) } */
+/* | LPAREN shallow_operation_pattern RPAREN */
+/*     { ($2, any) } */
+/* | LPAREN chevrons(shallow_operation_pattern) RPAREN FATRARROW pattern */
+/*     { ($2, $5) } */
+/* | LPAREN chevrons(shallow_operation_pattern) RPAREN */
+/*     { ($2, any) } */
 
-nary_effect_pattern:
-| chevrons(nary_operation_patterns)
-    { let (pats, kpat) = $1 in with_pos $loc (Pattern.Effect (pats, kpat)) }
+/* nary_effect_pattern: */
+/* | chevrons(nary_operation_patterns) */
+/*     { let (pats, kpat) = $1 in with_pos $loc (Pattern.Effect (pats, kpat)) } */
 
-nary_operation_patterns:
-| LPAREN separated_nonempty_list(COMMA, operation_or_value_pattern) RPAREN FATRARROW pattern
-    { ($2, $5) }
-| LPAREN separated_nonempty_list(COMMA, operation_or_value_pattern) RPAREN
-    { ($2, any) }
+/* nary_operation_patterns: */
+/* | LPAREN separated_nonempty_list(COMMA, operation_or_value_pattern) RPAREN FATRARROW pattern */
+/*     { ($2, $5) } */
+/* | LPAREN separated_nonempty_list(COMMA, operation_or_value_pattern) RPAREN */
+/*     { ($2, any) } */
 
-operation_or_value_pattern:
-| chevrons(shallow_operation_pattern) { $1 }
-| pattern { $1 }
+/* operation_or_value_pattern: */
+/* | chevrons(shallow_operation_pattern) { $1 } */
+/* | pattern { $1 } */
 
-shallow_operation_pattern:
-| operation_pattern RARROW pattern
-    { with_pos $loc (Pattern.Operation (fst $1, snd $1, $3)) }
-| operation_pattern
-    { with_pos $loc (Pattern.Operation (fst $1, snd $1, any)) }
+/* shallow_operation_pattern: */
+/* | operation_pattern RARROW pattern */
+/*     { with_pos $loc (Pattern.Operation (fst $1, snd $1, $3)) } */
+/* | operation_pattern */
+/*     { with_pos $loc (Pattern.Operation (fst $1, snd $1, any)) } */
 
-operation_pattern:
-| CONSTRUCTOR { ($1, []) }
-| CONSTRUCTOR multi_args { ($1, $2) }
+/* operation_pattern: */
+/* | CONSTRUCTOR { ($1, []) } */
+/* | CONSTRUCTOR multi_args { ($1, $2) } */
 
 typed_pattern:
 | cons_pattern                                                 { $1 }

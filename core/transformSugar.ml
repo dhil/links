@@ -501,9 +501,11 @@ class transform (env : Types.typing_environment) =
          in
          let (o, eff_cases) =
            listu o
-              (fun o (p, e) ->
-                let (o, p) = o#pattern p in
-                let (o, e, _) = o#phrase e in (o, (p, e)))
+              (fun o { ec_pattern; ec_resumption; ec_body } ->
+                let (o, ec_pattern) = o#pattern ec_pattern in
+                let (o, ec_resumption) = o#pattern ec_resumption in
+                let (o, ec_body, _) = o#phrase ec_body in
+                (o, { ec_pattern; ec_resumption; ec_body }))
               sh_effect_cases
          in
          let o = o#restore_envs envs in
@@ -686,10 +688,10 @@ class transform (env : Types.typing_environment) =
          let (o, ps) = listu o (fun o -> o#pattern) ps in
          let (o, k)  = o#pattern k in
          (o, Effect (ps, k))
-      | Operation (label, ps, k) ->
-         let (o, ps) = listu o (fun o -> o#pattern) ps in
+      | Operation (label, p, k) ->
+         let (o, p) = o#pattern p in
          let (o, k)  = o#pattern k in
-         (o, Operation (label, ps, k))
+         (o, Operation (label, p, k))
       | Negative name -> (o, Negative name)
       | Record (fields, rest) ->
           let (o, fields) =

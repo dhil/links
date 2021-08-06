@@ -296,6 +296,17 @@ module SugarConstructors (Position : Pos)
         };
     }
 
+
+  (** Cases **)
+  let case : Pattern.with_pos -> phrase -> clause
+    = fun pat body -> (pat, body)
+  let effect_case : ?resumption:Pattern.with_pos -> Pattern.with_pos -> phrase -> eclause
+    = fun ?resumption pat body ->
+      let resumption = match resumption with
+        | None -> any_pat dp
+        | Some pat -> pat
+      in
+      { ec_pattern = pat; ec_resumption = resumption; ec_body = body }
 end
 
 (* Positions module based on standard Sugartypes positions. *)

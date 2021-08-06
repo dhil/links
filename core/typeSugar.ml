@@ -178,8 +178,8 @@ struct
     | As (_, p) -> is_safe_pattern p
     | Effect (ops, k) ->
        List.for_all is_safe_pattern ops && is_safe_pattern k
-    | Operation (_, ps, k) ->
-       List.for_all is_safe_pattern ps && is_safe_pattern k
+    | Operation (_, p, k) ->
+       is_safe_pattern p && is_safe_pattern k
   and is_pure_regex = function
       (* don't check whether it can fail; just check whether it
          contains non-generilisable sub-expressions *)
@@ -2134,10 +2134,9 @@ let check_for_duplicate_names : Position.t -> Pattern.with_pos list -> string li
          let binderss' =
            List.fold_right (fun op binderss -> gather binderss op) ops binderss
          in gather binderss' k
-      | Operation (_, ps, k) ->
-         let binderss' =
-           List.fold_right (fun p binderss -> gather binderss p) ps binderss
-         in gather binderss' k
+      | Operation (_, p, k) ->
+         let binderss' = gather binderss p in
+         gather binderss' k
       | Negative _ -> binderss
       | Record (ps, p) ->
           let binderss = List.fold_right (fun (_, p) binderss -> gather binderss p) ps binderss in
@@ -2173,8 +2172,8 @@ let rec pattern_env : Pattern.with_pos -> Types.datatype Env.t =
     | Variant (_, None) -> Env.empty
     | Effect (ps, k) ->
       List.fold_right (pattern_env ->- Env.extend) ps (pattern_env k)
-    | Operation (_, ps, k) ->
-       List.fold_right (pattern_env ->- Env.extend) ps (pattern_env k)
+    | Operation (_, p, k) ->
+       Env.extend (pattern_env p) (pattern_env k)
     | Negative _ -> Env.empty
     | Record (ps, Some p) ->
        List.fold_right (snd ->- pattern_env ->- Env.extend) ps (pattern_env p)
@@ -2252,22 +2251,23 @@ let type_pattern ?(linear_vars=true) closed
       in
       let type_effect_subpattern kdeepdom ({ node = pattern; _ } as pat) =
         match pattern with
-        | Operation (label, ps, k) ->
-          let ps = List.map tp ps in
+        | Operation (label, p, k) ->
+          let p = tp p in
           let k = type_resumption_pat 1 k in
           let kdom = List.hd (TypeUtils.arg_types (fst (snd k))) in
           unify ~handle:Gripers.type_resumption_with_annotation ((pos k, kdom), (_UNKNOWN_POS_, kdeepdom)); (* TODO FIXME *)
           let eff typ =
-             let domain = List.map typ ps in
+             let domain = typ p in
              let t =
                (* Construct operation type, i.e. op : A -> B or op : B *)
-               match domain with
-               | [] -> Function (Types.unit_type, Types.make_empty_closed_row (), kdeepdom)
-               | ts -> Types.make_function_type ts (Types.make_empty_closed_row ()) kdeepdom
+               failwith "TODO"
+               (* match domain with
+                * | [] -> Function (Types.unit_type, Types.make_empty_closed_row (), kdeepdom)
+                * | ts -> Types.make_function_type ts (Types.make_empty_closed_row ()) kdeepdom *)
              in
              Types.Effect (make_singleton_row (label, Present t))
            in
-           Pattern.Operation (label, List.map erase ps, erase k), (eff ot, eff it)
+           Pattern.Operation (label, erase p, erase k), (eff ot, eff it)
         | _ ->
           let (pat, typ) as p = tp pat in
           unify ~handle:Gripers.type_resumption_with_annotation ((pos p, it p), (_UNKNOWN_POS_, kdeepdom)); (* TODO FIXME *)
@@ -3741,39 +3741,39 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
                             ~pos ~setting:("enable_handlers", true)
                             ~flag:"--enable-handlers" "Handlers"));
            let arity = List.length ms in
-           let unwrap_pattern pat =
-             match pat.node with
-             | Pattern.Effect (pats, _)
-             | Pattern.Tuple pats -> pats
-             | _ -> assert false
-           in
-           let check_arity ncomps val_cases eff_cases =
-             let rec check_arity case_description ncomps = function
-               | [] -> ()
-               | (p, _) :: cases ->
-                 let ps = unwrap_pattern p in
-                 if List.length ps <> ncomps
-                 then Gripers.die pos (Printf.sprintf "Arity mismatch: The handler has arity %d, but its definition contains a %s with arity %d."
-                                                                                ncomps case_description (List.length ps))
-                 else check_arity case_description ncomps cases
-             in
-             if arity > 1
-             then (check_arity "value case" ncomps val_cases; check_arity "effect case" ncomps eff_cases)
-           in
-           check_arity arity val_cases eff_cases;
-           let check_nary_effect_patterns = function
-             | [] -> ()
-             | eff_cases ->
-               let is_operation_pattern pat =
-                 match pat.node with
-                 | Pattern.Operation _ -> true
-                 | _ -> false
-               in
-               let patss = List.map (fun (pat, _) -> unwrap_pattern pat) eff_cases in
-               if not (List.exists (fun pats -> List.exists is_operation_pattern pats) patss)
-               then Gripers.die pos (Printf.sprintf "Ill-formed effect pattern: An effect pattern must contain at least one operation pattern, but this handler contains an effect pattern comprised entirely of value patterns.")
-           in
-           check_nary_effect_patterns eff_cases;
+           (* let unwrap_pattern pat =
+            *   match pat.node with
+            *   | Pattern.Effect (pats, _)
+            *   | Pattern.Tuple pats -> pats
+            *   | _ -> assert false
+            * in
+            * let check_arity ncomps val_cases eff_cases =
+            *   let rec check_arity case_description ncomps = function
+            *     | [] -> ()
+            *     | (p, _) :: cases ->
+            *       let ps = unwrap_pattern p in
+            *       if List.length ps <> ncomps
+            *       then Gripers.die pos (Printf.sprintf "Arity mismatch: The handler has arity %d, but its definition contains a %s with arity %d."
+            *                                                                      ncomps case_description (List.length ps))
+            *       else check_arity case_description ncomps cases
+            *   in
+            *   if arity > 1
+            *   then (check_arity "value case" ncomps val_cases; check_arity "effect case" ncomps eff_cases)
+            * in
+            * check_arity arity val_cases eff_cases;
+            * let check_nary_effect_patterns = function
+            *   | [] -> ()
+            *   | eff_cases ->
+            *     let is_operation_pattern pat =
+            *       match pat.node with
+            *       | Pattern.Operation _ -> true
+            *       | _ -> false
+            *     in
+            *     let patss = List.map (fun (pat, _) -> unwrap_pattern pat) eff_cases in
+            *     if not (List.exists (fun pats -> List.exists is_operation_pattern pats) patss)
+            *     then Gripers.die pos (Printf.sprintf "Ill-formed effect pattern: An effect pattern must contain at least one operation pattern, but this handler contains an effect pattern comprised entirely of value patterns.")
+            * in
+            * check_nary_effect_patterns eff_cases; *)
            let generate_return_case arity =
              if arity = 1
              then let x = "x" in

@@ -321,7 +321,7 @@ and desugar ?(toplevel=false) (renamer' : Epithet.t) (scope' : Scope.t) =
           NormalFunlit (paramss', body')
         | _ -> assert false
 
-    method cases : (Pattern.with_pos * phrase) list -> (Pattern.with_pos * phrase) list
+    method cases : clause list -> clause list
       = fun cases ->
       List.map
         (fun (pat, body) ->
@@ -329,6 +329,17 @@ and desugar ?(toplevel=false) (renamer' : Epithet.t) (scope' : Scope.t) =
           let pat'  = visitor#pattern pat in
           let body' = visitor#phrase body in
           (pat', body'))
+        cases
+
+    method ecases : eclause list -> eclause list
+      = fun cases ->
+      List.map
+        (fun { ec_pattern; ec_resumption; ec_body } ->
+          let visitor = self#clone in
+          let ec_pattern  = visitor#pattern ec_pattern in
+          let ec_resumption = visitor#pattern ec_resumption in
+          let ec_body = visitor#phrase ec_body in
+          { ec_pattern; ec_resumption; ec_body })
         cases
 
     method! binop op =
@@ -374,7 +385,7 @@ and desugar ?(toplevel=false) (renamer' : Epithet.t) (scope' : Scope.t) =
          let shd_params =
            self#option (fun o -> o#handle_params) sh_descr.shd_params
          in
-         let sh_effect_cases = self#cases sh_effect_cases in
+         let sh_effect_cases = self#ecases sh_effect_cases in
          let sh_value_cases = self#cases sh_value_cases in
          Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr = { sh_descr with shd_params } }
       | Switch (expr, cases, dt) ->

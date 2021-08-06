@@ -54,6 +54,9 @@ exception DisabledExtension of Position.t option * (string * bool) option * stri
 exception PrimeAlien of Position.t
 exception ForbiddenClientCall of string * string
 exception MissingBuiltinType of string
+exception EffectPatternOutsideHandler of Position.t
+exception EffectPatternBelowToplevel of Position.t
+exception IllformedResumptionPattern of Position.t
 
 exception LocateFailure of string
 let driver_locate_failure driver = LocateFailure driver
@@ -189,6 +192,24 @@ let format_exception =
   | ForbiddenClientCall (fn, reason) ->
      pos_prefix (Printf.sprintf "Error: Cannot call client side function '%s' because of %s\n" fn reason)
   | MissingBuiltinType alias -> Printf.sprintf "Error: Missing builtin type with alias '%s'. Is it defined in the prelude?" alias
+  | EffectPatternOutsideHandler pos ->
+     let pos, expr = Position.resolve_start_expr pos in
+     let message =
+       Printf.sprintf "Syntax error: Effect patterns must appear in a handle case.\nIn expression: %s." expr
+     in
+     pos_prefix ~pos message
+  | EffectPatternBelowToplevel pos ->
+     let pos, expr = Position.resolve_start_expr pos in
+     let message =
+       Printf.sprintf "Syntax error: Effect patterns cannot appear as subpatterns.\nIn expression: %s." expr
+     in
+     pos_prefix ~pos message
+  | IllformedResumptionPattern pos ->
+     let pos, expr = Position.resolve_start_expr pos in
+     let message =
+       Printf.sprintf "Syntax error: Ill-formed resumption pattern.\nIn expression: %s." expr
+     in
+     pos_prefix ~pos message
   | Sys.Break -> "Caught interrupt"
   | exn -> pos_prefix ("Error: " ^ Printexc.to_string exn)
 
@@ -236,3 +257,6 @@ let disabled_extension ?pos ?setting ?flag name =
   DisabledExtension (pos, setting, flag, name)
 let prime_alien pos = PrimeAlien pos
 let forbidden_client_call fn reason = ForbiddenClientCall (fn, reason)
+let effect_pattern_outside_handler pos = EffectPatternOutsideHandler pos
+let effect_pattern_below_toplevel pos = EffectPatternBelowToplevel pos
+let illformed_resumption_pattern pos = IllformedResumptionPattern pos

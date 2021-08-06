@@ -239,7 +239,7 @@ module Pattern = struct
     | List     of with_pos list
     | Variant  of Name.t * with_pos option
     | Effect   of with_pos list * with_pos
-    | Operation of Label.t * with_pos list * with_pos
+    | Operation of Label.t * with_pos * with_pos
     | Negative of Name.t list
     | Record   of (Name.t * with_pos) list * with_pos option
     | Tuple    of with_pos list
@@ -367,13 +367,14 @@ and regex =
   | Splice    of phrase
   | Replace   of regex * replace_rhs
 and clause = Pattern.with_pos * phrase
+and eclause = { ec_pattern: Pattern.with_pos; ec_resumption: Pattern.with_pos; ec_body: phrase }
 and funlit = NormalFunlit of normal_funlit | SwitchFunlit of switch_funlit
 and switch_funlit = Pattern.with_pos list list * switch_funlit_body
 and switch_funlit_body = (Pattern.with_pos * phrase) list
 and normal_funlit = Pattern.with_pos list list * phrase
 and handler =
   { sh_expr         : phrase list
-  ; sh_effect_cases : clause list
+  ; sh_effect_cases : eclause list
   ; sh_value_cases  : clause list
   ; sh_descr        : handler_descriptor
   }
@@ -591,7 +592,7 @@ struct
     | Cons (p1, p2)         -> union (pattern p1) (pattern p2)
     | Variant (_, popt)     -> option_map pattern popt
     | Effect (ops, k)    -> union (union_map pattern ops) (pattern k)
-    | Operation (_, ps, k)  -> union (union_map pattern ps) (pattern k)
+    | Operation (_, p, k)  -> union (pattern p) (pattern k)
     | Record (fields, popt) ->
        union (option_map pattern popt)
          (union_map (snd ->- pattern) fields)
@@ -701,7 +702,7 @@ struct
            descr.shd_params
        in
        union_all [union_map phrase e;
-                  union_map case eff_cases;
+                  union_map ecase eff_cases;
                   union_map case val_cases;
                   diff (option_map (fun params -> union_map (snd ->- phrase)
                                                     params.shp_bindings)
@@ -788,6 +789,8 @@ struct
             let patbound, exprfree = binding bind in
               union exprfree (diff bodyfree patbound))
   and case (pat, body) : StringSet.t = diff (phrase body) (pattern pat)
+  and ecase { ec_pattern; ec_resumption; ec_body } =
+      diff (phrase ec_body) (union (pattern ec_pattern) (pattern ec_resumption))
   and regex = function
     | Range _
     | Simply _
