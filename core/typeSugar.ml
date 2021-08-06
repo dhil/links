@@ -3727,11 +3727,15 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
         | Upcast _ -> assert false
         | Handle { sh_exprs = ms; sh_value_cases = val_cases; sh_effect_cases = eff_cases; sh_descr = descr; } ->
            ignore
-             (if not (Settings.get  Basicsettings.Handlers.enabled)
+             (if not (Settings.get Basicsettings.Handlers.enabled)
               then raise (Errors.disabled_extension
                             ~pos ~setting:("enable_handlers", true)
                             ~flag:"--enable-handlers" "Handlers"));
            let arity = List.length ms in
+           let arity_mismatch pos expected actual case_kind =
+             Gripers.die pos (Printf.sprintf "Arity mismatch: The handler has arity %d, but its definition contains %s with arity %d."
+                                expected case_kind actual)
+           in
            let rec check_eff_case_arity arity = function
                | [] -> ()
                | { ec_pattern; _ } :: cases ->
@@ -3739,10 +3743,9 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
                  then match WithPos.node ec_pattern with
                    | Pattern.Tuple ps ->
                      if List.length ps <> arity
-                     then Gripers.die pos (Printf.sprintf "Arity mismatch: The handler has arity %d, but its definition contains an effect case with arity %d."
-                                             arity (List.length ps))
+                     then arity_mismatch pos arity (List.length ps) "an effect case"
                      else check_eff_case_arity arity cases
-                   | _ -> Gripers.die pos (Printf.sprintf "Arity mismatch: The handler has arity %d, but its definition contains an effect case with arity 1." arity)
+                   | _ -> arity_mismatch pos arity 1 "an effect case"
                  else match WithPos.node ec_pattern with
                    | Pattern.Operation _ -> check_eff_case_arity arity cases
                    | _ -> assert false
@@ -3751,37 +3754,29 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
              | [] -> ()
              | (p, _) :: cases ->
                if arity > 1
-               then match WithPos.node p with
-                 | Pattern.Tuple ps ->
-                   if List.length ps <> arity
-                     then Gripers.die pos (Printf.sprintf "Arity mismatch: The handler has arity %d, but its definition contains a value case with arity %d."
-                                             arity (List.length ps))
-                     else check_val_case_arity arity cases
-                 | _ -> Gripers.die pos (Printf.sprintf "Arity mismatch: The handler has arity %d, but its definition contains an effect case with arity 1." arity)
+               then let rec check_arity arity p =
+                      match WithPos.node p with
+                      | Pattern.Any
+                      | Pattern.Variable _ -> ()
+                      | Pattern.As (_, p) -> check_arity arity p
+                      | Pattern.HasType (p, _) -> check_arity arity p
+                      | Pattern.Tuple ps ->
+                        if List.length ps <> arity
+                        then arity_mismatch pos arity (List.length ps) "a value case"
+                      | _ -> arity_mismatch pos arity 1 "a value case"
+                 in
+                 check_arity arity p; check_val_case_arity arity cases
                else match WithPos.node p with
                  | Pattern.Operation _ -> assert false
                  | _ -> check_val_case_arity arity cases
            in
            check_val_case_arity arity val_cases;
            check_eff_case_arity arity eff_cases;
-           (* let check_nary_effect_patterns = function
-            *   | [] -> ()
-            *   | eff_cases ->
-            *     let is_operation_pattern pat =
-            *       match pat.node with
-            *       | Pattern.Operation _ -> true
-            *       | _ -> false
-            *     in
-            *     let patss = List.map (fun (pat, _) -> unwrap_pattern pat) eff_cases in
-            *     if not (List.exists (fun pats -> List.exists is_operation_pattern pats) patss)
-            *     then Gripers.die pos (Printf.sprintf "Ill-formed effect pattern: An effect pattern must contain at least one operation pattern, but this handler contains an effect pattern comprised entirely of value patterns.")
-            * in
-            * check_nary_effect_patterns eff_cases; *)
            let generate_return_case arity =
              if arity = 1
              then let x = "x" in
                   [(variable_pat x, var x)]
-             else let xs = List.init arity (fun i -> Printf.sprintf "x%d" i) in
+             else let xs = List.init arity (fun i -> Printf.sprintf "_x%d" i) in
                   let pat = tuple_pat (List.map variable_pat xs) in
                   let body = tuple (List.map var xs) in
                   [(pat, body)]

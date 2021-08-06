@@ -57,6 +57,7 @@ exception MissingBuiltinType of string
 exception EffectPatternOutsideHandler of Position.t
 exception EffectPatternBelowToplevel of Position.t
 exception IllformedResumptionPattern of Position.t
+exception IllformedNaryValuePattern of Position.t
 
 exception LocateFailure of string
 let driver_locate_failure driver = LocateFailure driver
@@ -207,7 +208,13 @@ let format_exception =
   | IllformedResumptionPattern pos ->
      let pos, expr = Position.resolve_start_expr pos in
      let message =
-       Printf.sprintf "Syntax error: Ill-formed resumption pattern.\nIn expression: %s." expr
+       Printf.sprintf "Syntax error: Improper pattern-matching on resumption.\nIn expression: %s." expr
+     in
+     pos_prefix ~pos message
+  | IllformedNaryValuePattern pos ->
+     let pos, expr = Position.resolve_start_expr pos in
+     let message =
+       Printf.sprintf "Syntax error: Improper pattern-matching on n-ary return value.\nIn expression: %s." expr
      in
      pos_prefix ~pos message
   | Sys.Break -> "Caught interrupt"
@@ -260,3 +267,4 @@ let forbidden_client_call fn reason = ForbiddenClientCall (fn, reason)
 let effect_pattern_outside_handler pos = EffectPatternOutsideHandler pos
 let effect_pattern_below_toplevel pos = EffectPatternBelowToplevel pos
 let illformed_resumption_pattern pos = IllformedResumptionPattern pos
+let illformed_nary_value_pattern pos = IllformedNaryValuePattern pos

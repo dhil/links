@@ -61,3 +61,4 @@ val rethrow_errors_if_better_position : Position.t -> ('a -> 'b) -> 'a -> 'b
 val effect_pattern_outside_handler : Position.t -> exn
 val effect_pattern_below_toplevel : Position.t -> exn
 val illformed_resumption_pattern : Position.t -> exn
+val illformed_nary_value_pattern : Position.t -> exn

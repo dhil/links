@@ -24,7 +24,7 @@ let checker =
           in
           let _ = o#list
               (fun _o (p, e) ->
-                 let _ = {< in_handler = true >}#pattern p in
+                 let _ = o#check_value_case_pattern arity p in
                  {< in_handler = false >}#phrase e)
               val_cases
           in
@@ -56,6 +56,17 @@ let checker =
         | _ -> o'#super_pattern pat
 
       method super_pattern pat = super#pattern pat
+
+      method check_value_case_pattern arity pat =
+        let rec check_nary pat' =
+          match node pat' with
+          | Pattern.Any | Pattern.Variable _ | Pattern.Tuple _ -> ()
+          | Pattern.HasType (p, _) | Pattern.As (_, p) -> check_nary p
+          | _ -> raise (Errors.illformed_nary_value_pattern (pos pat))
+        in
+        let _ = {< in_handler = true >}#pattern pat in
+        if arity = 1 then o
+        else (check_nary pat; o)
 
       method check_resumption_pattern pat =
         let rec check pat' =
