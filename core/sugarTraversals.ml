@@ -284,8 +284,8 @@ class map =
           let ps  = o#list (fun o -> o#phrase) ps in
           let t   = o#option (fun o -> o#typ) t in
           DoOperation (name, ps, t)
-      | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
-         let m = o#list (fun o -> o#phrase) sh_expr in
+      | Handle { sh_exprs; sh_effect_cases; sh_value_cases; sh_descr } ->
+         let m = o#list (fun o -> o#phrase) sh_exprs in
          let params =
             o#option (fun o -> o#handle_params) sh_descr.shd_params
          in
@@ -305,7 +305,7 @@ class map =
                let rhs = o#phrase rhs in (lhs, rhs))
              sh_value_cases
          in
-         Handle { sh_expr = m; sh_effect_cases = eff_cases; sh_value_cases = val_cases; sh_descr = { sh_descr with shd_params = params } }
+         Handle { sh_exprs = m; sh_effect_cases = eff_cases; sh_value_cases = val_cases; sh_descr = { sh_descr with shd_params = params } }
       | Switch ((_x, _x_i1, _x_i2)) ->
           let _x = o#phrase _x in
           let _x_i1 =
@@ -511,10 +511,6 @@ class map =
           let _x = o#name _x in
           let _x_i1 = o#option (fun o -> o#pattern) _x_i1
           in Variant ((_x, _x_i1))
-      | Effect (ops, k) ->
-         let ops = o#list (fun o -> o#pattern) ops in
-         let k  = o#pattern k in
-         Effect (ops, k)
       | Operation (label, p, k) ->
          let label = o#label label in
          let p = o#pattern p in
@@ -1050,8 +1046,8 @@ class fold =
          let o = o#name name in
          let o = o#option (fun o -> o#unknown) t in
          o#list (fun o -> o#phrase) ps
-      | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
-         let o = o#list (fun o -> o#phrase) sh_expr in
+      | Handle { sh_exprs; sh_effect_cases; sh_value_cases; sh_descr } ->
+         let o = o#list (fun o -> o#phrase) sh_exprs in
          let o =
            o#option (fun o -> o#handle_params) sh_descr.shd_params
          in
@@ -1256,10 +1252,6 @@ class fold =
       | Variant ((_x, _x_i1)) ->
           let o = o#name _x in
           let o = o#option (fun o -> o#pattern) _x_i1 in o
-      | Effect (ops, k) ->
-         let o = o#list (fun o -> o#pattern) ops in
-         let o = o#pattern k in
-         o
       | Operation (label, p, k) ->
          let o = o#label label in
          let o = o#pattern p in
@@ -1824,8 +1816,8 @@ class fold_map =
           let (o, t) = o#option (fun o -> o#typ) t in
           let (o, ps) = o#list (fun o -> o#phrase) ps in
           (o, DoOperation (name, ps, t))
-      | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
-          let (o, m) = o#list (fun o -> o#phrase) sh_expr in
+      | Handle { sh_exprs; sh_effect_cases; sh_value_cases; sh_descr } ->
+          let (o, m) = o#list (fun o -> o#phrase) sh_exprs in
           let (o, params) =
             o#option (fun o -> o#handle_params) sh_descr.shd_params
           in
@@ -1846,7 +1838,7 @@ class fold_map =
                  (o, (lhs, rhs)))
               sh_value_cases
           in
-          (o, (Handle { sh_expr = m; sh_effect_cases = eff_cases; sh_value_cases = val_cases; sh_descr = { sh_descr with shd_params = params } }))
+          (o, (Handle { sh_exprs = m; sh_effect_cases = eff_cases; sh_value_cases = val_cases; sh_descr = { sh_descr with shd_params = params } }))
       | Switch ((_x, _x_i1, _x_i2)) ->
           let (o, _x) = o#phrase _x in
           let (o, _x_i1) =
@@ -2093,10 +2085,6 @@ class fold_map =
           let (o, _x) = o#name _x in
           let (o, _x_i1) = o#option (fun o -> o#pattern) _x_i1
           in (o, (Variant ((_x, _x_i1))))
-      | Effect (ops, k) ->
-         let (o, ops) = o#list (fun o -> o#pattern) ops in
-         let (o, k)   = o#pattern k in
-         (o, Effect (ops, k))
       | Operation (label, p, k) ->
          let (o, label) = o#label label in
          let (o, p)     = o#pattern p in

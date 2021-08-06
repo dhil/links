@@ -15,7 +15,7 @@ let checker =
       val toplevel_pattern = true
 
       method! phrasenode = function
-        | Handle { sh_expr = ms; sh_effect_cases = eff_cases;
+        | Handle { sh_exprs = ms; sh_effect_cases = eff_cases;
                    sh_value_cases = val_cases; sh_descr = descr } ->
           let arity = List.length ms in
           let _ = o#list (fun o -> o#phrase) ms in
@@ -37,7 +37,7 @@ let checker =
                      {< in_handler = true; toplevel_pattern = true >}#pattern ec_pattern
                    | _ -> o#pattern ec_pattern
                  in
-                 o#check_resumption_pattern ec_resumption;
+                 ignore (o#check_resumption_pattern ec_resumption);
                  {< in_handler = false; toplevel_pattern = true >}#phrase ec_body)
               eff_cases
           in o
@@ -52,7 +52,7 @@ let checker =
           else if not toplevel_pattern
           then raise (Errors.effect_pattern_below_toplevel (pos pat))
           else let _ = o'#pattern p in
-               o'#check_resumption_pattern resume; o'
+               o'#check_resumption_pattern resume
         | _ -> o'#super_pattern pat
 
       method super_pattern pat = super#pattern pat
@@ -62,11 +62,10 @@ let checker =
           match node pat' with
           | Pattern.Any -> ()
           | Pattern.Variable _ -> ()
-          | Pattern.HasType (p, _)
-          | Pattern.As (_, p)      -> check p
+          | Pattern.HasType (p, _) | Pattern.As (_, p) -> check p
           | _ -> raise (Errors.illformed_resumption_pattern (pos pat))
         in
-        check pat
+        check pat; o
     end
 
 module Untyped = struct

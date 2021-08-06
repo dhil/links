@@ -140,7 +140,7 @@ object (o : 'self_type)
         } in
 
         let hndlr = {
-          sh_expr = [try_phr];
+          sh_exprs = [try_phr];
           sh_effect_cases = effect_cases;
           sh_value_cases = value_cases;
           sh_descr = hndl_desc

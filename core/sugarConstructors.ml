@@ -284,7 +284,7 @@ module SugarConstructors (Position : Pos)
 
   (** Handlers *)
   let untyped_handler ?(val_cases = []) ?parameters exprs eff_cases =
-    { sh_expr         = exprs;
+    { sh_exprs        = exprs;
       sh_effect_cases = eff_cases;
       sh_value_cases  = val_cases;
       sh_descr = {

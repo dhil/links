@@ -474,9 +474,9 @@ class transform (env : Types.typing_environment) =
       | DoOperation (name, ps, Some t) ->
          let (o, ps, _) = list o (fun o -> o#phrase) ps in
          (o, DoOperation (name, ps, Some t), t)
-      | Handle { sh_expr; sh_effect_cases; sh_value_cases; sh_descr } ->
+      | Handle { sh_exprs; sh_effect_cases; sh_value_cases; sh_descr } ->
          let (input_row, input_t, output_row, output_t) = sh_descr.shd_types in
-         let (o, expr, _) = list o (fun o expr -> o#phrase expr) sh_expr in
+         let (o, expr, _) = list o (fun o expr -> o#phrase expr) sh_exprs in
          let envs = o#backup_envs in
          let (o, params) =
            match sh_descr.shd_params with
@@ -519,7 +519,7 @@ class transform (env : Types.typing_environment) =
            shd_raw_row = raw_row;
            shd_params = params}
          in
-         (o, Handle { sh_expr = expr; sh_effect_cases = eff_cases; sh_value_cases = val_cases; sh_descr = descr }, output_t)
+         (o, Handle { sh_exprs = expr; sh_effect_cases = eff_cases; sh_value_cases = val_cases; sh_descr = descr }, output_t)
       | TryInOtherwise (try_phr, as_pat, as_phr, otherwise_phr, (Some dt)) ->
           let (o, try_phr, _) = o#phrase try_phr in
           let (o, as_pat) = o#pattern as_pat in
@@ -684,10 +684,6 @@ class transform (env : Types.typing_environment) =
       | Variant (name, p) ->
           let (o, p) = optionu o (fun o -> o#pattern) p
           in (o, Variant (name, p))
-      | Effect (ps, k) ->
-         let (o, ps) = listu o (fun o -> o#pattern) ps in
-         let (o, k)  = o#pattern k in
-         (o, Effect (ps, k))
       | Operation (label, p, k) ->
          let (o, p) = o#pattern p in
          let (o, k)  = o#pattern k in

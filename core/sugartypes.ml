@@ -238,7 +238,6 @@ module Pattern = struct
     | Cons     of with_pos * with_pos
     | List     of with_pos list
     | Variant  of Name.t * with_pos option
-    | Effect   of with_pos list * with_pos
     | Operation of Label.t * with_pos * with_pos
     | Negative of Name.t list
     | Record   of (Name.t * with_pos) list * with_pos option
@@ -373,7 +372,7 @@ and switch_funlit = Pattern.with_pos list list * switch_funlit_body
 and switch_funlit_body = (Pattern.with_pos * phrase) list
 and normal_funlit = Pattern.with_pos list list * phrase
 and handler =
-  { sh_expr         : phrase list
+  { sh_exprs        : phrase list
   ; sh_effect_cases : eclause list
   ; sh_value_cases  : clause list
   ; sh_descr        : handler_descriptor
@@ -591,7 +590,6 @@ struct
     | List ps               -> union_map pattern ps
     | Cons (p1, p2)         -> union (pattern p1) (pattern p2)
     | Variant (_, popt)     -> option_map pattern popt
-    | Effect (ops, k)    -> union (union_map pattern ops) (pattern k)
     | Operation (_, p, k)  -> union (pattern p) (pattern k)
     | Record (fields, popt) ->
        union (option_map pattern popt)
@@ -694,7 +692,7 @@ struct
                      diff (phrase body) pat_bound;
                      diff (option_map phrase where) pat_bound;
                      diff (option_map phrase orderby) pat_bound]
-    | Handle { sh_expr = e; sh_effect_cases = eff_cases;
+    | Handle { sh_exprs = e; sh_effect_cases = eff_cases;
                sh_value_cases = val_cases; sh_descr = descr } ->
        let params_bound =
          option_map

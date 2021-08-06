@@ -130,18 +130,6 @@ let rec desugar_pattern : Types.row -> Sugartypes.Pattern.with_pos -> Pattern.t 
         | Variant (name, Some p) ->
             let p, env = desugar_pattern p in
             Pattern.Variant (name, p), env
-        | Effect (ps, k) ->
-           let ps, env =
-             List.fold_right
-               (fun p (ps, env) ->
-                 let p', env' = desugar_pattern p in
-                 (p' :: ps, env ++ env'))
-               ps ([], empty)
-           in
-           let k, env' =
-             failwith "TODO"
-           in
-           Pattern.Effect (ps, k), env'
         | Operation (label, ps, k) -> failwith "TODO"
         | Negative names -> Pattern.Negative (StringSet.from_list names), empty
         | Record (bs, p) ->
@@ -332,7 +320,6 @@ let let_pattern : raw_env -> Pattern.t -> value * Types.datatype -> computation 
               (lp t pattern value body)
         | Pattern.HasType (pat, t) ->
            lp t pat (Coerce (value, t)) body
-        | Pattern.Effect _ -> assert false (* This pattern cannot appear in a let expression *)
     in
       lp value_type pat value body
 
