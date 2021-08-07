@@ -1955,65 +1955,33 @@ let close_pattern_type : Pattern.with_pos list -> Types.datatype -> Types.dataty
           let fields, row_var, lr = (Types.unwrap_row row |> fst |> TypeUtils.extract_row_parts) in
           assert (not lr);
 
-          let unwrap_at : string -> Pattern.with_pos -> Pattern.with_pos list = fun name p ->
+          let unwrap_at : string -> Pattern.with_pos -> Pattern.with_pos list = fun label p ->
             let open Pattern in
             match p.node with
-            | Operation _
+            | Operation (label', p, _resume) when label = label' -> [p]
+            | Operation _ -> []
               | Variable _ | Any | As _ | HasType _ | Negative _
               | Nil | Cons _ | List _ | Tuple _ | Record _ | Variant _ | Constant  _ -> assert false in
           let fields =
-            StringMap.fold
-              (fun name field_spec env ->
+            StringMap.mapi
+              (fun label field_spec ->
                  match field_spec with
                  | Present t ->
-                    begin match TypeUtils.concrete_type t with
-                    | Function (_, effs, codomain) ->
-                       (* Idea: For each operation `name' extract its
-                          patterns `ps' from Effect(name, ps, _)' and
-                          arrange each such ps as a row in and n x p
-                          matrix, where n is the number of cases for
-                          `name' and p is |ps|. Afterwards, point-wise
-                          close the patterns by recursively calling
-                          close_pattern_type on each column. *)
-                       let t =
-                       (* Construct an p x n matrix (i.e. the
-                          transposition of p x n matrix as it is easier
-                          to map column-wise) *)
-                         let pmat : Pattern.with_pos list list =
-                           let non_empty ps = ps <> [] in
-                           let rows =
-                             map_filter
-                               (unwrap_at name)
-                               non_empty
-                               pats
-                           in
-                           transpose rows
-                         in
-                         (* Annotate each pattern with its inferred type *)
-                         let annot_pmat =
-                           try
-                             let annotate ps t = (ps, t) in
-                             let types = TypeUtils.arg_types t in
-                             List.map2 annotate pmat types
-                           with
-                             Invalid_argument _ -> failwith "Inconsistent pattern type"
-                         in
-                         (* Recursively close each subpattern. This
-                            yields the domain type for the operation. *)
-                         let domain : Types.datatype list =
-                           List.map
-                             (fun (ps, t) -> cpt ps t)
-                             annot_pmat
-                         in
-                       (* Reconstruct the type for the whole pattern *)
-                         Types.make_function_type domain effs codomain
-                       in
-                       (* Bind name |-> Pre(t) *)
-                       StringMap.add name (Present t) env
-                    | _ ->
-                       StringMap.add name (Present t) env
-                    end
-                 | t -> StringMap.add name t env) fields StringMap.empty
+                   let domain =
+                     match TypeUtils.arg_types t with
+                     | [] -> assert false
+                     | [t] -> t
+                     | ts  -> Types.make_tuple_type ts
+                   in
+                   let eff      = TypeUtils.effect_row t in
+                   let codomain = TypeUtils.return_type t in
+                   let pats' = concat_map (unwrap_at label) pats in
+                   let domain' = cpt pats' domain in
+                   (* TODO(dhil): May need to box domain' *)
+                   let t' = Function (domain', eff, codomain) in
+                   Present t'
+                 | t -> t)
+              fields
           in
           let row = Row (fields, row_var, false) in
           (* NOTE: type annotations can lead to a closed type even though
@@ -2213,65 +2181,33 @@ let type_pattern ?(linear_vars=true) closed
           Pattern.t * (Types.datatype * Types.datatype) =
       let open Pattern in
       let open Types in
-      let rec type_resumption_pat : int -> Pattern.with_pos -> Pattern.with_pos * (Types.datatype * Types.datatype)
-        = fun arity kpat ->
-          let fresh_resumption_type arity =
-            let domain   = List.init arity (fun _ -> fresh_var ()) in
+      let rec type_shallow_resumption_pat : Pattern.with_pos -> Pattern.with_pos * (Types.datatype * Types.datatype)
+        = fun kpat ->
+          let fresh_resumption_type () =
+            let domain   = fresh_var () in
             let codomain = fresh_var () in
             let effrow   = Types.make_empty_open_row default_effect_subkind in
-            Types.make_function_type domain effrow codomain
+            Types.make_function_type [domain] effrow codomain
           in
           let pos' = kpat.pos in
           let open Pattern in
           match kpat.node with
           | Any ->
-            let t = fresh_resumption_type arity in
+            let t = fresh_resumption_type () in
             kpat, (t, t)
           | Variable bndr ->
-            let xtype = fresh_resumption_type arity in
+            let xtype = fresh_resumption_type () in
             ( with_pos pos' (Variable (Binder.set_type bndr xtype))
             , (xtype, xtype))
           | As (bndr, pat') ->
-            let p = type_resumption_pat arity pat' in
+            let p = type_shallow_resumption_pat pat' in
             with_pos pos' (As ((Binder.set_type bndr (it p), erase p))), (ot p, it p)
           | HasType (p, (_, Some t)) ->
-            let p = type_resumption_pat arity p in
+            let p = type_shallow_resumption_pat p in
             let () = unify ~handle:Gripers.type_resumption_with_annotation ((pos p, it p), (_UNKNOWN_POS_, t)) in
             erase p, (ot p, t)
-          | _ -> Gripers.die pos' "Improper pattern matching on resumption"
+          | _ -> assert false
       in
-      let type_effect_subpattern kdeepdom ({ node = pattern; _ } as pat) =
-        match pattern with
-        | Operation (label, p, k) ->
-          let p = tp p in
-          let k = type_resumption_pat 1 k in
-          let kdom = List.hd (TypeUtils.arg_types (fst (snd k))) in
-          unify ~handle:Gripers.type_resumption_with_annotation ((pos k, kdom), (_UNKNOWN_POS_, kdeepdom)); (* TODO FIXME *)
-          let eff typ =
-             let domain = typ p in
-             let t =
-               (* Construct operation type, i.e. op : A -> B or op : B *)
-               failwith "TODO"
-               (* match domain with
-                * | [] -> Function (Types.unit_type, Types.make_empty_closed_row (), kdeepdom)
-                * | ts -> Types.make_function_type ts (Types.make_empty_closed_row ()) kdeepdom *)
-             in
-             Types.Effect (make_singleton_row (label, Present t))
-           in
-           Pattern.Operation (label, erase p, erase k), (eff ot, eff it)
-        | _ ->
-          let (pat, typ) as p = tp pat in
-          unify ~handle:Gripers.type_resumption_with_annotation ((pos p, it p), (_UNKNOWN_POS_, kdeepdom)); (* TODO FIXME *)
-          (pat.node, typ)
-      in
-      (* let type_effect_pattern { node = pattern; pos = pos' } =
-       *   match pattern with
-       *   | Pattern.Effect (ps, k) ->
-       *     let k = type_resumption_pat (List.length ps) k in
-       *     let ps = List.map2 type_effect_subpattern (TypeUtils.arg_types (fst (snd k))) ps in
-       *     ()
-       *   | _ -> raise (internal_error "Ill-formed effect pattern")
-       * in *)
       match pattern with
       | Nil ->
         let t = Types.make_list_type (fresh_var ()) in
@@ -2313,58 +2249,25 @@ let type_pattern ?(linear_vars=true) closed
         let p = tp p in
         let vtype typ = Types.Variant (make_singleton_row (name, Present (typ p))) in
         Pattern.Variant (name, Some (erase p)), (vtype ot, vtype it)
-      (* | Pattern.Effect (ps, k) -> *)
-         (* (\* Auxiliary machinery for typing effect patterns *\)
-          * let rec type_resumption_pat (kpat : Pattern.with_pos) : Pattern.with_pos * (Types.datatype * Types.datatype) =
-          *   let fresh_resumption_type () =
-          *     let domain   = fresh_var () in
-          *     let codomain = fresh_var () in
-          *     let effrow   = Types.make_empty_open_row default_effect_subkind in
-          *     Types.make_function_type [domain] effrow codomain
-          *   in
-          *   let pos' = kpat.pos in
-          *   let open Pattern in
-          *   match kpat.node with
-          *   | Any ->
-          *      let t = fresh_resumption_type () in
-          *      kpat, (t, t)
-          *   | Variable bndr ->
-          *      let xtype = fresh_resumption_type () in
-          *      ( with_pos pos' (Variable (Binder.set_type bndr xtype))
-          *      , (xtype, xtype))
-          *   | As (bndr, pat') ->
-          *      let p = type_resumption_pat pat' in
-          *      with_pos pos' (As ((Binder.set_type bndr (it p), erase p))), (ot p, it p)
-          *   | HasType (p, (_, Some t)) ->
-          *      let p = type_resumption_pat p in
-          *      let () = unify ~handle:Gripers.type_resumption_with_annotation ((pos p, it p), (_UNKNOWN_POS_, t)) in
-          *      erase p, (ot p, t)
-          *   | _ -> Gripers.die pos' "Improper pattern matching on resumption"
-          * in
-          * (\* Typing of effect patterns *\)
-          * let ps = List.map tp ps in
-          * let k = type_resumption_pat k in
-          * let eff typ =
-          *   let domain = List.map typ ps in
-          *   let codomain = TypeUtils.arg_types (typ k) in
-          *   let t =
-          *     (\* Construct operation type, i.e. op : A -> B or op : B *\)
-          *     match domain, codomain with
-          *     | [], [] | _, [] -> assert false (\* The continuation is at least unary *\)
-          *     | [], [t] -> Function (Types.unit_type, Types.make_empty_closed_row (), t)
-          *     | [], ts -> Types.make_tuple_type ts
-          *     | ts, [t] ->
-          *        Types.make_function_type ts (Types.make_empty_closed_row ()) t
-          *     | ts, ts' ->
-          *        (\* parameterised continuation *\)
-          *        let t = ListUtils.last ts' in
-          *        Types.make_function_type ts (Types.make_empty_closed_row ()) t
-          *   in
-          *   Types.Effect (make_singleton_row (name, Present t))
-          * in
-          * Pattern.Effect (name, List.map erase ps, erase k), (eff ot, eff it) *)
-         (* failwith "TODO" *)
-      | Operation _ -> failwith "TODO"
+      | Operation (label, p, resume) ->
+        let p = tp p in
+        let resume = type_shallow_resumption_pat resume in
+        let eff typ =
+          let domain = typ p in
+          let codomain =
+            match TypeUtils.arg_types (typ resume) with
+            | [] -> assert false
+            | [t] -> t
+            | ts -> Types.make_tuple_type ts
+          in
+          let t = match domain with
+            | Record row when Types.is_tuple row ->
+              Function (domain, Types.make_empty_closed_row (), codomain)
+            | _ -> Types.make_pure_function_type [domain] codomain
+          in
+          Types.Effect (make_singleton_row (label, Present t))
+        in
+        Pattern.Operation (label, erase p, erase resume), (eff ot, eff it)
       | Negative names ->
         let row_var = Types.fresh_row_variable (lin_any, res_any) in
 
