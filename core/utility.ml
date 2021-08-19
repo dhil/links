@@ -577,7 +577,23 @@ struct
     | [] -> []
     | [] :: xss -> transpose xss
     | (x :: xs) :: xss ->
-       (x :: (List.map List.hd xss)) :: transpose (xs :: List.map List.tl xss)
+      (x :: (List.map List.hd xss)) :: transpose (xs :: List.map List.tl xss)
+
+  let rec iter3 : ('a -> 'b -> 'c -> unit) -> 'a list -> 'b list -> 'c list -> unit
+    = fun f xs ys zs ->
+      match xs, ys, zs with
+      | [], [], [] -> ()
+      | x :: xs, y :: ys, z :: zs ->
+        f x y z; iter3 f xs ys zs
+      | _ -> raise Lists_length_mismatch
+
+  let rec iter4 : ('a -> 'b -> 'c -> 'd -> unit) -> 'a list -> 'b list -> 'c list -> 'd list -> unit
+    = fun f ws xs ys zs ->
+      match ws, xs, ys, zs with
+      | [], [], [], [] -> ()
+      | w :: ws, x :: xs, y :: ys, z :: zs ->
+        f w x y z; iter4 f ws xs ys zs
+      | _ -> raise Lists_length_mismatch
 end
 include ListUtils
 

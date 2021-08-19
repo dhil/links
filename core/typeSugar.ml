@@ -2146,7 +2146,7 @@ let rec pattern_env : Pattern.with_pos -> Types.datatype Env.t =
     | As (bndr, p) ->
        Env.bind (Binder.to_name bndr) (Binder.to_type bndr) (pattern_env p)
 
-let type_pattern ?(linear_vars=true) closed
+let type_pattern ?(check_duplicates=true) ?(linear_vars=true) closed
     : Pattern.with_pos -> Pattern.with_pos * Types.environment * Types.datatype =
   let make_singleton_row =
     match closed with
@@ -2177,37 +2177,36 @@ let type_pattern ?(linear_vars=true) closed
     and ot (_,(t,_)) = t
     and it (_,(_,t)) = t
     and pos ({pos = p;_},_) = Position.Resolved.resolve p |> Position.Resolved.source_expression in
+    let rec type_shallow_resumption_pattern : Pattern.with_pos -> Pattern.with_pos * (Types.datatype * Types.datatype)
+      = fun kpat ->
+        let fresh_resumption_type () =
+          let domain   = fresh_var () in
+          let codomain = fresh_var () in
+          let effrow   = Types.make_empty_open_row default_effect_subkind in
+          Types.make_function_type [domain] effrow codomain
+        in
+        let open Pattern in
+        match kpat.node with
+        | Any ->
+          let t = fresh_resumption_type () in
+          kpat, (t, t)
+        | Variable bndr ->
+          let xtype = fresh_resumption_type () in
+          ( with_pos pos' (Variable (Binder.set_type bndr xtype))
+          , (xtype, xtype))
+        | As (bndr, pat') ->
+          let p = type_shallow_resumption_pattern pat' in
+          with_pos pos' (As ((Binder.set_type bndr (it p), erase p))), (ot p, it p)
+        | HasType (p, (_, Some t)) ->
+          let p = type_shallow_resumption_pattern p in
+          let () = unify ~handle:Gripers.type_resumption_with_annotation ((pos p, it p), (_UNKNOWN_POS_, t)) in
+          erase p, (ot p, t)
+        | _ -> assert false
+    in
     let (p, (outer_type, inner_type)) :
           Pattern.t * (Types.datatype * Types.datatype) =
       let open Pattern in
       let open Types in
-      let rec type_shallow_resumption_pat : Pattern.with_pos -> Pattern.with_pos * (Types.datatype * Types.datatype)
-        = fun kpat ->
-          let fresh_resumption_type () =
-            let domain   = fresh_var () in
-            let codomain = fresh_var () in
-            let effrow   = Types.make_empty_open_row default_effect_subkind in
-            Types.make_function_type [domain] effrow codomain
-          in
-          let pos' = kpat.pos in
-          let open Pattern in
-          match kpat.node with
-          | Any ->
-            let t = fresh_resumption_type () in
-            kpat, (t, t)
-          | Variable bndr ->
-            let xtype = fresh_resumption_type () in
-            ( with_pos pos' (Variable (Binder.set_type bndr xtype))
-            , (xtype, xtype))
-          | As (bndr, pat') ->
-            let p = type_shallow_resumption_pat pat' in
-            with_pos pos' (As ((Binder.set_type bndr (it p), erase p))), (ot p, it p)
-          | HasType (p, (_, Some t)) ->
-            let p = type_shallow_resumption_pat p in
-            let () = unify ~handle:Gripers.type_resumption_with_annotation ((pos p, it p), (_UNKNOWN_POS_, t)) in
-            erase p, (ot p, t)
-          | _ -> assert false
-      in
       match pattern with
       | Nil ->
         let t = Types.make_list_type (fresh_var ()) in
@@ -2251,7 +2250,7 @@ let type_pattern ?(linear_vars=true) closed
         Pattern.Variant (name, Some (erase p)), (vtype ot, vtype it)
       | Operation (label, p, resume) ->
         let p = tp p in
-        let resume = type_shallow_resumption_pat resume in
+        let resume = type_shallow_resumption_pattern resume in
         let eff typ =
           let domain = typ p in
           let codomain =
@@ -2324,7 +2323,7 @@ let type_pattern ?(linear_vars=true) closed
     with_pos pos' p, (outer_type, inner_type)
   in
   fun pattern ->
-    let _ = check_for_duplicate_names pattern.pos [pattern] in
+    if check_duplicates then ignore (check_for_duplicate_names pattern.pos [pattern]);
     let pattern', (outer_type, _) = type_pattern pattern in
     pattern', pattern_env pattern', outer_type
 
@@ -2434,6 +2433,7 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
     let unify (l, r) = unify_or_raise ~pos:pos (l, r)
     and (++) env env' = {env with var_env = Env.extend env.var_env env'} in
 
+    let pattern_env' = pattern_env in
     let typ (_,t,_) : Types.datatype = t
     and erase (p, _, _) = p
     and usages (_, _, m) = m
@@ -3688,6 +3688,166 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
              match val_cases with
              | [] -> generate_return_case arity
              | _  -> val_cases
+           in
+           let type_val_cases arity cases =
+             if arity = 1 then type_cases cases
+             else let pts = List.init arity (fun _ -> Types.fresh_type_variable (lin_any, res_any)) in
+                  let bt = Types.fresh_type_variable (lin_any, res_any) in
+                  let cases', pats =
+                    List.fold_right
+                      (fun (pat, body) (cases', pats) ->
+                         match WithPos.node pat with
+                         | Pattern.Tuple ps ->
+                           let ps = List.map tpo ps in
+                           let () =
+                             List.iter2
+                               (fun pat pt -> unify ~handle:Gripers.switch_patterns (ppos_and_typ pat, no_pos pt))
+                               ps pts
+                           in
+                           let env =
+                             List.fold_left
+                               (fun env pat -> Env.extend env (pattern_env pat))
+                               Env.empty ps
+                           in
+                           let t = Types.make_tuple_type (List.map pattern_typ ps) in
+                           let pat' = (WithPos.map ~f:(fun _ -> Pattern.Tuple (List.map erase ps)) pat, env, t) in
+                           ((pat', body) :: cases', pat' :: pats)
+                         | _ ->
+                           let pat' = tpo pat in
+                           let pt = Types.make_tuple_type pts in
+                           let () = unify ~handle:Gripers.switch_patterns (ppos_and_typ pat', no_pos pt) in
+                           ((pat', body) :: cases', pat' :: pats))
+                      cases ([], [])
+                  in
+                  (* Close pattern types *)
+                  let pt =
+                    close_pattern_type (List.map fst3 pats) (Types.make_tuple_type pts)
+                  in
+                  (* NOTE: it is important to type the patterns in
+                     isolation first in order to allow them to be
+                     closed before typing the bodies. *)
+                  let cases' =
+                    List.fold_right
+                      (fun (pat, body) cases ->
+                         let body = type_check (context ++ pattern_env pat) body in
+                         let () = unify ~handle:Gripers.switch_branches (pos_and_typ body, no_pos bt) in
+                         let () =
+                           Env.iter
+                             (fun v t ->
+                                let uses = Usage.uses_of v (usages body) in
+                                if uses <> 1 then
+                                  if Types.Unl.can_type_be t
+                                  then Types.Unl.make_type t
+                                  else Gripers.non_linearity pos uses v t)
+                             (pattern_env pat)
+                         in
+                         let vs = Env.domain (pattern_env pat) in
+                         let us = Usage.restrict (usages body) vs in
+                         (pat, update_usages body us) :: cases)
+                      cases' []
+                  in
+                  cases', pt, bt
+           in
+           let type_eff_cases arity cases =
+             let type_deep_resumption_pattern : int -> Pattern.with_pos -> Pattern.with_pos * Types.environment * Types.datatype
+               = fun arity kpat ->
+                 let erase (p, _) = p in
+                 let ot (_,(t,_)) = t in
+                 let it (_,(_,t)) = t in
+                 let pos ({pos = p;_},_) = Position.Resolved.resolve p |> Position.Resolved.source_expression in
+                 let fresh_resumption_type arity =
+                   let fresh_var () = Types.fresh_type_variable (lin_unl, res_any) in
+                   let domain   = List.init arity (fun _ -> fresh_var ()) in
+                   let codomain = fresh_var () in
+                   let effrow   = Types.make_empty_open_row default_effect_subkind in
+                   Types.make_function_type domain effrow codomain
+                 in
+                 let rec type_resume arity kpat =
+                   let open Pattern in
+                   match kpat.node with
+                   | Pattern.Any ->
+                     let t = fresh_resumption_type arity in
+                     kpat, (t, t)
+                   | Variable bndr ->
+                     let xtype = fresh_resumption_type arity in
+                     ( with_pos kpat.pos (Variable (Binder.set_type bndr xtype))
+                     , (xtype, xtype))
+                   | As (bndr, pat') ->
+                     let p = type_resume arity pat' in
+                     with_pos kpat.pos (As ((Binder.set_type bndr (it p), erase p))), (ot p, it p)
+                   | HasType (p, (_, Some t)) ->
+                     let p = type_resume arity p in
+                     let () = unify ~handle:Gripers.type_resumption_with_annotation ((pos p, it p), (_UNKNOWN_POS_, t)) in
+                     erase p, (ot p, t)
+                   | _ -> assert false
+                 in
+                 let (pat', (outer_type, _)) = type_resume arity kpat in
+                 pat', pattern_env' pat', outer_type
+             in
+             let extract_shallow_resumption_opt pat =
+               match WithPos.node pat with
+               | Pattern.Operation (_, _, r) -> Some r
+               | _ -> None
+             in
+             if arity = 1 then failwith "TODO"
+             else let vts = List.init arity (fun _ -> Types.fresh_type_variable (lin_any, res_any)) in
+                  let opts = List.init arity (fun _ -> Types.fresh_type_variable (lin_any, res_any)) in
+                  let bt = Types.fresh_type_variable (lin_any, res_any) in
+                  let cases', patss =
+                    List.fold_right
+                      (fun { ec_pattern; ec_resumption; ec_body } (cases', patss) ->
+                         ignore (check_for_duplicate_names pos [ec_pattern; ec_resumption]);
+                         let tpo = type_pattern ~check_duplicates:false `Open in
+                         let unwrap = function Pattern.Tuple ps -> ps | _ -> assert false in
+                         let ps = List.map tpo (unwrap (WithPos.node ec_pattern)) in
+                         let resume = type_deep_resumption_pattern arity ec_resumption in
+                         let () =
+                           List.iter4
+                             (fun pat pt opt kt ->
+                                match (fst3 pat).node with
+                                | Pattern.Operation _ ->
+                                  unify ~handle:Gripers.switch_patterns (ppos_and_typ pat, no_pos opt);
+                                  let codomain = TypeUtils.return_type (pattern_typ pat) in
+                                  unify ~handle:Gripers.switch_patterns ((pattern_pos pat, codomain), no_pos kt) (* TODO change griper *)
+                                | _ ->
+                                  unify ~handle:Gripers.switch_patterns (ppos_and_typ pat, no_pos pt);
+                                  unify ~handle:Gripers.switch_patterns (ppos_and_typ pat, no_pos kt))
+                             ps vts opts (TypeUtils.arg_types (pattern_typ resume))
+                         in
+                         ((ps, resume, ec_body) :: cases', ps :: patss))
+                      cases ([], [])
+                  in
+                  (* Close value pattern types component wise *)
+                  let vts =
+                    List.fold_right
+                      (fun ps vts ->
+                         List.map2 (fun pat vt -> close_pattern_type [fst3 pat] vt) ps vts)
+                      patss vts
+                  in
+                  (* NOTE: it is important to type the patterns in
+                     isolation first in order to allow them to be
+                     closed before typing the bodies. *)
+                  let cases' =
+                    List.fold_right
+                      (fun (pat, body) cases ->
+                         let body = type_check (context ++ pattern_env pat) body in
+                         let () = unify ~handle:Gripers.switch_branches (pos_and_typ body, no_pos bt) in
+                         let () =
+                           Env.iter
+                             (fun v t ->
+                                let uses = Usage.uses_of v (usages body) in
+                                if uses <> 1 then
+                                  if Types.Unl.can_type_be t
+                                  then Types.Unl.make_type t
+                                  else Gripers.non_linearity pos uses v t)
+                             (pattern_env pat)
+                         in
+                         let vs = Env.domain (pattern_env pat) in
+                         let us = Usage.restrict (usages body) vs in
+                         (pat, update_usages body us) :: cases)
+                      cases' []
+                  in
+                  cases', pt, bt
            in
            failwith "TODO"
          (*   let rec pop_last = function
