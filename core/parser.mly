@@ -83,6 +83,8 @@ let query_policy_of_string p =
   function
   | "flat" -> QueryPolicy.Flat
   | "nested" -> QueryPolicy.Nested
+  | "mixing" -> QueryPolicy.Mixing
+  | "delat" -> QueryPolicy.Delat
   | rest      ->
      raise (ConcreteSyntaxError (pos p, "Invalid query policy: " ^ rest ^ ", expected 'flat' or 'nested'"))
 
@@ -181,6 +183,24 @@ let fresh_typevar freedom : SugarTypeVar.t =
 let fresh_effects =
   let stv = SugarTypeVar.mk_unresolved "$eff" None `Rigid in
   ([], Datatype.Open stv)
+
+let make_effect_var : is_dot:bool -> ParserPosition.t -> Datatype.row_var
+  = fun ~is_dot loc ->
+  let open Types.Policy in
+  let pol = default_policy () in
+  let effect_sugar = effect_sugar pol in
+  let open_default = EffectSugar.open_default (es_policy pol) in
+
+  if effect_sugar && open_default
+  then begin
+      if is_dot
+      then Datatype.Closed
+      else Datatype.Open (SugarTypeVar.mk_unresolved "$eff" None `Rigid)
+    end else begin
+      if is_dot
+      then raise (ConcreteSyntaxError (pos loc, "Dot syntax in effect row variables is only supported when effect_sugar and effect_sugar_policy.open_default are enabled."))
+      else Datatype.Closed
+    end
 
 module MutualBindings = struct
 
@@ -1052,6 +1072,7 @@ primary_datatype:
                                                                    | "Float"   -> Primitive Primitive.Float
                                                                    | "XmlItem" -> Primitive Primitive.XmlItem
                                                                    | "String"  -> Primitive Primitive.String
+                                                                   | "DateTime" -> Primitive Primitive.DateTime
                                                                    | "Database"-> DB
                                                                    | "End"     -> Datatype.End
                                                                    | t         -> TypeApplication (t, [])
@@ -1086,15 +1107,15 @@ row:
 | fields                                                       { $1                    }
 | /* empty */                                                  { ([], Datatype.Closed) }
 
-fields_def(field_prod, row_var_prod, kinded_row_var_prod):
+fields_def(field_prod, sep, row_var_prod, kinded_row_var_prod):
 | field_prod                                                   { ([$1], Datatype.Closed) }
 | soption(field_prod) VBAR row_var_prod                        { ( $1 , $3             ) }
 | soption(field_prod) VBAR kinded_row_var_prod                 { ( $1 , $3             ) }
-| field_prod COMMA
-    fields_def(field_prod, row_var_prod, kinded_row_var_prod)  { ( $1::fst $3, snd $3 ) }
+| field_prod sep
+    fields_def(field_prod, sep, row_var_prod, kinded_row_var_prod) { ( $1::fst $3, snd $3 ) }
 
 fields:
-| fields_def(field, row_var, kinded_row_var)                   { $1 }
+| fields_def(field, COMMA, row_var, kinded_row_var)                   { $1 }
 
 field:
 | CONSTRUCTOR /* allows nullary variant labels */              { ($1, present) }
@@ -1107,7 +1128,7 @@ field_label:
 | UINTEGER                                                     { string_of_int $1 }
 
 rfields:
-| fields_def(rfield, row_var, kinded_row_var)                  { $1 }
+| fields_def(rfield, COMMA, row_var, kinded_row_var)                  { $1 }
 
 rfield:
 /* The following sugar is tempting, but it leads to a conflict. Is
@@ -1120,17 +1141,21 @@ record_label:
 | field_label                                                  { $1 }
 
 vfields:
-| vfield                                                       { ([$1], Datatype.Closed) }
+| fields_def(vfield, VBAR, vrow_var, kinded_vrow_var)          { $1 }
 | vrow_var                                                     { ([]  , $1             ) }
 | kinded_vrow_var                                              { ([]  , $1             ) }
-| vfield VBAR vfields                                          { ($1::fst $3, snd $3   ) }
 
 vfield:
 | CONSTRUCTOR                                                  { ($1, present) }
 | CONSTRUCTOR fieldspec                                        { ($1, $2)      }
 
 efields:
-| fields_def(efield, row_var, kinded_row_var)                  { $1 }
+| efield                                                       { ([$1], make_effect_var ~is_dot:false $loc) }
+| soption(efield) VBAR DOT                                     { ( $1 , make_effect_var ~is_dot:true  $loc) }
+| soption(efield) VBAR row_var                                 { ( $1 , $3                                ) }
+| soption(efield) VBAR kinded_row_var                          { ( $1 , $3                                ) }
+| efield COMMA efields                                         { ( $1::fst $3, snd $3                     ) }
+
 
 efield:
 | effect_label fieldspec                                       { ($1, $2)      }
