@@ -3636,6 +3636,7 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
               then raise (Errors.disabled_extension
                             ~pos ~setting:("enable_handlers", true)
                             ~flag:"--enable-handlers" "Handlers"));
+           let is_operation p = match WithPos.node p with Pattern.Operation _ -> true | _ -> false in
            let arity = List.length ms in
            let arity_mismatch pos expected actual case_kind =
              Gripers.die pos (Printf.sprintf "Arity mismatch: The handler has arity %d, but its definition contains %s with arity %d."
@@ -3690,6 +3691,13 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
              match val_cases with
              | [] -> generate_return_case arity
              | _  -> val_cases
+           in
+           let type_cases arity val_cases eff_cases =
+             if arity = 1 then
+               let val_cases' = type_cases val_cases in
+               assert false
+             else
+               failwith "TODO"
            in
            let type_val_cases arity cases =
              if arity = 1 then type_cases cases
@@ -3786,10 +3794,19 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
                  let (pat', (outer_type, _)) = type_resume arity kpat in
                  pat', pattern_env' pat', outer_type
              in
-             let extract_shallow_resumption_opt pat =
+             let rec shallow_resumption_type pat =
                match WithPos.node pat with
-               | Pattern.Operation (_, _, r) -> Some r
-               | _ -> None
+               | Pattern.Operation (_, _, r) -> shallow_resumption_type r
+               | Pattern.HasType (_, (_, Some t)) -> t
+               | Pattern.As (b, _) -> Binder.to_type b
+               | Pattern.Variable b -> Binder.to_type b
+               | _ -> assert false
+             in
+             let extract_shallow_resumption_domain_type (pat, _, _) =
+               match WithPos.node pat with
+               | Pattern.Operation (_, _, r) ->
+                 WithPos.pos r, List.hd (TypeUtils.arg_types (shallow_resumption_type pat))
+               | _ -> assert false
              in
              if arity = 1 then failwith "TODO"
              else let vts = List.init arity (fun _ -> Types.fresh_type_variable (lin_any, res_any)) in
@@ -3804,13 +3821,15 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
                          let ps = List.map tpo (unwrap (WithPos.node ec_pattern)) in
                          let resume = type_deep_resumption_pattern arity ec_resumption in
                          let () =
-                           List.iter4
+                           ListUtils.iter4
                              (fun pat pt opt kt ->
                                 match (fst3 pat).node with
                                 | Pattern.Operation _ ->
                                   unify ~handle:Gripers.switch_patterns (ppos_and_typ pat, no_pos opt);
                                   let codomain = TypeUtils.return_type (pattern_typ pat) in
-                                  unify ~handle:Gripers.switch_patterns ((pattern_pos pat, codomain), no_pos kt) (* TODO change griper *)
+                                  unify ~handle:Gripers.switch_patterns ((pattern_pos pat, codomain), no_pos kt); (* TODO change griper *)
+                                  let spos, skt = extract_shallow_resumption_domain_type pat in
+                                  unify ~handle:Gripers.switch_patterns ((Position.resolve_expression spos, skt), no_pos kt) (* TODO change griper *)
                                 | _ ->
                                   unify ~handle:Gripers.switch_patterns (ppos_and_typ pat, no_pos pt);
                                   unify ~handle:Gripers.switch_patterns (ppos_and_typ pat, no_pos kt))
@@ -3819,21 +3838,42 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
                          ((ps, resume, ec_body) :: cases', ps :: patss))
                       cases ([], [])
                   in
-                  (* Close value pattern types component wise *)
+                  (* Close value and operation pattern types component wise *)
+                  let vpats =
+                    List.map
+                      (fun ps -> List.map (fun p -> if is_operation p then 
                   let vts =
                     List.fold_right
                       (fun ps vts ->
-                         List.map2 (fun pat vt -> close_pattern_type [fst3 pat] vt) ps vts)
+                         List.map2
+                           (fun pat vt ->
+                              match WithPos.node (fst3 pat) with
+                              | Pattern.Operation _ -> vt
+                              | _ -> close_pattern_type [fst3 pat] vt)
+                           ps vts)
                       patss vts
+                  in
+                  let opts =
+                    List.fold_right
+                      (fun ps opts ->
+                         List.map2
+                           (fun pat opt ->
+                              match WithPos.node (fst3 pat) with
+                              | Pattern.Operation _ -> close_pattern_type [fst3 pat] opt
+                              | _ -> opt)
+                           ps opts)
+                      patss opts
                   in
                   (* NOTE: it is important to type the patterns in
                      isolation first in order to allow them to be
                      closed before typing the bodies. *)
                   let cases' =
                     List.fold_right
-                      (fun (pat, body) cases ->
-                         let body = type_check (context ++ pattern_env pat) body in
+                      (fun (ps, resume, body) cases ->
+                         let penv = List.fold_left (fun penv p -> Env.extend penv (pattern_env p)) (pattern_env resume) ps in
+                         let body = type_check (context ++ penv) body in
                          let () = unify ~handle:Gripers.switch_branches (pos_and_typ body, no_pos bt) in
+                         let () = unify ~handle:Gripers.switch_branches (ppos_and_typ resume, no_pos bt) in (* TODO change griper *)
                          let () =
                            Env.iter
                              (fun v t ->
@@ -3842,15 +3882,22 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
                                   if Types.Unl.can_type_be t
                                   then Types.Unl.make_type t
                                   else Gripers.non_linearity pos uses v t)
-                             (pattern_env pat)
+                             penv
                          in
-                         let vs = Env.domain (pattern_env pat) in
+                         let vs = Env.domain penv in
                          let us = Usage.restrict (usages body) vs in
-                         (pat, update_usages body us) :: cases)
+                         (ps, resume, update_usages body us) :: cases)
                       cases' []
                   in
-                  cases', pt, bt
+                  cases', vts, opts, bt
            in
+           let val_cases', pt, bt = type_val_cases arity val_cases in
+           let eff_cases', vts, opts, bt' = type_eff_cases arity eff_cases in
+           unify ~handle:Gripers.switch_branches (no_pos bt, no_pos bt'); (* TODO change griper *)
+           (if arity > 1 then
+              List.iter2 (fun pt vt ->
+                  unify ~handle:Gripers.switch_branches (no_pos pt, no_pos vt) (* TODO change griper *))
+                (Types.extract_tuple pt) vts);
            failwith "TODO"
          (*   let rec pop_last = function
           *     | [] -> assert false
