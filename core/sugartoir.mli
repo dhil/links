@@ -3,7 +3,7 @@
 
 val show_compiled_ir : bool Settings.setting
 
-type nenv = Var.var Env.String.t
+type nenv = Var.var Env.Name.t
 type tenv = Types.datatype Env.Int.t
 
 type env = nenv * tenv * Types.row

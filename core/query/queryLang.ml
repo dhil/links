@@ -326,8 +326,8 @@ let rec type_of_expression : t -> Types.datatype = fun v ->
   | Apply (Primitive "Empty", _) -> Types.bool_type (* HACK *)
   | Apply (Primitive "Distinct", [q]) -> type_of_expression q
   | Apply (Primitive f, _) ->
-     let name = failwith "TODO fixme queryLang.ml L329" in
-     TypeUtils.return_type (Env.String.find name Lib.type_env)
+     let env = failwith "TODO fixme queryLang.ml L329" (* Lib.type_env *) in
+     TypeUtils.return_type (Env.String.find f env)
   | e -> Debug.print("Can't deduce type for: " ^ show e); assert false
 
 let eta_expand_var (x, ty) =
@@ -519,7 +519,9 @@ let lookup env var =
       | Some _, Some v -> v (*query_error "Variable %d bound twice" var*)
       | None, None ->
         begin
-          try expression_of_value env (Lib.primitive_stub (Lib.primitive_name var)) with
+          try
+            let stub = failwith "TODO FIXME find stub" (* Lib.primitive_stub (Lib.primitive_name var) *) in
+            expression_of_value env stub with
           | NotFound _ ->
               raise (internal_error ("Variable " ^ string_of_int var ^ " not found"));
         end

@@ -126,19 +126,19 @@ module Phases = struct
   let dump_lib : out_channel -> unit
     = fun oc ->
     Printf.fprintf oc "lib.ml mappings:\n%!";
-    Env.String.iter
+    Env.Name.iter
       (fun name var ->
-        let (datatype : string) =
-          Types.string_of_datatype
-            (Env.String.find name Lib.typing_env.Types.var_env)
+        let (datatype : string) = failwith "TODO Lookup name"
+          (* Types.string_of_datatype
+           *   (Env.String.find name Lib.typing_env.Types.var_env) *)
         in
-        Printf.fprintf oc " %d -> %s : %s\n%!" var name datatype)
+        Printf.fprintf oc " %d -> %s : %s\n%!" var (CommonTypes.Name.to_string name) datatype)
       Lib.nenv
 
   (* Loads the prelude, and returns the 'initial' compilation context. *)
   let initialise : unit -> Context.t
     = fun () ->
-    let context = Context.({ empty with name_environment = Lib.nenv;
+    let context = Context.({ empty with name_environment = failwith "TODO initial name environment" (* Lib.nenv *);
                                         typing_environment = Lib.typing_env })
     in
     let filename = val_of (Settings.get prelude_file) in
@@ -157,7 +157,7 @@ module Phases = struct
     let context', _, _ = Evaluate.run result in
     let nenv = Context.name_environment context' in
     let tenv = Context.typing_environment context' in
-    let venv = Var.varify_env (nenv, tenv.Types.var_env) in
+    let venv = failwith "TODO get proper name environment" (* Var.varify_env (nenv, tenv.Types.var_env) *) in
     (* Prepare the webserver. *)
     Webserver.set_prelude (fst result.Backend.program);
     (* Return the 'initial' compiler context. *)

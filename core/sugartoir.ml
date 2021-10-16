@@ -792,7 +792,7 @@ struct
                   I.tappl (I.var (x, xt), tyargs)
                 with
                     Instantiate.ArityMismatch (expected, provided) ->
-                      raise (Errors.TypeApplicationArityMismatch { pos; name; expected; provided }) in
+                      raise (Errors.TypeApplicationArityMismatch { pos; name = (Name.to_string name); expected; provided }) in
 
       let rec is_pure_primitive e =
         let open Sugartypes in
@@ -815,18 +815,26 @@ struct
           | Var x -> cofv (lookup_var x)
           | FreezeVar x -> cofv (lookup_var x)
           | RangeLit (low, high) ->
-              I.apply (instantiate_mb "intRange", [ev low; ev high])
+              let intRange = failwith "TODO resolve intRange" in
+              I.apply (instantiate_mb intRange, [ev low; ev high])
           | ListLit ([], Some t) ->
-              cofv (instantiate "Nil" [(Type, t)])
+              let _Nil = failwith "TODO resolve Nil" in
+              cofv (instantiate _Nil [(Type, t)])
           | ListLit (e::es, Some t) ->
-              cofv (I.apply_pure(instantiate "Cons" [(Type, t); (Row, eff)],
+              let _Cons = failwith "TODO resolve Cons" in
+              cofv (I.apply_pure(instantiate _Cons [(Type, t); (Row, eff)],
                                  [ev e; ev (WithPos.make ~pos (ListLit (es, Some t)))]))
           | Escape (bndr, body) when Binder.has_type bndr ->
-             let k  = Binder.to_name bndr in
+             let k  = Binder.to_name' bndr in
              let kt = Binder.to_type bndr in
-             I.escape (Var.make_local_info (kt, k), eff, fun v -> eval (extend [k] [(v, kt)] env) body)
-          | Section Section.Minus | FreezeSection Section.Minus -> cofv (lookup_var "-")
-          | Section Section.FloatMinus | FreezeSection Section.FloatMinus -> cofv (lookup_var "-.")
+             I.escape (Var.make_local_info (kt, Name.to_string k), eff, fun v ->
+                                                                        eval (extend [k] [(v, kt)] env) body)
+          | Section Section.Minus | FreezeSection Section.Minus ->
+             let minus = failwith "TODO resolve -" in
+             cofv (lookup_var minus)
+          | Section Section.FloatMinus | FreezeSection Section.FloatMinus ->
+             let fminus = failwith "TODO resolve -." in
+             cofv (lookup_var fminus)
           (* | Section (Section.Name name) | FreezeSection (Section.Name name) -> cofv (lookup_var name) *)
           | Conditional (p, e1, e2) ->
              I.condition (ev p, ec e1, ec e2)
@@ -965,8 +973,9 @@ struct
               in
                 I.switch env (ev e, cases, t)
           | DatabaseLit (name, (None, _)) ->
+              let getDatabaseConfig = failwith "TODO resolve getDatabaseConfig" in
               I.database (ev (WithPos.make ~pos (RecordLit ([("name", name)],
-                                          Some (WithPos.make ~pos (FnAppl (WithPos.make ~pos (Var "getDatabaseConfig"), [])))))))
+                                          Some (WithPos.make ~pos (FnAppl (WithPos.make ~pos (Var getDatabaseConfig), [])))))))
           | DatabaseLit (name, (Some driver, args)) ->
               let args =
                 match args with
@@ -1016,26 +1025,31 @@ struct
               I.table_handle (ev db, ev name, ev keys, (readtype, writetype, neededtype))
           | Xml (tag, attrs, attrexp, children) ->
                if tag = "#" then
-                 cofv (I.concat (instantiate "Nil"
+                 let _Nil = failwith "TODO resolve Nil" in
+                 let _Concat = failwith "TODO resolve Concat" in
+                 cofv (I.concat (instantiate _Nil
                                    [(Type, Types.Primitive Primitive.XmlItem)],
-                                 instantiate "Concat"
+                                 instantiate _Concat
                                    [ (Type, Types.Primitive Primitive.XmlItem)
                                    ; (Row, eff)],
                                  List.map ev children))
                 else
                   let attrs    = alistmap (List.map ev) attrs in
                   let children = List.map ev children in
-                  let body     = I.xml (instantiate "^^" [(Row, eff)], tag, attrs,
+                  let stringConcat = failwith "TODO resolve ^^" in
+                  let body     = I.xml (instantiate stringConcat [(Row, eff)], tag, attrs,
                                         children) in
                   begin match attrexp with
                   | None   -> cofv body
-                  | Some e -> cofv (I.apply_pure (instantiate_mb "addAttributes",
-                                                 [body; ev e]))
+                  | Some e ->
+                     let addAttributes = failwith "TODO resolve addAttributes" in
+                     cofv (I.apply_pure (instantiate_mb addAttributes, [body; ev e]))
                   end
           | TextNode name ->
+              let stringToXml = failwith "TODO resolve stringToXml" in
               cofv
                 (I.apply_pure
-                   (instantiate_mb "stringToXml",
+                   (instantiate_mb stringToXml,
                     [ev (WithPos.make ~pos (Sugartypes.Constant (Constant.String name)))]))
           | Block (bs, e) -> eval_bindings Scope.Local env bs e
           | Query (range, policy, e, _) ->
@@ -1134,9 +1148,9 @@ struct
               match b with
                 | Val ({node=Pattern.Variable bndr; _}, (tyvars, body), _, _)
                      when Binder.has_type bndr ->
-                    let x  = Binder.to_name bndr in
+                    let x  = Binder.to_name' bndr in
                     let xt = Binder.to_type bndr in
-                    let x_info = Var.make_info xt x scope in
+                    let x_info = Var.make_info xt (Name.to_string x) scope in
                     let qs = List.map SugarQuantifier.get_resolved_exn tyvars in
                       I.letvar
                         (x_info,
@@ -1155,7 +1169,7 @@ struct
                         fun_location         = location;
                         fun_unsafe_signature = unsafe; _ }
                      when Binder.has_type bndr ->
-                    let f  = Binder.to_name bndr in
+                    let f  = Binder.to_name' bndr in
                     let ft = Binder.to_type bndr in
                     let eff = TypeUtils.effect_row ft in
                     let ps, body_env =
@@ -1168,7 +1182,7 @@ struct
                     let body = eval body_env body in
                     let qs = List.map SugarQuantifier.get_resolved_exn tyvars in
                       I.letfun
-                        (Var.make_info ft f scope, (qs, (body_env, ps, body)), location, unsafe)
+                        (Var.make_info ft (Name.to_string f) scope, (qs, (body_env, ps, body)), location, unsafe)
                         (fun v -> eval_bindings scope (extend [f] [(v, ft)] env) bs e)
                 | Exp e' ->
                     I.comp env (CompilePatterns.Pattern.Any, ev e', eval_bindings scope env bs e)
@@ -1179,7 +1193,7 @@ struct
                       List.fold_right
                         (fun { rec_binder = bndr; rec_definition = ((_tyvars, inner_opt), _); _ }
                              (fs, inner_fts, outer_fts) ->
-                          let f = Binder.to_name bndr in
+                          let f = Binder.to_name' bndr in
                           let outer  = Binder.to_type bndr in
                           let (inner, _) = OptionUtils.val_of inner_opt in
                               (f::fs, inner::inner_fts, outer::outer_fts))
@@ -1193,7 +1207,7 @@ struct
                                rec_unsafe_signature = unsafe; _ } ->
                           let (pss, body) = Sugartypes.get_normal_funlit fnlit in
                           assert (List.length pss = 1);
-                          let f  = Binder.to_name bndr in
+                          let f  = Binder.to_name' bndr in
                           let ft = Binder.to_type bndr in
                           let eff = TypeUtils.effect_row ft in
                           let ps = List.hd pss in
@@ -1206,7 +1220,7 @@ struct
                                ps
                                ([], with_effects env eff) in
                            let body = fun vs -> eval (extend fs (List.combine vs inner_fts) body_env) body in
-                           (Var.make_info ft f scope, (qs, (body_env, ps, body)), location, unsafe))
+                           (Var.make_info ft (Name.to_string f) scope, (qs, (body_env, ps, body)), location, unsafe))
                         (nodes_of_list defs)
                     in
                     I.letrec defs (fun vs -> eval_bindings scope (extend fs (List.combine vs outer_fts) env) bs e)
@@ -1215,9 +1229,9 @@ struct
                      fst (Alien.declaration alien)
                    in
                    assert (Binder.has_type binder);
-                   let x  = Binder.to_name binder in
+                   let x  = Binder.to_name' binder in
                    let xt = Binder.to_type binder in
-                   I.alien (Var.make_info xt x scope, Alien.object_name alien, Alien.language alien,
+                   I.alien (Var.make_info xt (Name.to_string x) scope, Alien.object_name alien, Alien.language alien,
                             fun v -> eval_bindings scope (extend [x] [(v, xt)] env) bs e)
                 | Typenames _
                 | Infix _ ->
@@ -1290,7 +1304,7 @@ struct
               | _ -> partition (globals, b::locals, nenv) bs
             end in
     let globals, locals, nenv = partition ([], [], Env.String.empty) bs in
-    globals, (locals, main), nenv
+    globals, (locals, main), Env.Name.empty (* TODO FIXME partition probably shouldn't pass nenv around anymore. *)
 
 
   let compile env (bindings, body) =
@@ -1332,18 +1346,18 @@ type result =
 let program : Context.t -> Types.datatype -> Sugartypes.program -> result
   = fun context datatype program ->
   let (nenv, _, _) as env =
-    let nenv = Context.name_environment context in
+    let nenv = (* Context.name_environment context *) failwith "TODO project name environment" in
     let tenv = Context.typing_environment context in
     let venv = Context.variable_environment context in
     (nenv, venv, tenv.Types.effect_row)
   in
   let program', _ = C.compile env program in
   let globals, program'', nenv' = C.partition_program program' in
-  let nenv'' = Env.String.extend nenv nenv' in
+  let nenv'' = Env.Name.extend nenv nenv' in
   let venv =
     let tenv = Context.typing_environment context in
     Var.varify_env (nenv'', tenv.Types.var_env)
   in
   { globals; datatype; program = program'';
-    context = Context.({ context with name_environment = nenv'';
+    context = Context.({ context with name_environment = failwith "TODO name environment" (* nenv'' *);
                                       variable_environment = venv }) }

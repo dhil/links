@@ -67,7 +67,7 @@ end
 
 
 
-module NEnv = Env.String
+module NEnv = Env.Name
 module TEnv = Env.Int
 module PEnv = Env.Int
 
@@ -108,11 +108,11 @@ let rec desugar_pattern : Types.row -> Sugartypes.Pattern.with_pos -> Pattern.t 
     let (++) (nenv, tenv, _) (nenv', tenv', eff') = (NEnv.extend nenv nenv', TEnv.extend tenv tenv', eff') in
     let fresh_binder (nenv, tenv, eff) bndr =
       assert (Sugartypes.Binder.has_type bndr);
-      let name = Sugartypes.Binder.to_name bndr in
+      let name = Sugartypes.Binder.to_name' bndr in
       let t = Sugartypes.Binder.to_type bndr in
       let xb, x =
         if use_legacy_names
-        then Var.(fresh_var (make_local_info (t, name)))
+        then Var.(fresh_var (make_local_info (t, Name.to_string name)))
         else let bndr = WithPos.node bndr in
              (bndr, Binder.var bndr)
       in
@@ -131,11 +131,11 @@ let rec desugar_pattern : Types.row -> Sugartypes.Pattern.with_pos -> Pattern.t 
        let p, env = desugar_pattern p in
        let ps, env' = desugar_pattern (WithPos.make ~pos (List ps)) in
        Pattern.Cons (p, ps), env ++ env'
-    | Variant (name, None) -> Pattern.Variant (name, Pattern.Any), empty
-    | Variant (name, Some p) ->
+    | Variant (label, None) -> Pattern.Variant (label, Pattern.Any), empty
+    | Variant (label, Some p) ->
        let p, env = desugar_pattern p in
-       Pattern.Variant (name, p), env
-    | Effect (name, ps, k) ->
+       Pattern.Variant (label, p), env
+    | Effect (label, ps, k) ->
        let ps, env =
          List.fold_right
            (fun p (ps, env) ->
@@ -144,7 +144,7 @@ let rec desugar_pattern : Types.row -> Sugartypes.Pattern.with_pos -> Pattern.t 
            ps ([], empty)
        in
        let k, env' = desugar_pattern k in
-       Pattern.Effect (name, ps, k), env ++ env'
+       Pattern.Effect (label, ps, k), env ++ env'
     | Negative names -> Pattern.Negative (StringSet.from_list names), empty
     | Record (bs, p) ->
        let bs, env =

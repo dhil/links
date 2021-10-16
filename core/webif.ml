@@ -42,13 +42,13 @@ struct
        have to do something about it in order for attempts to remotely
        call primitive functions to work properly. *)
 
-    let func =
-      match fvs with
-      | `Record [] -> let i_fname = int_of_string fname in
-          if Lib.is_primitive_var i_fname
-          then `PrimitiveFunction (Lib.primitive_name i_fname, Some i_fname)
-          else `FunctionPtr (int_of_string fname, None)
-      | _          -> `FunctionPtr (int_of_string fname, Some fvs) in
+    let func = failwith "TODO remote call" in
+      (* match fvs with
+       * | `Record [] -> let i_fname = int_of_string fname in
+       *     if Lib.is_primitive_var i_fname
+       *     then `PrimitiveFunction (Lib.primitive_name i_fname, Some i_fname)
+       *     else `FunctionPtr (int_of_string fname, None)
+       * | _          -> `FunctionPtr (int_of_string fname, Some fvs) in *)
     RemoteCall(func, valenv, args)
 
   (** Boolean tests for cgi parameters *)

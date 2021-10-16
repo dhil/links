@@ -16,8 +16,8 @@ let internal_error message =
 
 let type_section env =
   let open Section in function
-  | Minus -> TyEnv.find "-" env
-  | FloatMinus -> TyEnv.find "-."env
+  | Minus -> failwith "TODO resolve -" (* TyEnv.find "-" env *)
+  | FloatMinus -> failwith "TODO resolve -." (* TyEnv.find "-."env *)
   | Project label ->
       let ab, a = Types.fresh_type_quantifier (lin_any, res_any) in
       let rhob, row  = fresh_row_quantifier (lin_any, res_any) in
@@ -27,46 +27,46 @@ let type_section env =
       let r = Record (Row (StringMap.add label (Present a) fields, rho, false)) in
         ForAll ([ab; rhob; eb],
                 Function (Types.make_tuple_type [r], e, a))
-  | Name var -> TyEnv.find var env
+  (* | Name var -> failwith "Lookup name" (\* TyEnv.find var env *\) *)
 
 let type_unary_op env tycon_env =
   let datatype = DesugarDatatypes.read ~aliases:tycon_env in function
     | UnaryOp.Minus      -> datatype "(Int) -> Int"
     | UnaryOp.FloatMinus -> datatype "(Float) -> Float"
-    | UnaryOp.Name n     -> TyEnv.find n env
+    (* | UnaryOp.Name n     -> TyEnv.find n env *)
 
 let type_binary_op env tycon_env =
   let open BinaryOp in
   let datatype = DesugarDatatypes.read ~aliases:tycon_env in function
-  | Minus        -> TyEnv.find "-" env
-  | FloatMinus   -> TyEnv.find "-." env
-  | RegexMatch flags ->
-      let nativep  = List.exists ((=) RegexNative)  flags
-      and listp    = List.exists ((=) RegexList)    flags
-      and replacep = List.exists ((=) RegexReplace) flags in
-        (match replacep, listp, nativep with
-           | true,   _   , false -> (* stilde  *) datatype "(String, Regex) -> String"
-           | false, true , false -> (* ltilde *)  datatype "(String, Regex) -> [String]"
-           | false, false, false -> (* tilde *)   datatype "(String, Regex) -> Bool"
-           | _,     _,     true  -> assert false)
+  | Minus        -> failwith "TODO resolve -" (* TyEnv.find "-" env *)
+  | FloatMinus   -> failwith "TODO resolve -." (* TyEnv.find "-." env *)
+  (* | Name.Special.RegexMatch flags ->
+   *     let nativep  = List.exists ((=) Name.Special.RegexNative)  flags
+   *     and listp    = List.exists ((=) Name.Special.RegexList)    flags
+   *     and replacep = List.exists ((=) Name.Special.RegexReplace) flags in
+   *       (match replacep, listp, nativep with
+   *          | true,   _   , false -> (\* stilde  *\) datatype "(String, Regex) -> String"
+   *          | false, true , false -> (\* ltilde *\)  datatype "(String, Regex) -> [String]"
+   *          | false, false, false -> (\* tilde *\)   datatype "(String, Regex) -> Bool"
+   *          | _,     _,     true  -> assert false) *)
 
   | And
   | Or           -> datatype "(Bool,Bool) -> Bool"
-  | Cons         -> TyEnv.find "Cons" env
-  | Name "++"    -> TyEnv.find "Concat" env
-  | Name ">"
-  | Name ">="
-  | Name "=="
-  | Name "<"
-  | Name "<="
-  | Name "<>" ->
-      let ab, a = Types.fresh_type_quantifier (lin_any, res_any) in
-      let eb, e = Types.fresh_row_quantifier (lin_any, res_any) in
-        ForAll ([ab; eb],
-                Function (Types.make_tuple_type [a; a], e,
-                          Primitive Primitive.Bool ))
-  | Name "!"     -> TyEnv.find "Send" env
-  | Name n       -> TyEnv.find n env
+  | Cons         -> failwith "TODO resolve Cons" (* TyEnv.find "Cons" env *)
+  (* | Name "++"    -> TyEnv.find "Concat" env
+   * | Name ">"
+   * | Name ">="
+   * | Name "=="
+   * | Name "<"
+   * | Name "<="
+   * | Name "<>" ->
+   *     let ab, a = Types.fresh_type_quantifier (lin_any, res_any) in
+   *     let eb, e = Types.fresh_row_quantifier (lin_any, res_any) in
+   *       ForAll ([ab; eb],
+   *               Function (Types.make_tuple_type [a; a], e,
+   *                         Primitive Primitive.Bool ))
+   * | Name "!"     -> TyEnv.find "Send" env
+   * | Name n       -> TyEnv.find n env *)
 
 let fun_effects t pss =
   let rec get_eff =
@@ -146,7 +146,7 @@ class transform (env : Types.typing_environment) =
   object (o : 'self_type)
     val var_env = env.Types.var_env
     val tycon_env = env.Types.tycon_env
-    val formlet_env = TyEnv.empty
+    val formlet_env = Env.Name.empty
     val effect_row = fst (Types.unwrap_row env.Types.effect_row)
 
     method get_var_env : unit -> Types.environment = fun () -> var_env
@@ -167,11 +167,12 @@ class transform (env : Types.typing_environment) =
     method bind_tycon name tycon =
       {< tycon_env = TyEnv.bind name tycon tycon_env >}
 
-    method bind_binder bndr =
-      {< var_env = TyEnv.bind (Binder.to_name bndr)  (Binder.to_type bndr) var_env >}
+    method bind_binder : Sugartypes.Binder.with_pos -> 'self_type = fun bndr -> failwith "TODO env" 
+      (* {< var_env = TyEnv.bind (Binder.to_name bndr)  (Binder.to_type bndr) var_env >} *)
 
     method lookup_type : Name.t -> Types.datatype = fun var ->
-      TyEnv.find var var_env
+      failwith "TODO env lookup"
+      (* TyEnv.find var var_env *)
 
     method lookup_effects : Types.row = effect_row
 
@@ -360,25 +361,27 @@ class transform (env : Types.typing_environment) =
           let o = o#restore_envs envs in
             o, Block (bs, e), t
       | InfixAppl ((tyargs, op), e1, e2) ->
-          let (o, op, t) = o#binop op in
-            check_type_application
-              (InfixAppl ((tyargs, op), e1, e2), t)
-              (fun () ->
-                 let t = TypeUtils.return_type (Instantiate.apply_type t tyargs) in
-                 let (o, e1, _) = o#phrase e1 in
-                 let (o, e2, _) = o#phrase e2 in
-                   (o, InfixAppl ((tyargs, op), e1, e2), t))
+         failwith "TODO binary op"
+          (* let (o, op, t) = o#binop op in
+           *   check_type_application
+           *     (InfixAppl ((tyargs, op), e1, e2), t)
+           *     (fun () ->
+           *        let t = TypeUtils.return_type (Instantiate.apply_type t tyargs) in
+           *        let (o, e1, _) = o#phrase e1 in
+           *        let (o, e2, _) = o#phrase e2 in
+           *          (o, InfixAppl ((tyargs, op), e1, e2), t)) *)
       | Regex r ->
           let (o, r) = o#regex r in
             (o, Regex r, Instantiate.alias "Regex" [] tycon_env)
       | UnaryAppl ((tyargs, op), e) ->
-          let (o, op, t) = o#unary_op op in
-            check_type_application
-              (UnaryAppl ((tyargs, op), e), t)
-              (fun () ->
-                 let t = TypeUtils.return_type (Instantiate.apply_type t tyargs) in
-                 let (o, e, _) = o#phrase e in
-                   (o, UnaryAppl ((tyargs, op), e), t))
+         failwith "TODO unary op"
+          (* let (o, op, t) = o#unary_op op in
+           *   check_type_application
+           *     (UnaryAppl ((tyargs, op), e), t)
+           *     (fun () ->
+           *        let t = TypeUtils.return_type (Instantiate.apply_type t tyargs) in
+           *        let (o, e, _) = o#phrase e in
+           *          (o, UnaryAppl ((tyargs, op), e), t)) *)
       | FnAppl (f, args) ->
          let (o, f, ft) = o#phrase f in
          let (o, args, _) = list o (fun o -> o#phrase) args in
@@ -640,7 +643,7 @@ class transform (env : Types.typing_environment) =
          let (o, body, _) = o#phrase body in
          (* ensure that the formlet bindings are only in scope in the
             yields clause *)
-         let o = o#with_var_env (TyEnv.extend (o#get_var_env ()) (o#get_formlet_env ())) in
+         let o = failwith "TODO Extend var env" (* o#with_var_env (TyEnv.extend (o#get_var_env ()) (o#get_formlet_env ())) *) in
          let (o, yields, t) = o#phrase yields in
          let o = o#restore_envs envs in
          (o, Formlet (body, yields), Instantiate.alias "Formlet" [(Type, t)] tycon_env)
@@ -656,9 +659,9 @@ class transform (env : Types.typing_environment) =
          let envs = o#backup_envs in
          let (o, f, _) = o#phrase f in
          (* HACK: add the formlet bindings to the formlet environment *)
-         let o = o#with_var_env TyEnv.empty in
+         let o = o#with_var_env Env.Name.empty in
          let (o, p) = o#pattern p in
-         let formlet_env = TyEnv.extend formlet_env (o#get_var_env()) in
+         let formlet_env = failwith "TODO extend formlet env" (* TyEnv.extend formlet_env (o#get_var_env()) *) in
          let o = o#restore_envs envs in
          let o = o#with_formlet_env formlet_env in
          (* let o = {< formlet_env=TyEnv.extend formlet_env (o#get_var_env()) >} in *)
@@ -872,7 +875,7 @@ class transform (env : Types.typing_environment) =
     method binder : Binder.with_pos -> ('self_type * Binder.with_pos) =
       fun bndr ->
       assert (Binder.has_type bndr);
-      let var_env = TyEnv.bind (Binder.to_name bndr) (Binder.to_type bndr) var_env in
+      let var_env = failwith "TODO FIXME binder" (* TyEnv.bind (Binder.to_name bndr) (Binder.to_type bndr) var_env *) in
       ({< var_env=var_env >}, bndr)
 
     method cp_phrase : cp_phrase -> ('self_type * cp_phrase * Types.datatype) =
@@ -894,14 +897,14 @@ class transform (env : Types.typing_environment) =
       | CPGrab ((c, Some (Input (_a, s), _grab_tyargs) as cbind), Some b, p) -> (* FYI: a = u *)
          let envs = o#backup_envs in
          let (o, b) = o#binder b in
-         let venv = TyEnv.bind c s (o#get_var_env ()) in
+         let venv = failwith "TODO FIXME CP env" (* TyEnv.bind c s (o#get_var_env ()) *) in
          let o = {< var_env = venv >} in
          let (o, p, t) = o#cp_phrase p in
          let o = o#restore_envs envs in
          o, CPGrab (cbind, Some b, p), t
       | CPGive ((c, Some (Output (_t, s), _tyargs) as cbind), e, p) ->
          let envs = o#backup_envs in
-         let o = {< var_env = TyEnv.bind c s (o#get_var_env ()) >} in
+         let o = failwith "TODO FIXME CP env" (* {< var_env = TyEnv.bind c s (o#get_var_env ()) >} *) in
          let (o, e, _typ) = option o (fun o -> o#phrase) e in
          let (o, p, t) = o#cp_phrase p in
          let o = o#restore_envs envs in
@@ -936,9 +939,9 @@ class transform (env : Types.typing_environment) =
          let c = Binder.to_name bndr in
          let s = Binder.to_type bndr in
          let envs = o#backup_envs in
-         let (o, left, _typ) = {< var_env = TyEnv.bind c s (o#get_var_env ()) >}#cp_phrase left in
+         let (o, left, _typ) = (* {< var_env = TyEnv.bind c s (o#get_var_env ()) >} *) (failwith "TODO FIXME CP env")#cp_phrase left in
          let whiny_dual_type s = try Types.dual_type s with Invalid_argument _ -> raise (Invalid_argument ("Attempted to dualize non-session type " ^ Types.string_of_datatype s)) in
-         let (o, right, t) = {< var_env = TyEnv.bind c (whiny_dual_type s) (o#get_var_env ()) >}#cp_phrase right in
+         let (o, right, t) = (* {< var_env = TyEnv.bind c (whiny_dual_type s) (o#get_var_env ()) >} *) (failwith "TODO FIXME CP env")#cp_phrase right in
          let o = o#restore_envs envs in
          o, CPComp (bndr, left, right), t
 
