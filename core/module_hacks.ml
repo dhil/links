@@ -5,4 +5,8 @@ module Name = struct
   let prettify : string -> string
   = fun name ->
     Str.global_replace module_name_hack_pat "." name
+
+  let prettify' : CommonTypes.Name.t -> string
+  = fun name ->
+    prettify (CommonTypes.Name.to_string name)
 end

@@ -102,8 +102,8 @@ struct
 
   let rt : routing_table ref = ref Trie.empty
 
-  let env : (Value.env * Ir.var Env.String.t * Types.typing_environment) ref =
-    ref (Value.Env.empty, Env.String.empty, Types.empty_typing_environment)
+  let env : (Value.env * Ir.var Env.Name.t * Types.typing_environment) ref =
+    ref (Value.Env.empty, Env.Name.empty, Types.empty_typing_environment)
   let prelude : Ir.binding list ref = ref []
   let globals : Ir.binding list ref = ref []
 
@@ -341,7 +341,7 @@ struct
       let render_cont () =
         let (_, nenv, {Types.tycon_env = tycon_env; _ }) = !env in
         let _, x = Var.fresh_global_var_of_type (Instantiate.alias "Page" [] tycon_env) in
-        let render_page = Env.String.find "renderPage" nenv in
+        let render_page = failwith "TODO resolve renderPage" (* Env.String.find "renderPage" nenv *) in
         let tail = Ir.Apply (Ir.Variable render_page, [Ir.Variable x]) in
         Hashtbl.add Tables.scopes x Scope.Global;
         Hashtbl.add Tables.cont_defs x ([], tail);

@@ -157,11 +157,16 @@ module Phases = struct
     let context', _, _ = Evaluate.run result in
     let nenv = Context.name_environment context' in
     let tenv = Context.typing_environment context' in
-    let venv = failwith "TODO get proper name environment" (* Var.varify_env (nenv, tenv.Types.var_env) *) in
+    let compute_prelude_interface nenv tenv =
+      Env.Name.fold
+        (fun cname ty iface -> Types.Interface.extend cname (CommonTypes.Name.to_string cname) ty iface)
+        tenv.Types.var_env Types.Interface.empty
+    in
+    let venv = Var.varify_env (nenv, tenv.Types.var_env) in
     (* Prepare the webserver. *)
     Webserver.set_prelude (fst result.Backend.program);
     (* Return the 'initial' compiler context. *)
-    Context.({ context' with variable_environment = venv })
+    Context.({ context' with prelude = compute_prelude_interface nenv tenv; variable_environment = venv })
 
   let whole_program : Context.t -> string -> (Context.t * Types.datatype * Value.t)
     = fun initial_context filename ->

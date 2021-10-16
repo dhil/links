@@ -1653,12 +1653,26 @@ let env : (string * (Binder.t * located_primitive * Types.datatype * pure)) list
       (name, (Binder.fresh ~scope:Binder.Scope.Global ~ty ~name (), prim, ty, purity)))
     env
 
+let use_legacy_names = Settings.get Basicsettings.Names.legacy_names
+
+let interface : Types.Interface.t
+  = let resolve name id =
+      if use_legacy_names then Name.legacy name
+      else Name.resolved name id
+    in List.fold_left
+         (fun iface (n, (b, _, ty, _)) ->
+           Types.Interface.extend (resolve n (Binder.var b)) n ty iface)
+         Types.Interface.empty env
+
+module Interface = struct
+  let lookup_type cname = Types.Interface.lookup_type cname interface
+  let canonical_name name = Types.Interface.canonical_name name interface
+end
+
 let impl : located_primitive -> primitive option = function
   | `Client -> None
   | `Server p
   | (#primitive as p) -> Some p
-
-let use_legacy_names = Settings.get Basicsettings.Names.legacy_names
 
 let nenv =
   List.fold_left

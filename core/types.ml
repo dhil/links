@@ -168,6 +168,35 @@ and row' = field_spec_map * row_var * bool
 and row_var = meta_row_var
    [@@deriving show]
 
+module Interface: sig
+  type t
+
+  val empty : t
+
+  val lookup_type : Name.t -> t -> typ
+  val canonical_name : string -> t -> Name.t
+
+  val extend : Name.t -> string -> typ -> t -> t
+end = struct
+  type t = { members: typ Env.Name.t;
+             members_nenv: Name.t Env.String.t }
+
+  let empty = { members = Env.Name.empty; members_nenv = Env.String.empty }
+
+  let lookup_type name { members; _ } = Env.Name.find name members
+  let canonical_name name { members_nenv; _ } = Env.String.find name members_nenv
+
+  let extend cname name ty { members; members_nenv } =
+    (* Remove shadowed names *)
+    let members =
+      if Env.String.has name members_nenv
+      then members
+      else Env.Name.unbind (Env.String.find name members_nenv) members
+    in
+    { members = Env.Name.bind cname ty members;
+      members_nenv = Env.String.bind name cname members_nenv }
+end
+
 let dummy_type = Not_typed
 
 let is_present = function

@@ -6,7 +6,7 @@ module WebIf : functor (Webs : WEBSERVER) ->
 sig
 
   val do_request :
-    (Value.env * Ir.var Env.String.t * Types.typing_environment) ->
+    (Value.env * Ir.var Env.Name.t * Types.typing_environment) ->
     (string * string) list ->
     (unit -> (string * string) Lwt.t) ->
     Value.continuation ->

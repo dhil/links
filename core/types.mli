@@ -168,6 +168,16 @@ and row = typ
 and row' = field_spec_map * row_var * bool
 and row_var = meta_row_var
 
+module Interface: sig
+  type t
+
+  val empty : t
+
+  val lookup_type : Name.t -> t -> typ
+  val canonical_name : string -> t -> Name.t
+
+  val extend : Name.t -> string -> typ -> t -> t
+end
 
 val is_type_body : typ -> bool
 val is_row_body : row -> bool

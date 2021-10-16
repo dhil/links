@@ -296,14 +296,14 @@ let handle previous_context current_context = function
            , Context.name_environment current_context )
          in
          let vars, vars' =
-           ( Env.String.fold (fun _ var vars -> IntSet.add var vars) nenv IntSet.empty
-           , Env.String.fold (fun _ var vars -> IntSet.add var vars) nenv' IntSet.empty )
+           ( Env.Name.fold (fun _ var vars -> IntSet.add var vars) nenv IntSet.empty
+           , Env.Name.fold (fun _ var vars -> IntSet.add var vars) nenv' IntSet.empty )
          in
          IntSet.diff vars' vars
        in
        let nenv' =
          let nenv = Context.name_environment current_context in
-         Env.String.filter (fun _ var -> IntSet.mem var new_vars) nenv
+         Env.Name.filter (fun _ var -> IntSet.mem var new_vars) nenv
        in
        nenv'
      in
@@ -313,7 +313,7 @@ let handle previous_context current_context = function
        tenv.Types.var_env
      in
      let valenv = Context.value_environment current_context in
-     Env.String.fold
+     Env.Name.fold
        (fun name var () ->
          let v, t =
            (* Function values are bound in a global table, whereas
@@ -335,7 +335,7 @@ let handle previous_context current_context = function
            | _ -> assert false
          in
          Printf.printf "%s = %s : %s\n%!"
-           (Module_hacks.Name.prettify name)
+           (Module_hacks.Name.prettify' name)
            (Value.string_of_value v)
            (Types.string_of_datatype t))
        nenv'
