@@ -39,6 +39,8 @@ class map =
 
     method char : char -> char = o#unknown
 
+    method timestamp : Timestamp.t -> Timestamp.t = o#unknown
+
     method bool : bool -> bool = function | false -> false | true -> true
 
     method label : Label.t -> Label.t = o#string
@@ -677,6 +679,7 @@ class map =
       | Constant.String _x -> let _x = o#string _x in Constant.String _x
       | Constant.Bool _x   -> let _x = o#bool _x   in Constant.Bool _x
       | Constant.Char _x   -> let _x = o#char _x   in Constant.Char _x
+      | Constant.DateTime _x   -> let _x = o#timestamp _x   in Constant.DateTime _x
 
     method binop : Name.t -> Name.t = o#name
 
@@ -836,6 +839,8 @@ class fold =
     method float : float -> 'self_type = o#unknown
 
     method char : char -> 'self_type = o#unknown
+
+    method timestamp : Timestamp.t -> 'self_type = o#unknown
 
     method bool : bool -> 'self_type = function | false -> o | true -> o
 
@@ -1392,6 +1397,7 @@ class fold =
       | Constant.String _x -> let o = o#string _x in o
       | Constant.Bool   _x -> let o = o#bool   _x in o
       | Constant.Char   _x -> let o = o#char   _x in o
+      | Constant.DateTime   _x -> let o = o#timestamp   _x in o
 
     method binop : Name.t -> 'self_type = o#name
 
@@ -1544,6 +1550,8 @@ class fold_map =
     method float : float -> ('self_type * float) = o#unknown
 
     method char : char -> ('self_type * char) = o#unknown
+
+    method timestamp : Timestamp.t -> ('self_type * Timestamp.t) = o#unknown
 
     method bool : bool -> ('self_type * bool) =
       function | false -> (o, false) | true -> (o, true)
@@ -2244,6 +2252,8 @@ class fold_map =
          let (o, _x) = o#bool _x in (o, (Constant.Bool _x))
       | Constant.Char _x ->
          let (o, _x) = o#char _x in (o, (Constant.Char _x))
+      | Constant.DateTime _x ->
+         let (o, _x) = o#timestamp _x in (o, (Constant.DateTime _x))
 
     method binop : Name.t -> ('self_type * Name.t) = o#name
 

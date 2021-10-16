@@ -29,6 +29,7 @@ class map :
     method bool            : bool -> bool
     method unary_op        : Name.t -> Name.t
     method tyunary_op      : tyarg list * Name.t -> tyarg list * Name.t
+    method timestamp       : Timestamp.t -> Timestamp.t
     method binder          : Binder.with_pos -> Binder.with_pos
     method sentence        : sentence -> sentence
     method section         : Section.t -> Section.t
@@ -106,6 +107,7 @@ class fold :
     method int             : int -> 'self
     method float           : float -> 'self
     method char            : char -> 'self
+    method timestamp       : Timestamp.t -> 'self
     method bool            : bool -> 'self
     method unary_op        : Name.t -> 'self
     method tyunary_op      : tyarg list * Name.t -> 'self
@@ -181,6 +183,7 @@ object ('self)
   method tybinop         : tyarg list * Name.t -> 'self * (tyarg list * Name.t)
   method bool            : bool -> 'self * bool
   method char            : char -> 'self * char
+  method timestamp       : Timestamp.t -> 'self * Timestamp.t
   method constant        : Constant.t -> 'self * Constant.t
   method datatype        : Datatype.with_pos -> 'self * Datatype.with_pos
   method datatypenode    : Datatype.t -> 'self * Datatype.t

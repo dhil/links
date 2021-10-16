@@ -624,6 +624,13 @@ end = functor (K : CONTINUATION) -> struct
          | Constant.Bool v   -> Lit (string_of_bool v)
          | Constant.Char v   -> chrlit v
          | Constant.String v -> chrlistlit v
+         | Constant.DateTime (Timestamp.Timestamp ts) ->
+             Dict [("_type", strlit "timestamp");
+                   ("_value", Lit (UnixTimestamp.of_calendar ts |> string_of_float))]
+         | Constant.DateTime Timestamp.Infinity ->
+             Dict [("_type", strlit "infinity")]
+         | Constant.DateTime Timestamp.MinusInfinity ->
+             Dict [("_type", strlit "-infinity")]
        end
     | Variable var ->
           (* HACK *)
@@ -1230,7 +1237,7 @@ end = functor (K : CONTINUATION) -> struct
          (state,
           varenv,
           Some x_name,
-          fun code -> Bind (x_name, Lit jsonized_val, code))
+          fun code -> Bind (x_name, Call (Var "JSON.parse", [strlit jsonized_val]), code))
       | Fun def ->
          let {fn_binder = fb; _} = def
          in
