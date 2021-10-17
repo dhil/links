@@ -173,28 +173,26 @@ module Interface: sig
 
   val empty : t
 
-  val lookup_type : Name.t -> t -> typ
+  val lookup_type : string -> t -> typ
+  val lookup_type' : Name.t -> t -> typ
   val canonical_name : string -> t -> Name.t
 
-  val extend : Name.t -> string -> typ -> t -> t
+  val extend : string -> Name.t -> typ -> t -> t
+  val fold : (string -> (Name.t * typ) -> 'a -> 'a) -> t -> 'a -> 'a
 end = struct
-  type t = { members: typ Env.Name.t;
-             members_nenv: Name.t Env.String.t }
+  type t = { members: (Name.t * typ) Env.String.t  }
 
-  let empty = { members = Env.Name.empty; members_nenv = Env.String.empty }
+  let empty = { members = Env.String.empty }
 
-  let lookup_type name { members; _ } = Env.Name.find name members
-  let canonical_name name { members_nenv; _ } = Env.String.find name members_nenv
+  let lookup_type name { members } = snd (Env.String.find name members)
+  let lookup_type' cname iface = lookup_type (Name.to_string cname) iface
+  let canonical_name name { members } = fst (Env.String.find name members)
 
-  let extend cname name ty { members; members_nenv } =
-    (* Remove shadowed names *)
-    let members =
-      if Env.String.has name members_nenv
-      then members
-      else Env.Name.unbind (Env.String.find name members_nenv) members
-    in
-    { members = Env.Name.bind cname ty members;
-      members_nenv = Env.String.bind name cname members_nenv }
+  let extend name cname ty { members } =
+    (* Shadowed names are not accessible *)
+    { members = Env.String.bind name (cname, ty) members }
+
+  let fold f iface z = Env.String.fold f iface.members z
 end
 
 let dummy_type = Not_typed

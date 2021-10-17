@@ -35,7 +35,3 @@ val print_http_response : (string * string) list -> string -> RequestData.reques
 val prim_appln : string -> Ir.value list -> Ir.tail_computation
 
 val interface : Types.Interface.t
-module Interface : sig
-  val lookup_type : CommonTypes.Name.t -> Types.datatype
-  val canonical_name : string -> CommonTypes.Name.t
-end

@@ -8,7 +8,7 @@ type t =
     source_code: SourceCode.source_code;          (* TODO remove. *)
     ffi_files: string list;                      (* TODO remove. *)
     operator_table: (int * Operators.Associativity.t) Utility.StringMap.t option;  (* TODO remove. *)
-    prelude: Types.Interface.t }
+    compenv: Compenv.t }
 
 let empty_code = new SourceCode.source_code
 
@@ -20,7 +20,7 @@ let empty =
     source_code = empty_code;
     ffi_files = [];
     operator_table = None;
-    prelude = Types.Interface.empty }
+    compenv = Compenv.empty }
 
 let typing_environment { typing_environment; _ } = typing_environment
 let name_environment { name_environment; _ } = name_environment
@@ -29,4 +29,5 @@ let source_code { source_code; _ } = source_code
 let variable_environment { variable_environment; _ } = variable_environment
 let ffi_files { ffi_files; _ } = ffi_files
 let operator_table { operator_table; _ } = operator_table
-let prelude_interface { prelude; _ } = prelude
+
+let compilation_environment { compenv; _ } = compenv

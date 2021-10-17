@@ -128,9 +128,9 @@ module Phases = struct
     Printf.fprintf oc "lib.ml mappings:\n%!";
     Env.Name.iter
       (fun name var ->
-        let (datatype : string) = failwith "TODO Lookup name"
-          (* Types.string_of_datatype
-           *   (Env.String.find name Lib.typing_env.Types.var_env) *)
+        let (datatype : string) =
+          Types.string_of_datatype
+            (Env.Name.find name Lib.typing_env.Types.var_env)
         in
         Printf.fprintf oc " %d -> %s : %s\n%!" var (CommonTypes.Name.to_string name) datatype)
       Lib.nenv
@@ -138,9 +138,15 @@ module Phases = struct
   (* Loads the prelude, and returns the 'initial' compilation context. *)
   let initialise : unit -> Context.t
     = fun () ->
-    let context = Context.({ empty with name_environment = failwith "TODO initial name environment" (* Lib.nenv *);
+    (* Install lib compilation unit *)
+    let context = Context.({ empty with name_environment = Lib.nenv;
                                         typing_environment = Lib.typing_env })
     in
+    let compenv =
+      let compenv = Context.compilation_environment context in
+      Compenv.set_lib (Comp_unit.Interface.replace Lib.interface (Compenv.lib compenv)) compenv
+    in
+    let context = { context with compenv } in
     let filename = val_of (Settings.get prelude_file) in
     let result =
       Parse.run context filename
@@ -159,14 +165,20 @@ module Phases = struct
     let tenv = Context.typing_environment context' in
     let compute_prelude_interface nenv tenv =
       Env.Name.fold
-        (fun cname ty iface -> Types.Interface.extend cname (CommonTypes.Name.to_string cname) ty iface)
+        (fun cname ty iface -> Types.Interface.extend (CommonTypes.Name.to_string cname) cname ty iface)
         tenv.Types.var_env Types.Interface.empty
+    in
+    (* Install prelude compilation unit *)
+    let compenv =
+      let compenv = Context.compilation_environment context' in
+      let prelude = Comp_unit.Interface.replace (compute_prelude_interface nenv tenv) (Comp_unit.Make.physical filename) in
+      Compenv.set_prelude prelude compenv
     in
     let venv = Var.varify_env (nenv, tenv.Types.var_env) in
     (* Prepare the webserver. *)
     Webserver.set_prelude (fst result.Backend.program);
     (* Return the 'initial' compiler context. *)
-    Context.({ context' with prelude = compute_prelude_interface nenv tenv; variable_environment = venv })
+    Context.({ context' with compenv; variable_environment = venv })
 
   let whole_program : Context.t -> string -> (Context.t * Types.datatype * Value.t)
     = fun initial_context filename ->

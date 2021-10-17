@@ -177,7 +177,7 @@ let rec directives : (string * ((Context.t -> string list -> Context.t) * string
             (fun name var () ->
               let is_primitive =
                 (* TODO abstract this logic into lib.ml *)
-                try ignore (Lib.Interface.lookup_type name); true with Notfound.NotFound _ -> false
+                try ignore (Comp_unit.Interface.lookup_type' name (Compenv.lib (Context.compilation_environment context))); true with Notfound.NotFound _ -> false
               in
               if not is_primitive then
                 let ty = (Types.string_of_datatype ~policy:Types.Policy.default_policy ~refresh_tyvar_names:true

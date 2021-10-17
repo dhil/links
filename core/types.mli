@@ -173,10 +173,13 @@ module Interface: sig
 
   val empty : t
 
-  val lookup_type : Name.t -> t -> typ
+  val lookup_type : string -> t -> typ
+  val lookup_type' : Name.t -> t -> typ
   val canonical_name : string -> t -> Name.t
 
-  val extend : Name.t -> string -> typ -> t -> t
+  val extend : string -> Name.t -> typ -> t -> t
+
+  val fold : (string -> (Name.t * typ) -> 'a -> 'a) -> t -> 'a -> 'a
 end
 
 val is_type_body : typ -> bool

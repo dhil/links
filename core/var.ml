@@ -1,4 +1,7 @@
 (** {0 IR variables} *)
+(* Note this module is a legacy module and it is marked for
+   deprecation. DO NOT extend the interface of this module. This
+   module exists entirely for transitional purposes. *)
 
 open Utility
 

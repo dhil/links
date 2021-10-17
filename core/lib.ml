@@ -1661,13 +1661,8 @@ let interface : Types.Interface.t
       else Name.resolved name id
     in List.fold_left
          (fun iface (n, (b, _, ty, _)) ->
-           Types.Interface.extend (resolve n (Binder.var b)) n ty iface)
+           Types.Interface.extend n (resolve n (Binder.var b)) ty iface)
          Types.Interface.empty env
-
-module Interface = struct
-  let lookup_type cname = Types.Interface.lookup_type cname interface
-  let canonical_name name = Types.Interface.canonical_name name interface
-end
 
 let impl : located_primitive -> primitive option = function
   | `Client -> None
