@@ -23,6 +23,10 @@ module Interface = struct
   let replace iface cu = { cu with iface }
 end
 
+module Implementation = struct
+  let canonical_name name { iface; _ } = Types.Interface.canonical_name name iface
+end
+
 module Make = struct
   let physical fname = { iface = Types.Interface.empty
                        ; structure = Struct.Physical { fname } }

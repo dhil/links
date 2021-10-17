@@ -17,3 +17,7 @@ let lib { lib; _ } = lib
 
 let bind name cu ({ sources; _ } as cenv) = { cenv with sources = StringMap.add name cu sources }
 let find name { sources; _ } = StringMap.lookup name sources
+
+module Prelude = struct
+  let canonical_name name { prelude; _ } = Comp_unit.Implementation.canonical_name name prelude
+end
