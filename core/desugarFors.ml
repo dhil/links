@@ -45,18 +45,13 @@ open SugarConstructors.DummyPositions
     (q; qs)_v = (q_v, qs_v)
 *)
 
-let map () = failwith "TODO: primitive map"
-let as_list () = failwith "TODO: primitive AsList"
-let concat_map () = failwith "TODO: primitive concatMap"
-let sort_by_base () = failwith "TODO: primitive sortByBase"
-
 (**
   This function generates the code to extract the results.
   It roughly corresponds to [[qs]].
 *)
-let results :  Types.row ->
+let results : Compenv.t -> Types.row ->
   (Sugartypes.phrase list * Binder.with_pos list * Types.datatype list) -> Sugartypes.phrase =
-  fun eff (es, (xs : Binder.with_pos list), ts) ->
+  fun compenv eff (es, (xs : Binder.with_pos list), ts) ->
     let rec results = function
         | ([], [], []) -> list ~ty:Types.unit_type [tuple []]
         | ([e], [_x], [_t]) -> e
@@ -80,17 +75,19 @@ let results :  Types.row ->
               fun_lit ~args:[a, eff] dl_unl [ps] (tuple (q::qs)) in
             let outer : Sugartypes.phrase =
               let a = Types.make_tuple_type (t :: ts) in
+              let map = Compenv.Prelude.canonical_name "map" compenv in
                 fun_lit ~args:[Types.make_tuple_type [t], eff]
                         dl_unl [[qb]]
-                        (fn_appl (map ()) [(Type, qst); (Row, eff); (Type, a)] [inner; r]) in
+                        (fn_appl map [(Type, qst); (Row, eff); (Type, a)] [inner; r]) in
             let a = Types.make_tuple_type (t :: ts) in
-            fn_appl (concat_map ()) [(Type, qt); (Row, eff); (Type, a)] [outer; e]
+            let concat_map = Compenv.Prelude.canonical_name "concatMap" compenv in
+            fn_appl concat_map [(Type, qt); (Row, eff); (Type, a)] [outer; e]
         | _, _, _ -> assert false
     in
     results (es, xs, ts)
 
 
-class desugar_fors env =
+class desugar_fors compenv env =
 object (o : 'self_type)
   inherit (TransformSugar.transform env) as super
 
@@ -128,7 +125,10 @@ object (o : 'self_type)
                    let n = TypeUtils.table_needed_type t in
 
                    let open PrimaryKind in
-                   let e = fn_appl (as_list ()) [(Type, r); (Type, w); (Type, n)] [e] in
+                   let e =
+                     let as_list = Compenv.Lib.canonical_name "AsList" compenv in
+                     fn_appl as_list [(Type, r); (Type, w); (Type, n)] [e]
+                   in
                    let var = Utility.gensym ~prefix:"_for_" () in
                    let xb = Binder.make' ~name:var ~ty:element_type () in
                      o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
@@ -168,13 +168,14 @@ object (o : 'self_type)
 
         let open PrimaryKind in
 
-        let results = results eff (es, xs, ts) in
+        let results = results compenv eff (es, xs, ts) in
         let results =
           match sort, sort_type with
             | None, None -> results
             | Some sort, Some sort_type ->
                let sort_by, sort_row =
-                 sort_by_base (), TypeUtils.extract_row sort_type in
+                 let sort_by_base = Compenv.Prelude.canonical_name "sortByBase" compenv in
+                 sort_by_base, TypeUtils.extract_row sort_type in
                let g : phrase =
                  fun_lit ~args:[Types.make_tuple_type [arg_type], eff]
                    dl_unl [arg] sort in
@@ -183,15 +184,16 @@ object (o : 'self_type)
             | _, _ -> assert false in
 
         let e : phrasenode =
-          fn_appl_node (concat_map ()) [(Type, arg_type); (Row, eff); (Type, elem_type)]
+          let concat_map = Compenv.Prelude.canonical_name "concatMap" compenv in
+          fn_appl_node concat_map [(Type, arg_type); (Row, eff); (Type, elem_type)]
                        [f; results] in
         let o = o#restore_envs envs in
         (o, e, body_type)
     | e -> super#phrasenode e
 end
 
-let desugar_fors env = ((new desugar_fors env)
-                          : desugar_fors :> TransformSugar.transform)
+let desugar_fors compenv env = ((new desugar_fors compenv env)
+                                : desugar_fors :> TransformSugar.transform)
 
 let has_no_fors =
 object
@@ -206,7 +208,7 @@ object
 end
 
 module Typeable
-  = Transform.Typeable.Make(struct
+  = Transform.Typeable.Make'(struct
         let name = "fors"
-        let obj env = (desugar_fors env : TransformSugar.transform :> Transform.Typeable.sugar_transformer)
+        let obj compenv env = (desugar_fors compenv env : TransformSugar.transform :> Transform.Typeable.sugar_transformer)
       end)
