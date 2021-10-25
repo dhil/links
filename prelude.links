@@ -519,11 +519,11 @@ fun dedup(l) server {
       case r::rl0 ->
         if (r `elem` vl)
           aux(vl, rl0)
-        else 
+        else
           r::aux(r::vl, rl0)
     }
   }
-  aux([]:[a], l) 
+  aux([]:[a], l)
 }
 
 fun distinct(t) server {
