@@ -13,15 +13,7 @@ open SugarConstructors.DummyPositions
    spawnWait (fun () {e})
 *)
 
-
-let spawn_wait () = failwith "TODO: primitive spawnWait"
-let spawn_at () = failwith "TODO: primitive spawnAt"
-let spawn_angel_at () = failwith "TODO: primitive spawnAngelAt"
-let recv () = failwith "TODO: primitive recv"
-let there () = failwith "TODO: primitive there"
-let here () = failwith "TODO: primitive here"
-
-class desugar_processes env =
+class desugar_processes compenv env =
 let open PrimaryKind in
 object (o : 'self_type)
   inherit (TransformSugar.transform env) as super
@@ -38,7 +30,8 @@ object (o : 'self_type)
         let o = o#with_effects outer_eff in
 
         let e : phrasenode =
-          fn_appl_node (spawn_wait ()) [(Row, inner_eff); (Type, body_type); (Row, outer_eff)]
+          let spawn_wait = Compenv.Lib.canonical_name "spawnWait" compenv in
+          fn_appl_node spawn_wait [(Row, inner_eff); (Type, body_type); (Row, outer_eff)]
             [fun_lit ~args:[(Types.make_tuple_type [], inner_eff)] dl_unl [[]] body]
         in
           (o, e, body_type)
@@ -63,13 +56,17 @@ object (o : 'self_type)
         let spawn_loc_phr =
           match spawn_loc with
             | ExplicitSpawnLocation phr -> phr
-            | SpawnClient -> fn_appl (there ()) [(Row, outer_eff)] []
-            | NoSpawnLocation -> fn_appl (here ()) [(Row, outer_eff)] [] in
+            | SpawnClient ->
+               let there = Compenv.Lib.canonical_name "there" compenv in
+               fn_appl there [(Row, outer_eff)] []
+            | NoSpawnLocation ->
+               let here = Compenv.Lib.canonical_name "here" compenv in
+               fn_appl here [(Row, outer_eff)] [] in
 
         let spawn_fun =
           match k with
-          | Demon  -> spawn_at ()
-          | Angel  -> spawn_angel_at ()
+          | Demon  -> Compenv.Lib.canonical_name "spawnAt" compenv
+          | Angel  -> Compenv.Lib.canonical_name "spawnAngelAt" compenv
           | Wait   -> assert false in
 
         (* At this point, the location in the funlit doesn't matter -- we'll have an explicit
@@ -90,8 +87,9 @@ object (o : 'self_type)
         begin
           match StringMap.find Types.hear fieldenv with
           | (Types.Present mbt) ->
+             let recv = Compenv.Lib.canonical_name "recv" compenv in
              o#phrasenode
-               (Switch (fn_appl (recv ()) [(Type, mbt); (Row, other_effects)] [],
+               (Switch (fn_appl recv [(Type, mbt); (Row, other_effects)] [],
                         cases,
                         Some t))
           | _ -> assert false
@@ -99,7 +97,7 @@ object (o : 'self_type)
     | e -> super#phrasenode e
 end
 
-let desugar_processes env = ((new desugar_processes env) : desugar_processes :> TransformSugar.transform)
+let desugar_processes compenv env = ((new desugar_processes compenv env) : desugar_processes :> TransformSugar.transform)
 
 let has_no_processes =
 object
@@ -115,7 +113,7 @@ object
 end
 
 module Typeable
-  = Transform.Typeable.Make(struct
+  = Transform.Typeable.Make'(struct
         let name = "processes"
-        let obj env = (desugar_processes env : TransformSugar.transform :> Transform.Typeable.sugar_transformer)
+        let obj compenv env = (desugar_processes compenv env : TransformSugar.transform :> Transform.Typeable.sugar_transformer)
       end)
