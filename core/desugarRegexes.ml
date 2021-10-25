@@ -68,7 +68,7 @@ let desugar_regex phrase regex_type repeat_type regex : phrase =
                 val_binding (variable_pat' bndr) e1) !exprs,
             aux regex)
 
-let desugar_regexes env =
+let desugar_regexes compenv env =
 object(self)
   inherit (TransformSugar.transform env) as super
 
@@ -81,9 +81,9 @@ object(self)
           if List.exists ((=)Name.Special.RegexNative) flags
           then "sntilde"
           else "stilde" in
-        let libfn () = failwith ("TODO: primitive " ^ libfn) in
-          self#phrase (fn_appl (libfn ()) tyargs
-                            [e1; desugar_regex self#phrase regex_type repeat_type r])
+        let libfn = Compenv.Lib.canonical_name libfn compenv in
+        self#phrase (fn_appl libfn tyargs
+                       [e1; desugar_regex self#phrase regex_type repeat_type r])
     | InfixAppl ((tyargs, Name.(Special (Special.RegexMatch flags))), e1, {node=Regex r; _}) ->
         let nativep = List.exists ((=) Name.Special.RegexNative) flags
         and listp   = List.exists ((=) Name.Special.RegexList)   flags in
@@ -93,8 +93,8 @@ object(self)
           | false, false -> "tilde"
           | false, true  -> "ntilde"
         in
-        let libfn () = failwith ("TODO: primitive " ^ libfn) in
-        self#phrase (fn_appl (libfn ()) tyargs
+        let libfn = Compenv.Lib.canonical_name libfn compenv in
+        self#phrase (fn_appl libfn tyargs
                        [e1; desugar_regex self#phrase regex_type repeat_type r])
     | InfixAppl ((_tyargs, Name.(Special (Special.RegexMatch _flags))), _, _) ->
         let (_, expr) = SourceCode.Position.resolve_start_expr pos in
@@ -113,7 +113,7 @@ object
 end
 
 module Typeable
-  = Transform.Typeable.Make(struct
+  = Transform.Typeable.Make'(struct
         let name = "regexes"
-        let obj env = (desugar_regexes env : TransformSugar.transform :> Transform.Typeable.sugar_transformer)
+        let obj compenv env = (desugar_regexes compenv env : TransformSugar.transform :> Transform.Typeable.sugar_transformer)
       end)

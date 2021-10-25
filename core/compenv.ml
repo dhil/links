@@ -21,3 +21,7 @@ let find name { sources; _ } = StringMap.lookup name sources
 module Prelude = struct
   let canonical_name name { prelude; _ } = Comp_unit.Implementation.canonical_name name prelude
 end
+
+module Lib = struct
+  let canonical_name name { lib; _ } = Comp_unit.Implementation.canonical_name name lib
+end
