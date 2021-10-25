@@ -112,6 +112,12 @@ module type TYPEABLE = sig
     include INTERFACE with type state := state and type 'a result := 'a result
   end
 
+  module Make'(T : sig
+               val name : string
+               val obj : Compenv.t -> Types.typing_environment -> sugar_transformer
+             end): sig
+    include INTERFACE with type state := state and type 'a result := 'a result
+  end
 end
 
 module Typeable : TYPEABLE = struct
@@ -168,6 +174,22 @@ module Typeable : TYPEABLE = struct
     let sentence state sentence =
       let open Context in
       apply state (T.obj (typing_environment state.context))#sentence sentence
+  end
+
+  module Make'(T : sig
+               val name : string
+               val obj : Compenv.t -> Types.typing_environment -> sugar_transformer
+             end) = struct
+
+    let name = T.name
+
+    let program state program =
+      let open Context in
+      apply state (T.obj (compilation_environment state.context) (typing_environment state.context))#program program
+
+    let sentence state sentence =
+      let open Context in
+      apply state (T.obj (compilation_environment state.context) (typing_environment state.context))#sentence sentence
   end
 end
 

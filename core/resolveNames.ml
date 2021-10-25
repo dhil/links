@@ -1,3 +1,5 @@
+open CommonTypes
+
 module Scope = struct
   open Utility
 
@@ -13,7 +15,7 @@ module Scope = struct
       else StringMap.union (fun _ _ x -> Some x) m0 m1
   end
 
-  type var = int
+  type var = Name.t
   type t = { vars: var StringMap.t }
 
   let empty : t = { vars = StringMap.empty }
@@ -22,19 +24,22 @@ module Scope = struct
     = fun name var env ->
     { vars = StringMap.add name var env.vars }
 
-  let _extend : t -> t -> t
+  let extend : t -> t -> t
     = fun env env' ->
     { vars = StringMap.extend env.vars env'.vars }
 
   let lookup_var : string -> t -> var
     = fun name env ->
     StringMap.find name env.vars
+
+  let of_stringmap : var StringMap.t -> t
+    = fun vars -> { vars }
 end
 
 (* Static name resolution. *)
 module Resolve = struct
 
-  let rec resolve scope' =
+  let rec resolve compenv scope' =
     let open Sugartypes in
     let open SourceCode in
     let open WithPos in
@@ -56,30 +61,33 @@ module Resolve = struct
       (* Instantiates a fresh copy of this object with the current
          scope. *)
       method clone : 'self_type =
-        resolve scope
+        resolve compenv scope
 
       (* Creates a fresh variable identifier. *)
       method fresh_var : Var.var
         = Var.fresh_raw_var ()
 
       (* Binds a term variable in the current scope. *)
-      method bind_var : string -> Var.var -> unit
-        = fun name var ->
-        scope <- Scope.bind_var name var scope
+      (* method bind_var : string -> Var.var -> unit
+       *   = fun name var ->
+       *   scope <- Scope.bind_var name var scope *)
+
+      method bind_name : string -> Name.t -> unit
+        = fun name cname ->
+        scope <- Scope.bind_var name cname scope
 
       method! binder : Binder.with_pos -> Binder.with_pos
         = fun bndr ->
         let name = Binder.to_name bndr in
         let var  = self#fresh_var in
-        self#bind_var name var;
+        self#bind_name name (Name.resolved name var);
         Binder.set_var bndr var
 
       method resolve_var : Name.t -> Name.t
         = fun name ->
         try
           match name with
-          | Name.Unresolved name ->
-             Name.resolved name (Scope.lookup_var name self#get_scope)
+          | Name.Unresolved name -> Scope.lookup_var name self#get_scope
           | _ -> assert false
         with Notfound.NotFound _ -> raise (Errors.unbound_variable phrase_position (Name.to_string name))
 
@@ -230,15 +238,15 @@ module Resolve = struct
         | exp -> super#phrasenode exp
   end
 
-  let program scope program = (resolve scope)#program program
+  let program compenv scope program = (resolve compenv scope)#program program
 
-  let sentence : Scope.t -> Sugartypes.sentence -> Sugartypes.sentence =
-    fun _scope sentence ->
+  let sentence : Compenv.t -> Scope.t -> Sugartypes.sentence -> Sugartypes.sentence =
+    fun compenv scope sentence ->
     let open Sugartypes in
     match sentence with
-    | Definitions _bs     -> assert false
-    | Expression _exp     -> assert false
-    | (Directive _) as _d -> assert false
+    | Definitions bs     -> Definitions ((resolve compenv scope)#bindings bs)
+    | Expression exp     -> Expression ((resolve compenv scope)#phrase exp)
+    | (Directive _) as d -> d
 end
 
 module Untyped = struct
@@ -246,11 +254,17 @@ module Untyped = struct
 
   let name = "resolveNames"
 
+  let initial_scope compenv =
+    let lib = Comp_unit.Implementation.canonical_mapping (Compenv.lib compenv) in
+    Scope.extend Scope.empty (Scope.of_stringmap lib)
+
   let program state program =
-    let program' = Resolve.program Scope.empty program in
+    let compenv = Context.compilation_environment (context state) in
+    let program' = Resolve.program compenv (initial_scope compenv) program in
     return state program'
 
   let sentence state sentence =
-    let sentence' = Resolve.sentence Scope.empty sentence in
+    let compenv = Context.compilation_environment (context state) in
+    let sentence' = Resolve.sentence compenv (initial_scope compenv) sentence in
     return state sentence'
 end

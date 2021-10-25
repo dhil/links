@@ -25,6 +25,7 @@ end
 
 module Implementation = struct
   let canonical_name name { iface; _ } = Types.Interface.canonical_name name iface
+  let canonical_mapping { iface; _ } = Types.Interface.canonical_mapping iface
 end
 
 module Make = struct

@@ -74,6 +74,12 @@ module type TYPEABLE = sig
                val obj : Types.typing_environment -> sugar_transformer end): sig
     include INTERFACE with type state := state and type 'a result := 'a result
   end
+
+  module Make'(T : sig
+               val name : string
+               val obj : Compenv.t -> Types.typing_environment -> sugar_transformer end): sig
+    include INTERFACE with type state := state and type 'a result := 'a result
+  end
 end
 
 module Typeable : TYPEABLE

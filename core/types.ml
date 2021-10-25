@@ -176,6 +176,7 @@ module Interface: sig
   val lookup_type : string -> t -> typ
   val lookup_type' : Name.t -> t -> typ
   val canonical_name : string -> t -> Name.t
+  val canonical_mapping : t -> Name.t StringMap.t
 
   val extend : string -> Name.t -> typ -> t -> t
   val fold : (string -> (Name.t * typ) -> 'a -> 'a) -> t -> 'a -> 'a
@@ -187,6 +188,11 @@ end = struct
   let lookup_type name { members } = snd (Env.String.find name members)
   let lookup_type' cname iface = lookup_type (Name.to_string cname) iface
   let canonical_name name { members } = fst (Env.String.find name members)
+  let canonical_mapping { members } =
+    Env.String.fold
+      (fun name (cname, _) cname_mapping ->
+        Utility.StringMap.add name cname cname_mapping)
+  members Utility.StringMap.empty
 
   let extend name cname ty { members } =
     (* Shadowed names are not accessible *)

@@ -176,6 +176,7 @@ module Interface: sig
   val lookup_type : string -> t -> typ
   val lookup_type' : Name.t -> t -> typ
   val canonical_name : string -> t -> Name.t
+  val canonical_mapping : t -> Name.t Utility.StringMap.t
 
   val extend : string -> Name.t -> typ -> t -> t
 
