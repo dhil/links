@@ -17,6 +17,7 @@ type sugar_error_stage =
   | DesugarInners
   | DesugarModules
   | DesugarSwitchFuns
+  | DesugarCP
 
 let string_of_stage = function
   | DesugarFormlets    -> "compiling formlets"
@@ -27,7 +28,8 @@ let string_of_stage = function
   | CheckXML           -> "checking XML"
   | DesugarInners      -> "desugaring inner types"
   | DesugarModules     -> "desugaring modules"
-  | DesugarSwitchFuns    -> "desugaring pattern-matching"
+  | DesugarSwitchFuns  -> "desugaring pattern-matching"
+  | DesugarCP          -> "desugaring CP"
 
 exception RuntimeError of string
 exception UndefinedVariable of string

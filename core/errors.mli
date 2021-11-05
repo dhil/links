@@ -15,6 +15,7 @@ type sugar_error_stage =
   | DesugarInners
   | DesugarModules
   | DesugarSwitchFuns
+  | DesugarCP
 
 
 exception RuntimeError of string

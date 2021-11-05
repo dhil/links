@@ -520,14 +520,14 @@ and binding = bindingnode WithPos.t
 and block_body = binding list * phrase
 and cp_phrasenode =
   | CPUnquote     of binding list * phrase
-  | CPGrab        of (string * (Types.datatype * tyarg list) option) *
+  | CPGrab        of (Name.t * (Types.datatype * tyarg list) option) *
                        Binder.with_pos option * cp_phrase
-  | CPGive        of (string * (Types.datatype * tyarg list) option) *
+  | CPGive        of (Name.t * (Types.datatype * tyarg list) option) *
                        phrase option * cp_phrase
   | CPGiveNothing of Binder.with_pos
-  | CPSelect      of Binder.with_pos * string * cp_phrase
-  | CPOffer       of Binder.with_pos * (string * cp_phrase) list
-  | CPLink        of Binder.with_pos * Binder.with_pos
+  | CPSelect      of Binder.with_pos * Label.t * cp_phrase
+  | CPOffer       of Binder.with_pos * (Label.t * cp_phrase) list
+  | CPLink        of Name.t * Name.t
   | CPComp        of Binder.with_pos * cp_phrase * cp_phrase
 and cp_phrase = cp_phrasenode WithPos.t
 and typenamenode = Label.t * SugarQuantifier.t list * datatype' (* TODO FIXME: Should be a `Name` rather than `Label`. *)
