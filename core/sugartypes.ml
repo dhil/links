@@ -524,9 +524,9 @@ and cp_phrasenode =
                        Binder.with_pos option * cp_phrase
   | CPGive        of (Name.t * (Types.datatype * tyarg list) option) *
                        phrase option * cp_phrase
-  | CPGiveNothing of Binder.with_pos
-  | CPSelect      of Binder.with_pos * Label.t * cp_phrase
-  | CPOffer       of Binder.with_pos * (Label.t * cp_phrase) list
+  | CPGiveNothing of Name.t
+  | CPSelect      of Name.t * Label.t * cp_phrase
+  | CPOffer       of Name.t * (Label.t * cp_phrase) list
   | CPLink        of Name.t * Name.t
   | CPComp        of Binder.with_pos * cp_phrase * cp_phrase
 and cp_phrase = cp_phrasenode WithPos.t
@@ -834,19 +834,19 @@ struct
   and cp_phrase p = match WithPos.node p with
     | CPUnquote (binds, expr) -> block (binds, expr)
     | CPGrab ((c, _t), Some bndr, p) ->
-      union (singleton c) (diff (cp_phrase p) (singleton (Binder.to_name bndr)))
-    | CPGrab ((c, _t), None, p) -> union (singleton c) (cp_phrase p)
-    | CPGive ((c, _t), e, p) -> union (singleton c) (union (option_map phrase e)
+      union (singleton (Name.to_string c)) (diff (cp_phrase p) (singleton (Binder.to_name bndr)))
+    | CPGrab ((c, _t), None, p) -> union (singleton (Name.to_string c)) (cp_phrase p)
+    | CPGive ((c, _t), e, p) -> union (singleton (Name.to_string c)) (union (option_map phrase e)
                                                            (cp_phrase p))
-    | CPGiveNothing bndr -> singleton (Binder.to_name bndr)
+    | CPGiveNothing bndr -> singleton (Name.to_string bndr)
     | CPSelect (bndr, _label, p) ->
-      union (singleton (Binder.to_name bndr)) (cp_phrase p)
+      union (singleton (Name.to_string bndr)) (cp_phrase p)
     | CPOffer (bndr, cases) ->
-      union (singleton (Binder.to_name bndr))
+      union (singleton (Name.to_string bndr))
             (union_map (fun (_label, p) -> cp_phrase p) cases)
-    | CPLink (bndr1, bndr2) ->
-      union (singleton (Binder.to_name bndr1))
-            (singleton (Binder.to_name bndr2))
+    | CPLink (name1, name2) ->
+      union (singleton (Name.to_string name1))
+            (singleton (Name.to_string name2))
     | CPComp (bndr, left, right) ->
        diff (union (cp_phrase left) (cp_phrase right))
             (singleton (Binder.to_name bndr))

@@ -1,5 +1,6 @@
 open Utility
 open Sugartypes
+open CommonTypes
 open SugarConstructors.DummyPositions
 open SourceCode.WithPos
 
@@ -28,7 +29,7 @@ let binder_of_name : Types.datatype -> Name.t -> Binder.with_pos
               ~stage:sugar_error_stage ~message:"Incompatible name passed to 'binder_of_name'")
 
 class desugar_cp env =
-  let open CommonTypes.PrimaryKind in
+  let open PrimaryKind in
 object (o : 'self_type)
   inherit (TransformSugar.transform env) as super
 
@@ -44,22 +45,20 @@ object (o : 'self_type)
             o, block_node (bs, e), t
          | CPGrab ((c, _), None, p) ->
             let (o, e, t) = desugar_cp o p in
-            let chan = var c in
             o, block_node
-                ([val_binding (any_pat dp) (fn_appl_var (wait_str ()) chan)],
+                ([val_binding (any_pat dp) (fn_appl_var (wait_str ()) (var c))],
                  with_dummy_pos e), t
          | CPGrab ((c, Some (Types.Input (_a, s), grab_tyargs)), Some bndr, p) -> (* FYI: a = u *)
-            (* let x = Binder.to_name bndr in
-             * let u = Binder.to_type bndr in *)
             let envs = o#backup_envs in
-            (* let venv =
-             *   TyEnv.bind x u (o#get_var_env ())
-             *   |> TyEnv.bind c s
-             * in *)
+            let venv =
+              let x = Binder.to_name bndr in
+              let u = Binder.to_type bndr in
+              TyEnv.bind x u (o#get_var_env ())
+              |> TyEnv.bind c s
+            in
             let o = failwith "desugarCP update env" (* {< var_env = venv >} *) in
             let (o, e, t) = desugar_cp o p in
             let o = o#restore_envs envs in
-            in
             o, block_node
                  ([val_binding (with_dummy_pos (
                                     Pattern.Record ([("1", variable_pat' bndr);
