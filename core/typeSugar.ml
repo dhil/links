@@ -1849,31 +1849,34 @@ let type_binary_op pos ctxt =
   | Name.Special And
   | Name.Special Or           -> add_empty_usages (datatype "(Bool,Bool) -> Bool")
   | Name.Special Cons         -> add_empty_usages (Utils.instantiate ctxt.var_env Name.cons)
+  | n when Settings.get Basicsettings.Names.legacy_names ->
+     begin match n with
+     | Name.Unresolved "++"    -> add_empty_usages (Utils.instantiate ctxt.var_env (Name.unresolved "Concat"))
+     | Name.Unresolved ">"
+     | Name.Unresolved ">="
+     | Name.Unresolved "=="
+     | Name.Unresolved "<"
+     | Name.Unresolved "<="
+     | Name.Unresolved "<>"    ->
+        let a = Types.fresh_type_variable (lin_any, res_any) in
+        let eff = Types.make_empty_open_row default_effect_subkind in
+        ([(PrimaryKind.Type, a); (PrimaryKind.Row, eff)],
+         Function (Types.make_tuple_type [a; a], eff, Primitive Primitive.Bool),
+         Usage.empty)
+     | Name.Unresolved "!"     -> add_empty_usages (Utils.instantiate ctxt.var_env (Name.unresolved "Send"))
+     | n ->
+        try
+          add_usages (Utils.instantiate ctxt.var_env n) (Usage.singleton n)
+        with
+          Errors.UndefinedVariable _msg ->
+          Gripers.die pos (Printf.sprintf "Unknown variable %s." (Name.to_string n))
+     end
   | n ->
      try
        add_usages (Utils.instantiate ctxt.var_env n) (Usage.singleton n)
      with
        Errors.UndefinedVariable _msg ->
        Gripers.die pos (Printf.sprintf "Unknown variable %s." (Name.to_string n))
-  (* | Name "++"    -> add_empty_usages (Utils.instantiate ctxt.var_env "Concat")
-   * | Name ">"
-   * | Name ">="
-   * | Name "=="
-   * | Name "<"
-   * | Name "<="
-   * | Name "<>"    ->
-   *     let a = Types.fresh_type_variable (lin_any, res_any) in
-   *     let eff = Types.make_empty_open_row default_effect_subkind in
-   *       ([(PrimaryKind.Type, a); (PrimaryKind.Row, eff)],
-   *        Function (Types.make_tuple_type [a; a], eff, Primitive Primitive.Bool),
-   *        Usage.empty)
-   * | Name "!"     -> add_empty_usages (Utils.instantiate ctxt.var_env "Send")
-   * | Name n       ->
-   *    try
-   *      add_usages (Utils.instantiate ctxt.var_env n) (Usage.singleton n)
-   *    with
-   *      Errors.UndefinedVariable _msg ->
-   *      Gripers.die pos (Printf.sprintf "Unknown variable %s." n) *)
 
 (* close a pattern type relative to a list of patterns
 
@@ -4734,7 +4737,7 @@ and type_cp (compenv : Compenv.t) (context : context) = fun {node = p; pos} ->
        then if Types.Unl.can_type_be a
             then Types.Unl.make_type a
             else Gripers.non_linearity pos uses x a;
-       let grab_ty = Compenv.Lib.lookup_type "receive" (failwith "TODO compenv") in
+       let grab_ty = Compenv.Lib.lookup_type "receive" compenv in
        let tyargs =
          match Types.concrete_type grab_ty with
          | T.ForAll _ ->
@@ -4762,7 +4765,7 @@ and type_cp (compenv : Compenv.t) (context : context) = fun {node = p; pos} ->
        unify ~pos:pos ~handle:(Gripers.cp_give c)
              (t, ctype);
        let (p, t, u') = with_channel c s (type_cp (bind_var context (c, s)) p) in
-       let give_ty = Compenv.Lib.lookup_type "send" (failwith "TODO compenv") in
+       let give_ty = Compenv.Lib.lookup_type "send" compenv in
        let tyargs =
          match Types.concrete_type give_ty with
          | T.ForAll _ ->

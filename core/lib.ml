@@ -358,6 +358,12 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
    datatype "forall a::Type(Any, Any), e::Row(Unl, Any), f::Row.(Process ({hear:a|e}), a) ~f~> ()",
    IMPURE);
 
+  "!",
+  (p2 (fun _pid _msg ->
+         assert(false)), (* Now handled in evalir.ml *)
+   datatype "forall a::Type(Any, Any), e::Row(Unl, Any), f::Row.(Process ({hear:a|e}), a) ~f~> ()",
+   IMPURE);
+
   "self",
   (`PFun (fun _ _ -> `Pid (`ServerPid (Proc.get_current_pid()))),
    datatype "() {hear{a}|e}~> Process ({ hear{a} })",
