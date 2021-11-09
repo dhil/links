@@ -564,8 +564,8 @@ cp_expression:
 | cp_name LBRACKET exp RBRACKET                                   { with_pos $loc (CPGive (($1, None), Some $3, cp_unit $loc)) }
 | cp_name LBRACKET RBRACKET                                       { with_pos $loc (CPGiveNothing $1) }
 | OFFER cp_name LBRACE perhaps_cp_cases RBRACE                    { with_pos $loc (CPOffer ($2, $4)) }
-| cp_label cp_binder DOT cp_expression                            { with_pos $loc (CPSelect ($2, $1, $4)) }
-| cp_label cp_binder                                              { with_pos $loc (CPSelect ($2, $1, cp_unit $loc)) }
+| cp_label cp_name DOT cp_expression                              { with_pos $loc (CPSelect ($2, $1, $4)) }
+| cp_label cp_name                                                { with_pos $loc (CPSelect ($2, $1, cp_unit $loc)) }
 | cp_name LRARROW cp_name                                         { with_pos $loc (CPLink ($1, $3)) }
 | NU cp_binder DOT LPAREN cp_expression VBAR cp_expression RPAREN { with_pos $loc (CPComp ($2, $5, $7)) }
 

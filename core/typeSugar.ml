@@ -382,16 +382,16 @@ sig
 
   val cp_wild : griper
   val cp_unquote : griper
-  val cp_grab : string -> griper
-  val cp_give : string -> griper
-  val cp_select : string -> griper
-  val cp_offer_choice : string -> griper
+  val cp_grab : Name.t -> griper
+  val cp_give : Name.t -> griper
+  val cp_select : Name.t -> griper
+  val cp_offer_choice : Name.t -> griper
   val cp_offer_branches : griper
   val cp_comp_left : griper
   val cp_link_session : griper
   val cp_link_dual : griper
 
-  val non_linearity : Position.t -> int -> string -> Types.datatype -> unit
+  val non_linearity : Position.t -> int -> Name.t -> Types.datatype -> unit
   val linear_recursive_function : Position.t -> string -> unit
 
   val try_in_unless_pat : griper
@@ -1423,7 +1423,7 @@ end
       build_tyvar_names [actual; expected];
       let ppr_actual   = show_type actual   in
       let ppr_expected = show_type expected in
-      die pos ("Channel " ^ channel ^ " " ^
+      die pos ("Channel " ^ (Name.to_string channel) ^ " " ^
                "was expected to have input type" ^ nli () ^
                 code ppr_expected                ^ nl  () ^
                "but has type"                    ^ nli () ^
@@ -1434,7 +1434,7 @@ end
       build_tyvar_names [actual; expected];
       let ppr_actual   = show_type actual   in
       let ppr_expected = show_type expected in
-      die pos ("Channel " ^ channel ^ " " ^
+      die pos ("Channel " ^ (Name.to_string channel) ^ " " ^
                "was expected to have output type" ^ nli () ^
                 code ppr_expected                 ^ nl  () ^
                "but has type"                     ^ nli () ^
@@ -1445,7 +1445,7 @@ end
       build_tyvar_names [actual; expected];
       let ppr_actual   = show_type actual   in
       let ppr_expected = show_type expected in
-      die pos ("Channel " ^ channel ^ " " ^
+      die pos ("Channel " ^ (Name.to_string channel) ^ " " ^
                "was expected to have selection type" ^ nli () ^
                 code ppr_expected                    ^ nl  () ^
                "but has type"                        ^ nli () ^
@@ -1456,7 +1456,7 @@ end
       build_tyvar_names [actual; expected];
       let ppr_actual   = show_type actual   in
       let ppr_expected = show_type expected in
-      die pos ("Channel " ^ channel ^ " " ^
+      die pos ("Channel " ^ (Name.to_string channel) ^ " " ^
                "was expected to have choice type" ^ nli () ^
                 code ppr_expected                 ^ nl  () ^
                "but has type"                     ^ nli () ^
@@ -1502,7 +1502,7 @@ end
     let non_linearity pos uses v t =
       build_tyvar_names [t];
       let ppr_t = show_type t in
-      die pos ("Variable " ^ v ^ " has linear type " ^ nli () ^
+      die pos ("Variable " ^ (Name.to_string v) ^ " has linear type " ^ nli () ^
                 code ppr_t                           ^ nl  () ^
                "but is used " ^ string_of_int uses ^ " times.")
 
@@ -2505,8 +2505,9 @@ let resolve_type_annotation : Binder.with_pos -> Sugartypes.datatype' option -> 
    with sufficiently effect-polymorphic operations).
  *)
 
-let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
-  fun context {node=expr; pos} ->
+let rec type_check : Compenv.t -> context -> phrase -> phrase * Types.datatype * Usage.t =
+  fun compenv context {node=expr; pos} ->
+    let type_check = type_check compenv in
     let _UNKNOWN_POS_ = "<unknown>" in
     let no_pos t = (_UNKNOWN_POS_, t) in
 
@@ -2568,7 +2569,7 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
                                     if uses <> 1 then
                                       if Types.Unl.can_type_be t
                                       then Types.Unl.make_type t
-                                      else Gripers.non_linearity pos uses (Name.to_string v) t)
+                                      else Gripers.non_linearity pos uses v t)
                         (pattern_env pat)
              in
              let vs = Env.domain (pattern_env pat) in
@@ -2734,7 +2735,7 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
                     if Types.Unl.can_type_be t then
                       Types.Unl.make_type t
                     else
-                      Gripers.non_linearity pos uses (Name.to_string v) t)
+                      Gripers.non_linearity pos uses v t)
                 pat_env in
 
             let () =
@@ -3240,7 +3241,7 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
 
         (* No comment *)
         | CP p ->
-           let (p, t, u) = type_cp context p in
+           let (p, t, u) = type_cp compenv context p in
            CP p, t, u
 
         (* applications of various sorts *)
@@ -3593,11 +3594,11 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
                 (pos_and_typ t, pos_and_typ e);
               Conditional (erase i, erase t, erase e), (typ t), Usage.combine (usages i) (Usage.align [usages t; usages e])
         | Block (bindings, e) ->
-            let context', bindings, usage_builder = type_bindings context bindings in
+            let context', bindings, usage_builder = type_bindings compenv context bindings in
             let e = type_check (Types.extend_typing_environment context context') e in
             Block (bindings, erase e), typ e, usage_builder (usages e)
         | Regex r ->
-            Regex (type_regex context r),
+            Regex (type_regex compenv context r),
             Instantiate.alias "Regex" [] context.tycon_env,
             Usage.empty
         | Projection (r,l) ->
@@ -4099,7 +4100,7 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
                   if uses <> 1 then
                     if Types.Unl.can_type_be t
                     then Types.Unl.make_type t
-                    else Gripers.non_linearity pos uses (Name.to_string v) t)
+                    else Gripers.non_linearity pos uses v t)
                 (pattern_env pat)
             in
             (* vs: variables bound in the pattern. *)
@@ -4164,11 +4165,11 @@ let rec type_check : context -> phrase -> phrase * Types.datatype * Usage.t =
     The result includes the introduced bindings, along with the variable
     usage map from the binder's body.
  *)
-and type_binding : context -> binding -> binding * context * Usage.t =
-  fun context {node = def; pos} ->
+and type_binding : Compenv.t -> context -> binding -> binding * context * Usage.t =
+  fun compenv context {node = def; pos} ->
     let _UNKNOWN_POS_ = "<unknown>" in
     let no_pos t = (_UNKNOWN_POS_, t) in
-    let type_check = type_check in
+    let type_check = type_check compenv in
     let unify pos (l, r) = unify_or_raise ~pos (l, r) in
     let typ (_,t,_) = t
     and erase (e, _, _) = e
@@ -4287,7 +4288,7 @@ and type_binding : context -> binding -> binding * context * Usage.t =
                         if uses <> 1 then
                           if Types.Unl.can_type_be t
                           then Types.Unl.make_type t
-                          else Gripers.non_linearity pos uses (Name.to_string v) t)
+                          else Gripers.non_linearity pos uses v t)
                         (pattern_env pat))
                      (List.flatten pats)
           in
@@ -4492,7 +4493,7 @@ and type_binding : context -> binding -> binding * context * Usage.t =
                                 begin
                                   if Types.Unl.can_type_be t
                                   then Types.Unl.make_type t
-                                  else Gripers.non_linearity pos uses (Name.to_string v) t
+                                  else Gripers.non_linearity pos uses v t
                                 end)
                           pat_env in
                       let used =
@@ -4646,12 +4647,12 @@ and type_binding : context -> binding -> binding * context * Usage.t =
       | Module _ -> assert false
     in
       WithPos.make ~pos typed, ctxt, usage
-and type_regex typing_env : regex -> regex =
+and type_regex compenv typing_env : regex -> regex =
   fun m ->
     let erase (e, _, _) = e in
     let typ (_, t, _) = t in
     let no_pos t = ("<unknown>", t) in
-    let tr = type_regex typing_env in
+    let tr = type_regex compenv typing_env in
       match m with
         | (Range _ | Simply _ | Any  | StartAnchor | EndAnchor) as r -> r
         | Quote r -> Quote (tr r)
@@ -4661,17 +4662,17 @@ and type_regex typing_env : regex -> regex =
         | Repeat (repeat, r) -> Repeat (repeat, tr r)
         | Splice e ->
            let pos = e.pos in
-           let e = type_check typing_env e in
+           let e = type_check compenv typing_env e in
            let () = unify_or_raise ~pos:pos ~handle:Gripers.splice_exp
                       (no_pos (typ e), no_pos Types.string_type)
            in Splice (erase e)
         | Replace (r, Literal s) -> Replace (tr r, Literal s)
-        | Replace (r, SpliceExpr e)  -> Replace (tr r, SpliceExpr (erase (type_check typing_env e)))
-and type_bindings (globals : context)  bindings =
+        | Replace (r, SpliceExpr e)  -> Replace (tr r, SpliceExpr (erase (type_check compenv typing_env e)))
+and type_bindings compenv (globals : context)  bindings =
   let tyenv, (bindings, uinf) =
     List.fold_left
       (fun (ctxt, (bindings, uinf)) (binding : binding) ->
-         let binding, ctxt', usage = type_binding (Types.extend_typing_environment globals ctxt) binding in
+         let binding, ctxt', usage = type_binding compenv (Types.extend_typing_environment globals ctxt) binding in
          let result_ctxt = Types.extend_typing_environment ctxt ctxt' in
          result_ctxt, (binding::bindings, (binding.pos,ctxt'.var_env,usage)::uinf))
       (empty_context globals.effect_row globals.desugared, ([], [])) bindings in
@@ -4685,161 +4686,149 @@ and type_bindings (globals : context)  bindings =
             if uses <> 1 then
               if Types.Unl.can_type_be t
               then Types.Unl.make_type t
-              else Gripers.non_linearity pos uses (Name.to_string v) t)
+              else Gripers.non_linearity pos uses v t)
           env;
         Usage.combine usage (Usage.restrict usages vs))
       body_usage uinf
   in
   tyenv, List.rev bindings, usage_builder
-and type_cp (context : context) = fun {node = p; pos} ->
-  ignore(context); ignore(p); ignore(pos); assert false
-  (* TODO FIXME: CP actually makes extensive use of the fact that name
-     handling was unhygienic. *)
+and type_cp (compenv : Compenv.t) (context : context) = fun {node = p; pos} ->
+  let type_cp = type_cp compenv in
+  let type_check = type_check compenv in
+  let with_channel = fun c s (p, t, u) ->
+    if Usage.uses_of c u <> 1 then
+      if Types.Unl.can_type_be s then
+        Types.Unl.make_type s
+      else
+        Gripers.non_linearity pos (Usage.uses_of c u) c s;
+    (p, t, Usage.remove c u)
+  in
+  let use s u = Usage.incr ~by:1 s u in
+  let unify ~pos ~handle (t, u) = unify_or_raise ~pos:pos ~handle:handle (("<unknown>", t), ("<unknown>", u)) in
+  let wild_open = Types.(open_row default_effect_subkind closed_wild_row) in
+  unify ~pos ~handle:Gripers.cp_wild (Types.Effect wild_open, Types.Effect context.effect_row);
+  let module T = Types in
+  let (p, t, u) = match p with
+    | CPUnquote (bindings, e) ->
+       let context', bindings, usage_builder = type_bindings compenv context bindings in
+       let (e, t, u) = type_check (Types.extend_typing_environment context context') e in
+         if Settings.get endbang_antiquotes then
+           unify ~pos:pos ~handle:Gripers.cp_unquote (t, Types.make_endbang_type);
+         CPUnquote (bindings, e), t, usage_builder u
+    | CPGrab ((c, _), None, p) ->
+       let (_, t, _) = type_check context (var c) in
+       let ctype = T.Alias (("EndQuery", [], [], false), T.Input (Types.unit_type, T.End)) in
+       unify ~pos:pos ~handle:(Gripers.cp_grab c) (t, ctype);
+       let (p, pt, u) = type_cp (unbind_var context c) p in
+       CPGrab ((c, Some (ctype, [])), None, p), pt, use c u
+    | CPGrab ((c, _), Some bndr, p) ->
+       let x = Binder.to_name' bndr in
+       let (_, t, _) = type_check context (with_pos pos (Var c)) in
+       let a = Types.fresh_type_variable (lin_any, res_any) in
+       let s = Types.fresh_session_variable lin_any in
+       let ctype = T.Input (a, s) in
+       unify ~pos:pos ~handle:(Gripers.cp_grab c) (t, ctype);
+       let (p, pt, u) = with_channel c s (type_cp (bind_var (bind_var context (c, s)) (x, a)) p) in
+       let uses = Usage.uses_of x u in
+       if uses <> 1
+       then if Types.Unl.can_type_be a
+            then Types.Unl.make_type a
+            else Gripers.non_linearity pos uses x a;
+       let grab_ty = Compenv.Lib.lookup_type "receive" (failwith "TODO compenv") in
+       let tyargs =
+         match Types.concrete_type grab_ty with
+         | T.ForAll _ ->
+            begin
+              match Instantiate.typ grab_ty with
+              | tyargs, T.Function (fps, _fe, _rettype) ->
+                 unify ~pos:pos ~handle:(Gripers.cp_grab c) (Types.make_tuple_type [ctype], fps);
+                 tyargs
+              | _ -> assert false
+            end
+         | _ -> assert false
+       in
+       CPGrab ((c, Some (ctype, tyargs)), Some (Binder.set_type bndr a), p), pt, use c (Usage.remove x u)
+    | CPGive ((c, _), None, p) ->
+       let (_, t, _) = type_check context (with_pos pos (Var c)) in
+       let ctype = T.Output (Types.unit_type, T.End) in
+       unify ~pos:pos ~handle:(Gripers.cp_give c) (t, ctype);
+       let (p, t, u) = type_cp (unbind_var context c) p in
+       CPGive ((c, Some (ctype, [])), None, p), t, use c u
+    | CPGive ((c, _), Some e, p) ->
+       let (_, t, _) = type_check context (var c) in
+       let (e, t', u) = type_check context e in
+       let s = Types.fresh_session_variable lin_any in
+       let ctype = T.Output (t', s) in
+       unify ~pos:pos ~handle:(Gripers.cp_give c)
+             (t, ctype);
+       let (p, t, u') = with_channel c s (type_cp (bind_var context (c, s)) p) in
+       let give_ty = Compenv.Lib.lookup_type "send" (failwith "TODO compenv") in
+       let tyargs =
+         match Types.concrete_type give_ty with
+         | T.ForAll _ ->
+            begin
+              match Instantiate.typ give_ty with
+              | tyargs, T.Function (fps, _fe, _rettpe) ->
+                 unify ~pos:pos ~handle:(Gripers.cp_give c) (Types.make_tuple_type [t'; ctype], fps);
+                 tyargs
+              | _ -> assert false
+            end
+         | _ -> assert false in
+       CPGive ((c, Some (ctype, tyargs)), Some e, p), t, use c (Usage.combine u u')
+    | CPGiveNothing c ->
+       let _, t, _ = type_check context (var c) in
+       unify ~pos:pos ~handle:Gripers.(cp_give c) (t, Types.make_endbang_type);
+       CPGiveNothing c, t, Usage.singleton c
+    | CPSelect (c, label, p) ->
+       let (_, t, _) = type_check context (var c) in
+       let s = Types.fresh_session_variable lin_any in
+       let r = Types.make_singleton_open_row (label, T.Present s) (lin_any, res_session) in
+       let ctype = T.Select r in
+       unify ~pos:pos ~handle:(Gripers.cp_select c)
+             (t, ctype);
+       let (p, t, u) = with_channel c s (type_cp (bind_var context (c, s)) p) in
+       CPSelect (c, label, p), t, use c u
+    | CPOffer (c, branches) ->
+       let (_, t, _) = type_check context (var c) in
+       (*
+       let crow = Types.make_empty_open_row (lin_any, res_session) in
+       let ctype = Choice crow in
+       unify ~pos:pos ~handle:(Gripers.cp_offer_choice c)
+             (t, ctype);
+        *)
+       let check_branch (label, body) =
+         let s = Types.fresh_type_variable (lin_any, res_session) in
+         let r = Types.make_singleton_open_row (label, T.Present s) (lin_any, res_session) in
+         unify ~pos:pos ~handle:(Gripers.cp_offer_choice c) (t, T.Choice r);
+         let (p, t, u) = with_channel c s (type_cp (bind_var context (c, s)) body) in
+         (label, p), t, u
+       in
+       let branches = List.map check_branch branches in
+       let t' = Types.fresh_type_variable (lin_any, res_any) in
+       List.iter (fun (_, t, _) -> unify ~pos:pos ~handle:Gripers.cp_offer_branches (t, t')) branches;
+       let u = Usage.align (List.map (fun (_, _, u) -> u) branches) in
+       CPOffer (c, List.map (fun (x, _, _) -> x) branches), t', use c u
+    | CPLink (c, d) ->
+      let (_, tc, uc) = type_check context (var c) in
+      let (_, td, ud) = type_check context (var d) in
+        unify ~pos:pos ~handle:Gripers.cp_link_session
+          (tc, Types.fresh_type_variable (lin_any, res_session));
+        unify ~pos:pos ~handle:Gripers.cp_link_session
+          (td, Types.fresh_type_variable (lin_any, res_session));
+        unify ~pos:pos ~handle:Gripers.cp_link_dual (Types.dual_type tc, td);
+        CPLink (c, d), Types.make_endbang_type, Usage.combine uc ud
+    | CPComp (bndr, left, right) ->
+       let c = Binder.to_name' bndr in
+       let s = Types.fresh_session_variable lin_any in
+       let left, t, u = with_channel c s (type_cp (bind_var context (c, s)) left) in
+       let right, t', u' = with_channel c (T.Dual s) (type_cp (bind_var context (c, T.Dual s)) right) in
+       unify ~pos:pos ~handle:Gripers.cp_comp_left (Types.make_endbang_type, t);
+       CPComp (Binder.set_type bndr s, left, right), t', Usage.combine u u'
+  in
+  WithPos.make ~pos p, t, u
 
-  (* let with_channel = fun c s (p, t, u) ->
-   *   if Usage.uses_of c u <> 1 then
-   *     if Types.Unl.can_type_be s
-   *     then Types.Unl.make_type s
-   *     else Gripers.non_linearity pos (Usage.uses_of c u) (Name.to_string c) s;
-   *   (p, t, Usage.remove c u)
-   * in
-   * 
-   * let use s u = Usage.incr ~by:1 s u in
-   * 
-   * let unify ~pos ~handle (t, u) = unify_or_raise ~pos:pos ~handle:handle (("<unknown>", t), ("<unknown>", u)) in
-   * 
-   *   let wild_open = Types.(open_row default_effect_subkind closed_wild_row) in
-   * unify ~pos ~handle:Gripers.cp_wild (Types.Effect wild_open, Types.Effect context.effect_row);
-   * 
-   * let module T = Types in
-   * let (p, t, u) = match p with
-   *   | CPUnquote (bindings, e) ->
-   *      let context', bindings, usage_builder = type_bindings context bindings in
-   *      let (e, t, u) = type_check (Types.extend_typing_environment context context') e in
-   *        if Settings.get endbang_antiquotes then
-   *          unify ~pos:pos ~handle:Gripers.cp_unquote (t, Types.make_endbang_type);
-   *        CPUnquote (bindings, e), t, usage_builder u
-   *   | CPGrab ((c, _), None, p) ->
-   *      let (_, t, _) = type_check context (var c) in
-   *      let ctype = T.Alias (("EndQuery", [], [], false), T.Input (Types.unit_type, T.End)) in
-   *      unify ~pos:pos ~handle:(Gripers.cp_grab c) (t, ctype);
-   *      let (p, pt, u) = type_cp (unbind_var context c) p in
-   *      CPGrab ((c, Some (ctype, [])), None, p), pt, use c u
-   *   | CPGrab ((c, _), Some bndr, p) ->
-   *      let x = Binder.to_name bndr in
-   *      let (_, t, _) = type_check context (with_pos pos (Var c)) in
-   *      let a = Types.fresh_type_variable (lin_any, res_any) in
-   *      let s = Types.fresh_session_variable lin_any in
-   *      let ctype = T.Input (a, s) in
-   *      unify ~pos:pos ~handle:(Gripers.cp_grab c)
-   *            (t, ctype);
-   *      let (p, pt, u) = with_channel c s (type_cp (bind_var (bind_var context (c, s)) (x, a)) p) in
-   *      let uses = Usage.uses_of x u in
-   *      if uses <> 1 then
-   *        if Types.Unl.can_type_be a then
-   *          Types.Unl.make_type a
-   *        else
-   *          Gripers.non_linearity pos uses x a;
-   *      let grab_ty = (Env.find "receive" context.var_env) in
-   *      let tyargs =
-   *        match Types.concrete_type grab_ty with
-   *        | T.ForAll _ ->
-   *           begin
-   *             match Instantiate.typ grab_ty with
-   *             | tyargs, T.Function (fps, _fe, _rettype) ->
-   *                unify ~pos:pos ~handle:(Gripers.cp_grab "") (Types.make_tuple_type [ctype], fps);
-   *                tyargs
-   *             | _ -> assert false
-   *           end
-   *        | _ -> assert false in
-   *      CPGrab ((c, Some (ctype, tyargs)), Some (Binder.set_type bndr a), p), pt, use c (Usage.remove x u)
-   *   | CPGive ((c, _), None, p) ->
-   *      let (_, t, _) = type_check context (with_pos pos (Var c)) in
-   *      let ctype = T.Output (Types.unit_type, T.End) in
-   *      unify ~pos:pos ~handle:(Gripers.cp_give c) (t, ctype);
-   *      let (p, t, u) = type_cp (unbind_var context c) p in
-   *      CPGive ((c, Some (ctype, [])), None, p), t, use c u
-   *   | CPGive ((c, _), Some e, p) ->
-   *      let (_, t, _) = type_check context (var c) in
-   *      let (e, t', u) = type_check context e in
-   *      let s = Types.fresh_session_variable lin_any in
-   *      let ctype = T.Output (t', s) in
-   *      unify ~pos:pos ~handle:(Gripers.cp_give c)
-   *            (t, ctype);
-   *      let (p, t, u') = with_channel c s (type_cp (bind_var context (c, s)) p) in
-   * 
-   *      let give_ty = (Env.find "send" context.var_env) in
-   *      let tyargs =
-   *        match Types.concrete_type give_ty with
-   *        | T.ForAll _ ->
-   *           begin
-   *             match Instantiate.typ give_ty with
-   *             | tyargs, T.Function (fps, _fe, _rettpe) ->
-   *                unify ~pos:pos ~handle:(Gripers.cp_give "") (Types.make_tuple_type [t'; ctype], fps);
-   *                tyargs
-   *             | _ -> assert false
-   *           end
-   *        | _ -> assert false in
-   *      CPGive ((c, Some (ctype, tyargs)), Some e, p), t, use c (Usage.combine u u')
-   *   | CPGiveNothing bndr ->
-   *      let c = Binder.to_name bndr in
-   *      let _, t, _ = type_check context (var c) in
-   *      unify ~pos:pos ~handle:Gripers.(cp_give c) (t, Types.make_endbang_type);
-   *      CPGiveNothing (Binder.set_type bndr t), t, Usage.singleton c
-   *   | CPSelect (bndr, label, p) ->
-   *      let c = Binder.to_name bndr in
-   *      let (_, t, _) = type_check context (var c) in
-   *      let s = Types.fresh_session_variable lin_any in
-   *      let r = Types.make_singleton_open_row (label, T.Present s) (lin_any, res_session) in
-   *      let ctype = T.Select r in
-   *      unify ~pos:pos ~handle:(Gripers.cp_select c)
-   *            (t, ctype);
-   *      let (p, t, u) = with_channel c s (type_cp (bind_var context (c, s)) p) in
-   *      CPSelect (Binder.set_type bndr ctype, label, p), t, use c u
-   *   | CPOffer (bndr, branches) ->
-   *      let c = Binder.to_name bndr in
-   *      let (_, t, _) = type_check context (var c) in
-   *      (\*
-   *      let crow = Types.make_empty_open_row (lin_any, res_session) in
-   *      let ctype = Choice crow in
-   *      unify ~pos:pos ~handle:(Gripers.cp_offer_choice c)
-   *            (t, ctype);
-   *       *\)
-   *      let check_branch (label, body) =
-   *        let s = Types.fresh_type_variable (lin_any, res_session) in
-   *        let r = Types.make_singleton_open_row (label, T.Present s) (lin_any, res_session) in
-   *        unify ~pos:pos ~handle:(Gripers.cp_offer_choice c) (t, T.Choice r);
-   *        let (p, t, u) = with_channel c s (type_cp (bind_var context (c, s)) body) in
-   *        (label, p), t, u
-   *      in
-   *      let branches = List.map check_branch branches in
-   *      let t' = Types.fresh_type_variable (lin_any, res_any) in
-   *      List.iter (fun (_, t, _) -> unify ~pos:pos ~handle:Gripers.cp_offer_branches (t, t')) branches;
-   *      let u = Usage.align (List.map (fun (_, _, u) -> u) branches) in
-   *      CPOffer (Binder.set_type bndr t, List.map (fun (x, _, _) -> x) branches), t', use c u
-   *   | CPLink (bndr1, bndr2) ->
-   *     let c = Binder.to_name bndr1 in
-   *     let d = Binder.to_name bndr2 in
-   *     let (_, tc, uc) = type_check context (var c) in
-   *     let (_, td, ud) = type_check context (var d) in
-   *       unify ~pos:pos ~handle:Gripers.cp_link_session
-   *         (tc, Types.fresh_type_variable (lin_any, res_session));
-   *       unify ~pos:pos ~handle:Gripers.cp_link_session
-   *         (td, Types.fresh_type_variable (lin_any, res_session));
-   *       unify ~pos:pos ~handle:Gripers.cp_link_dual (Types.dual_type tc, td);
-   *       CPLink (Binder.set_type bndr1 tc, Binder.set_type bndr1 td), Types.make_endbang_type, Usage.combine uc ud
-   *   | CPComp (bndr, left, right) ->
-   *      let c = Binder.to_name bndr in
-   *      let s = Types.fresh_session_variable lin_any in
-   *      let left, t, u = with_channel c s (type_cp (bind_var context (c, s)) left) in
-   *      let right, t', u' = with_channel c (T.Dual s) (type_cp (bind_var context (c, T.Dual s)) right) in
-   *      unify ~pos:pos ~handle:Gripers.cp_comp_left (Types.make_endbang_type, t);
-   *      CPComp (Binder.set_type bndr s, left, right), t', Usage.combine u u'
-   * in
-   * WithPos.make ~pos p, t, u *)
-
-let type_check_general context body =
-  let body, typ, _ = type_check context body in
+let type_check_general compenv context body =
+  let body, typ, _ = type_check compenv context body in
   if Utils.is_generalisable body
      && Settings.get generalise_toplevel then
     match Utils.generalise ~unwrap:false context.var_env typ with
@@ -4865,13 +4854,13 @@ let binding_purity_check bindings =
 
 module Check =
 struct
-  let program tyenv (bindings, body) =
+  let program compenv tyenv (bindings, body) =
     try
       Debug.if_set Basicsettings.show_stages (fun () -> "Type checking...");
       Debug.if_set show_pre_sugar_typing
         (fun () ->
            "before type checking: \n"^ show_program (bindings, body));
-      let tyenv', bindings, _ = type_bindings tyenv bindings in
+      let tyenv', bindings, _ = type_bindings compenv tyenv bindings in
       let tyenv' = Types.normalise_typing_environment tyenv' in
       if Settings.get check_top_level_purity then
         binding_purity_check bindings; (* TBD: do this only in web mode? *)
@@ -4879,7 +4868,7 @@ struct
         match body with
         | None -> (bindings, None), Types.unit_type, tyenv'
         | Some body ->
-          let body, typ = type_check_general (Types.extend_typing_environment tyenv tyenv') body in
+          let body, typ = type_check_general compenv (Types.extend_typing_environment tyenv tyenv') body in
           let typ = Types.normalise_datatype typ in
           (bindings, Some body), typ, tyenv' in
       Debug.if_set show_post_sugar_typing
@@ -4889,7 +4878,7 @@ struct
     with
         Unify.Failure (`Msg msg) -> failwith msg
 
-  let sentence tyenv sentence =
+  let sentence compenv tyenv sentence =
     Debug.if_set Basicsettings.show_stages (fun () -> "Type checking...");
     Debug.if_set show_pre_sugar_typing
       (fun () ->
@@ -4897,11 +4886,11 @@ struct
     let sentence, t, tyenv =
       match sentence with
       | Definitions bindings ->
-        let tyenv', bindings, _ = type_bindings tyenv bindings in
+        let tyenv', bindings, _ = type_bindings compenv tyenv bindings in
         let tyenv' = Types.normalise_typing_environment tyenv' in
         Definitions bindings, Types.unit_type, tyenv'
       | Expression body ->
-        let body, t = type_check_general tyenv body in
+        let body, t = type_check_general compenv tyenv body in
         let t = Types.normalise_datatype t in
         Expression body, t, tyenv
       | Directive d -> Directive d, Types.unit_type, tyenv in

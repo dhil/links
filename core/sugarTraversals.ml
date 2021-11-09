@@ -488,7 +488,7 @@ class map =
       | CPUnquote (bs, e)  -> CPUnquote (o#list (fun o -> o#binding) bs, o#phrase e)
       | CPGrab ((c, a), x, p)   -> CPGrab ((c, arg_pair o a), x, o#cp_phrase p)
       | CPGive ((c, a), e, p)   -> CPGive ((c, arg_pair o a), o#option (fun o -> o#phrase) e, o#cp_phrase p)
-      | CPGiveNothing c    -> CPGiveNothing (o#binder c)
+      | CPGiveNothing c    -> CPGiveNothing c
       | CPSelect (c, l, p) -> CPSelect (c, l, o#cp_phrase p)
       | CPOffer (c, bs)    -> CPOffer (c, o#list (fun o (l, p) -> (l, o#cp_phrase p)) bs)
       | CPLink (c, d)      -> CPLink (c, d)
@@ -1224,7 +1224,7 @@ class fold =
       | CPUnquote (bs, e)    -> (o#list (fun o -> o#binding) bs)#phrase e
       | CPGrab (_c, _x, p)   -> o#cp_phrase p
       | CPGive (_c, e, p)    -> (o#option (fun o -> o#phrase) e)#cp_phrase p
-      | CPGiveNothing c      -> o#binder c
+      | CPGiveNothing _c     -> o
       | CPSelect (_c, _l, p) -> o#cp_phrase p
       | CPOffer (_c, bs)     -> o#list (fun o (_l, b) -> o#cp_phrase b) bs
       | CPLink (_c, _d)      -> o
@@ -2029,7 +2029,6 @@ class fold_map =
          let o, p = o#cp_phrase p in
          o, CPGive ((c, a), e, p)
       | CPGiveNothing c ->
-         let o, c = o#binder c in
          o, CPGiveNothing c
       | CPSelect (c, l, p) ->
          let o, p = o#cp_phrase p in

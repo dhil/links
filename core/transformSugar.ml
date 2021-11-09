@@ -910,28 +910,28 @@ class transform (env : Types.typing_environment) =
          let o = o#restore_envs envs in
          o, CPGive (cbind, e, p), t
       | CPGiveNothing c ->
-         let envs = o#backup_envs in
-         let o, c = o#binder c in
-         let o = o#restore_envs envs in
+         (* let envs = o#backup_envs in *)
+         (* let o, c = o#binder c in *)
+         (* let o = o#restore_envs envs in *)
          o, CPGiveNothing c, Types.make_endbang_type
       | CPGrab _ -> raise (internal_error "Malformed grab in TransformSugar")
       | CPGive _ -> raise (internal_error "Malformed give in TransformSugar")
-      | CPSelect (b, label, p) ->
+      | CPSelect (c, label, p) ->
          let envs = o#backup_envs in
-         let o, b = o#binder b in
+         (* let o, b = o#binder b in *)
          let (o, p, t) = o#cp_phrase p in
          let o = o#restore_envs envs in
-         o, CPSelect (b, label, p), t
-      | CPOffer (b, cases) ->
+         o, CPSelect (c, label, p), t
+      | CPOffer (c, cases) ->
          let (o, cases) = List.fold_right (fun (label, p) (o, cases) ->
                                            let envs = o#backup_envs in
-                                           let o, _ = o#binder b in
+                                           (* let o, _ = o#binder b in *)
                                            let (o, p, t) = o#cp_phrase p in
                                            (o#restore_envs envs, ((label, p), t) :: cases)) cases (o, []) in
          begin
            match List.split cases with
            | cases, t :: _ts ->
-              o, CPOffer (b, cases), t
+              o, CPOffer (c, cases), t
            | _ -> assert false
          end
       | CPLink (c, d) -> o, CPLink (c, d), Types.unit_type

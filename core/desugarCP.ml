@@ -4,17 +4,12 @@ open CommonTypes
 open SugarConstructors.DummyPositions
 open SourceCode.WithPos
 
-module TyEnv = Env.String
+module TyEnv = Env.Name
 
-let accept_str    () = failwith "TODO: primitive accept"
-let close_str     () = failwith "TODO: primitive closeBang"
-let link_sync_str () = failwith "TODO: primitive linkSync"
-let new_str       () = failwith "TODO: primitive new"
-let receive_str   () = failwith "TODO: primitive receive"
-let request_str   () = failwith "TODO: primitive request"
-let send_str      () = failwith "TODO: primitive send"
-let wait_str      () = failwith "TODO: primitive wait"
-let wild_str      = "wild"
+(** TODO(dhil) FIXME: This transformation pass breaks (or abuses the
+   lack of enforcement of) uniqueness of binders. This may very well
+   cause problems later on. The proper fix is to parameterised the
+   transformation pass by the current channel name. *)
 
 let binder_of_name : Types.datatype -> Name.t -> Binder.with_pos
   = fun ty name ->
@@ -25,10 +20,10 @@ let binder_of_name : Types.datatype -> Name.t -> Binder.with_pos
      let bndr = Binder.make' ~name ~ty ~fresh:false () in
      Binder.set_var bndr var
   | _ ->
-     raise (Errors.desugaring_error ~pos:(pos bndr)
-              ~stage:sugar_error_stage ~message:"Incompatible name passed to 'binder_of_name'")
+     raise (Errors.desugaring_error ~pos:SourceCode.Position.dummy
+              ~stage:Errors.DesugarCP ~message:"Incompatible name passed to 'binder_of_name'")
 
-class desugar_cp env =
+class desugar_cp compenv env =
   let open PrimaryKind in
 object (o : 'self_type)
   inherit (TransformSugar.transform env) as super
@@ -45,66 +40,67 @@ object (o : 'self_type)
             o, block_node (bs, e), t
          | CPGrab ((c, _), None, p) ->
             let (o, e, t) = desugar_cp o p in
+            let wait = Compenv.Lib.canonical_name "wait" compenv in
             o, block_node
-                ([val_binding (any_pat dp) (fn_appl_var (wait_str ()) (var c))],
+                ([val_binding (any_pat dp) (fn_appl_var wait c)],
                  with_dummy_pos e), t
          | CPGrab ((c, Some (Types.Input (_a, s), grab_tyargs)), Some bndr, p) -> (* FYI: a = u *)
             let envs = o#backup_envs in
             let venv =
-              let x = Binder.to_name bndr in
+              let x = Binder.to_name' bndr in
               let u = Binder.to_type bndr in
               TyEnv.bind x u (o#get_var_env ())
               |> TyEnv.bind c s
             in
-            let o = failwith "desugarCP update env" (* {< var_env = venv >} *) in
+            let o = {< var_env = venv >} in
             let (o, e, t) = desugar_cp o p in
             let o = o#restore_envs envs in
+            let receive = Compenv.Lib.canonical_name "receive" compenv in
             o, block_node
                  ([val_binding (with_dummy_pos (
                                     Pattern.Record ([("1", variable_pat' bndr);
                                                      ("2", variable_pat' (binder_of_name s c))], None)))
-                               (fn_appl (receive_str ()) grab_tyargs [var c])],
+                               (fn_appl receive grab_tyargs [var c])],
                  with_dummy_pos e), t
          | CPGive ((c, _), None, p) ->
             let (o, e, t) = desugar_cp o p in
+            let close = Compenv.Prelude.canonical_name "closeBang" compenv in
             o, block_node
-                ([val_binding (any_pat dp) (fn_appl_var (close_str ()) (var c))],
+                ([val_binding (any_pat dp) (fn_appl_var close c)],
                  with_dummy_pos e), t
          | CPGive ((c, Some (Types.Output (_t, s), give_tyargs)), Some e, p) ->
             let envs = o#backup_envs in
-            let o = failwith "desugarCP update env"(* {< var_env = TyEnv.bind c s (o#get_var_env ()) >} *) in
+            let o = {< var_env = TyEnv.bind c s (o#get_var_env ()) >} in
             let (o, e, _typ) = o#phrase e in
             let (o, p, t) = desugar_cp o p in
             let o = o#restore_envs envs in
+            let send = Compenv.Lib.canonical_name "send" compenv in
             o, block_node
                 ([val_binding (variable_pat' (binder_of_name s c))
-                              (fn_appl (send_str ()) give_tyargs [e; var c])],
+                              (fn_appl send give_tyargs [e; var c])],
                  with_dummy_pos p), t
-         | CPGiveNothing bndr ->
-            let c = Binder.to_name' bndr in
-            let t = Binder.to_type bndr in
-            o, Var c, t
-         | CPSelect (bndr, label, p) ->
-            let c = Binder.to_name' bndr in
-            let s = Binder.to_type bndr in
+         | CPGiveNothing c ->
+            o, Var c, TyEnv.find c (o#get_var_env ())
+         | CPSelect (c, label, p) ->
+            let s = TyEnv.find c (o#get_var_env ()) in
+            let s' = TypeUtils.select_type label s in
             let envs = o#backup_envs in
-            let o = failwith "desugarCP update env"(* {< var_env = TyEnv.bind c (TypeUtils.select_type label s) (o#get_var_env ()) >} *) in
+            let o = {< var_env = TyEnv.bind c s' (o#get_var_env ()) >} in
             let (o, p, t) = desugar_cp o p in
             let o = o#restore_envs envs in
             o, block_node
-                 ([val_binding (variable_pat' (binder_of_name (TypeUtils.select_type label s) c))
+                 ([val_binding (variable_pat' (binder_of_name s' c))
                      (with_dummy_pos (Select (label, var c)))],
                   with_dummy_pos p), t
-         | CPOffer (bndr, cases) ->
-            let c = Binder.to_name' bndr in
-            let s = Binder.to_type bndr in
+         | CPOffer (c, cases) ->
+            let s = TyEnv.find c (o#get_var_env ()) in
             let desugar_branch (label, p) (o, cases) =
               let envs = o#backup_envs in
-              let o = failwith "desugarCP update env" (* {< var_env = TyEnv.bind c (TypeUtils.choice_at label s) (o#get_var_env ()) >} *) in
+              let s' = TypeUtils.choice_at label s in
+              let o = {< var_env = TyEnv.bind c s' (o#get_var_env ()) >} in
               let (o, p, t) = desugar_cp o p in
               let pat : Pattern.with_pos =
-                with_dummy_pos (Pattern.Variant (label,
-                                                 Some (variable_pat' (binder_of_name (TypeUtils.choice_at label s) c))))
+                with_dummy_pos (Pattern.Variant (label, Some (variable_pat' (binder_of_name s' c))))
               in
               o#restore_envs envs, ((pat, with_dummy_pos p), t) :: cases in
             let (o, cases) = List.fold_right desugar_branch cases (o, []) in
@@ -114,54 +110,54 @@ object (o : 'self_type)
                     o, Offer (var c, cases, Some t), t)
          | CPLink (c, d) ->
             let ct = TyEnv.find c (o#get_var_env ()) in
-            o, fn_appl_node (link_sync_str ()) [(Type, ct); (Row, o#lookup_effects)]
+            let link_sync = Compenv.Prelude.canonical_name "linkSync" compenv in
+            o, fn_appl_node link_sync [(Type, ct); (Row, o#lookup_effects)]
                  [var c; var d],
             Types.make_endbang_type
          | CPComp (bndr, left, right) ->
-            let c = Binder.to_name bndr in
+            let c = Binder.to_name' bndr in
             let s = Binder.to_type bndr in
-            let c' = failwith ("TODO convert " ^ c ^ " to name") (* var c *) in
             let envs = o#backup_envs in
-            let (o, left, _typ) = failwith "desugarCP update env" (* desugar_cp {< var_env = TyEnv.bind c s (o#get_var_env ()) >} left *) in
-            let (o, right, t) = failwith "desugarCP update env"(* desugar_cp {< var_env = TyEnv.bind c (Types.dual_type s) (o#get_var_env ()) >} right *) in
+            let (o, left, _typ) = desugar_cp {< var_env = TyEnv.bind c s (o#get_var_env ()) >} left in
+            let (o, right, t) = desugar_cp {< var_env = TyEnv.bind c (Types.dual_type s) (o#get_var_env ()) >} right in
             let o = o#restore_envs envs in
-
-            let (eff_fields, eff_row, eff_closed) =
+            let effect_row =
               Types.flatten_row o#lookup_effects
-              |> TypeUtils.extract_row_parts in
-            let eff_fields = StringMap.remove wild_str eff_fields in
-            let eff_fields =
-              if Settings.get Basicsettings.Sessions.exceptions_enabled then
-                StringMap.remove Value.session_exception_operation eff_fields
-              else
-                eff_fields in
-
+              |> Types.remove_field Types.wild
+              |> (if Settings.get Basicsettings.Sessions.exceptions_enabled
+                  then Types.remove_field Value.session_exception_operation
+                  else identity)
+            in
             let left_block =
-                spawn Angel NoSpawnLocation (block (
-                    [ val_binding (variable_pat ~ty:s c) (fn_appl_var (accept_str ()) c');
-                      val_binding (variable_pat ~ty:Types.make_endbang_type c')
-                                  (with_dummy_pos left)],
-                    fn_appl_var (close_str ()) c'))
-                      ~row:(Types.Row (eff_fields, eff_row, eff_closed)) in
+              let accept = Compenv.Lib.canonical_name "accept" compenv in
+              let close = Compenv.Prelude.canonical_name "closeBang" compenv in
+              spawn Angel NoSpawnLocation
+                (block ([ val_binding (variable_pat' bndr) (fn_appl_var accept c);
+                          val_binding (variable_pat' (Binder.set_type bndr Types.make_endbang_type))
+                            (with_dummy_pos left)],
+                        fn_appl_var close c))
+                ~row:effect_row
+            in
             let o = o#restore_envs envs in
-            let c' = failwith ("TODO convert " ^ c ^ " to name") (* var c *) in
+            let new' = Compenv.Lib.canonical_name "new" compenv in
+            let request = Compenv.Lib.canonical_name "request" compenv in
             o, block_node
-                  ([val_binding (variable_pat ~ty:(Types.Application (Types.access_point, [(Type, s)])) c)
-                                (fn_appl (new_str ()) [] []);
-                    val_binding (any_pat dp) left_block;
-                    val_binding (variable_pat ~ty:(Types.dual_type s) c')
-                                (fn_appl_var (request_str ()) c')],
-                   with_dummy_pos right), t
+                 ([val_binding (variable_pat' (Binder.set_type bndr (Types.Application (Types.access_point, [(Type, s)]))))
+                     (fn_appl new' [] []);
+                   val_binding (any_pat dp) left_block;
+                   val_binding (variable_pat' (Binder.set_type bndr (Types.dual_type s)))
+                     (fn_appl_var request c)],
+                  with_dummy_pos right), t
          | _ -> assert false in
        desugar_cp o p
     | e -> super#phrasenode e
 end
 
-let desugar_cp env = ((new desugar_cp env) : desugar_cp :> TransformSugar.transform)
+let desugar_cp compenv env = ((new desugar_cp compenv env) : desugar_cp :> TransformSugar.transform)
 
 module Typeable
-  = Transform.Typeable.Make(struct
+  = Transform.Typeable.Make'(struct
         let name = "cp"
-        let obj env = (desugar_cp env : TransformSugar.transform :> Transform.Typeable.sugar_transformer)
+        let obj compenv env = (desugar_cp compenv env : TransformSugar.transform :> Transform.Typeable.sugar_transformer)
       end)
 
