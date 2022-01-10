@@ -66,6 +66,10 @@ type tenv = Types.datatype TEnv.t
 
 type env = nenv * tenv * Types.row
 
+let name_of_binder : Binder.t -> Name.t
+  = fun bndr ->
+  Name.resolved (Binder.name bndr) (Binder.var bndr)
+
 let lookup_name_and_type name (nenv, tenv, _eff) =
   let var = NEnv.find name nenv in
     var, TEnv.find var tenv
@@ -778,8 +782,9 @@ struct
 
   let (++) (nenv, tenv, _) (nenv', tenv', eff') = (NEnv.extend nenv nenv', TEnv.extend tenv tenv', eff')
 
-  let rec eval : env -> Sugartypes.phrase -> tail_computation I.sem =
-    fun env {node=e; pos} ->
+  let rec eval : Compenv.t -> env -> Sugartypes.phrase -> tail_computation I.sem =
+    fun compenv env {node=e; pos} ->
+      let eval = eval compenv in
       let lookup_var name =
         let x, xt = lookup_name_and_type name env in
           I.var (x, xt) in
@@ -807,7 +812,7 @@ struct
       let instantiate_mb name = instantiate name [(Row, eff)] in
       let cofv = I.comp_of_value in
       let ec = eval env in
-      let ev = evalv env in
+      let ev = evalv compenv env in
       let evs = List.map ev in
         let open Sugartypes in
         match e with
@@ -1051,7 +1056,7 @@ struct
                 (I.apply_pure
                    (instantiate_mb stringToXml,
                     [ev (WithPos.make ~pos (Sugartypes.Constant (Constant.String name)))]))
-          | Block (bs, e) -> eval_bindings Scope.Local env bs e
+          | Block (bs, e) -> eval_bindings compenv Scope.Local env bs e
           | Query (range, policy, e, _) ->
               I.query (opt_map (fun (limit, offset) -> (ev limit, ev offset)) range, policy, ec e)
           | DBInsert (source, _fields, rows, None) ->
@@ -1137,9 +1142,9 @@ struct
               Debug.print ("oops: " ^ show_phrasenode e);
               assert false
 
-  and eval_bindings scope env bs' e =
-    let ec = eval env in
-    let ev = evalv env in
+  and eval_bindings compenv scope env bs' e =
+    let ec = eval compenv env in
+    let ev = evalv compenv env in
       match bs' with
         | [] -> ec e
         | { node = b; _ }::bs ->
@@ -1157,12 +1162,12 @@ struct
                          ec body,
                          qs,
                          fun v ->
-                           eval_bindings scope (extend [x] [(v, xt)] env) bs e)
+                           eval_bindings compenv scope (extend [x] [(v, xt)] env) bs e)
                 | Val (p, (_, body), _, _) ->
                     let p, penv = CompilePatterns.desugar_pattern (lookup_effects env) p in
                     let env' = env ++ penv in
                     let s = ev body in
-                    let ss = eval_bindings scope env' bs e in
+                    let ss = eval_bindings compenv scope env' bs e in
                       I.comp env (p, s, ss)
                 | Fun { fun_binder           = bndr;
                         fun_definition       = (tyvars, NormalFunlit ([ps], body));
@@ -1179,13 +1184,13 @@ struct
                              p::ps, body_env ++ penv)
                         ps
                         ([], with_effects env eff) in
-                    let body = eval body_env body in
+                    let body = eval compenv body_env body in
                     let qs = List.map SugarQuantifier.get_resolved_exn tyvars in
                       I.letfun
                         (Var.make_info ft (Name.to_string f) scope, (qs, (body_env, ps, body)), location, unsafe)
-                        (fun v -> eval_bindings scope (extend [f] [(v, ft)] env) bs e)
+                        (fun v -> eval_bindings compenv scope (extend [f] [(v, ft)] env) bs e)
                 | Exp e' ->
-                    I.comp env (CompilePatterns.Pattern.Any, ev e', eval_bindings scope env bs e)
+                    I.comp env (CompilePatterns.Pattern.Any, ev e', eval_bindings compenv scope env bs e)
                 | Funs defs ->
                    (* FIXME: inner and outers should be the same now,
                       so we shouldn't need to do all of this *)
@@ -1219,11 +1224,11 @@ struct
                                     p::ps, body_env ++ penv)
                                ps
                                ([], with_effects env eff) in
-                           let body = fun vs -> eval (extend fs (List.combine vs inner_fts) body_env) body in
+                           let body = fun vs -> eval compenv (extend fs (List.combine vs inner_fts) body_env) body in
                            (Var.make_info ft (Name.to_string f) scope, (qs, (body_env, ps, body)), location, unsafe))
                         (nodes_of_list defs)
                     in
-                    I.letrec defs (fun vs -> eval_bindings scope (extend fs (List.combine vs outer_fts) env) bs e)
+                    I.letrec defs (fun vs -> eval_bindings compenv scope (extend fs (List.combine vs outer_fts) env) bs e)
                 | Foreign alien ->
                    let binder =
                      fst (Alien.declaration alien)
@@ -1232,18 +1237,18 @@ struct
                    let x  = Binder.to_name' binder in
                    let xt = Binder.to_type binder in
                    I.alien (Var.make_info xt (Name.to_string x) scope, Alien.object_name alien, Alien.language alien,
-                            fun v -> eval_bindings scope (extend [x] [(v, xt)] env) bs e)
+                            fun v -> eval_bindings compenv scope (extend [x] [(v, xt)] env) bs e)
                 | Typenames _
                 | Infix _ ->
                     (* Ignore type alias and infix declarations - they
                        shouldn't be needed in the IR *)
-                    eval_bindings scope env bs e
+                    eval_bindings compenv scope env bs e
                 | Import _ | Open _ | Fun _
                 | AlienBlock _ | Module _  -> assert false
             end
 
-  and evalv env e =
-    I.value_of_comp (eval env e)
+  and evalv compenv env e =
+    I.value_of_comp (eval compenv env e)
 
   (* Given a program, return a triple consisting of:
 
@@ -1266,14 +1271,15 @@ struct
         | b::bs ->
             begin
               match b with
-              | Let (b', _) when Var.(Scope.is_global (scope_of_binder b')) ->
-                 let x = Var.var_of_binder b' in
-                 let x_name = Var.name_of_binder b' in
-                 partition (b::locals @ globals, [], Env.String.bind x_name x nenv) bs
+              | Let (b', _) when Binder.is_global (WithPos.node b') ->
+                 let b = WithPos.node b' in
+                 let x = Binder.var b in
+                 let x_name = name_of_binder b in
+                 partition (b::locals @ globals, [], Env.Name.bind x_name x nenv) bs
               | Fun {fn_binder = b'; _} when Var.(Scope.is_global (scope_of_binder b')) ->
                  let f = Var.var_of_binder b' in
                  let f_name = Var.name_of_binder b' in
-                 partition (b::locals @ globals, [], Env.String.bind f_name f nenv) bs
+                 partition (b::locals @ globals, [], Env.Name.bind f_name f nenv) bs
               | Rec defs ->
                  (* we depend on the invariant that mutually
                      recursive definitions all have the same scope *)
@@ -1303,17 +1309,18 @@ struct
                  partition (b::locals @ globals, [], Env.String.bind f_name f nenv) bs
               | _ -> partition (globals, b::locals, nenv) bs
             end in
-    let globals, locals, nenv = partition ([], [], Env.String.empty) bs in
-    globals, (locals, main), Env.Name.empty (* TODO FIXME partition probably shouldn't pass nenv around anymore. *)
+    let globals, locals, nenv = partition ([], [], Env.Name.empty) bs in
+    globals, (locals, main), nenv (* TODO FIXME partition probably shouldn't pass nenv around anymore. *)
 
 
-  let compile env (bindings, body) =
+  let compile compenv env (bindings, body) =
     Debug.if_set Basicsettings.show_stages (fun () -> "Compiling to IR...");
     let body =
       match body with
       | None -> WithPos.dummy (Sugartypes.RecordLit ([], None))
-      | Some body -> body in
-    let s = eval_bindings Scope.Global env bindings body in
+      | Some body -> body
+    in
+    let s = eval_bindings compenv Scope.Global env bindings body in
     let r = (I.reify s) in
     Debug.if_set Basicsettings.show_stages (fun () -> "...compiled IR");
     Debug.if_set show_compiled_ir (fun () -> Ir.string_of_program r);
@@ -1322,19 +1329,19 @@ end
 
 module C = Eval(Interpretation(BindingListMonad))
 
-let desugar_expression : env -> Sugartypes.phrase -> Ir.computation =
-  fun env e ->
-    let (bs, body), _ = C.compile env ([], Some e) in
+let desugar_expression : Compenv.t -> env -> Sugartypes.phrase -> Ir.computation =
+  fun compenv env e ->
+    let (bs, body), _ = C.compile compenv env ([], Some e) in
       (bs, body)
 
-let desugar_program : env -> Sugartypes.program -> Ir.binding list * Ir.computation * nenv =
-  fun env p ->
-    let (bs, body), _ = C.compile env p in
+let desugar_program : Compenv.t -> env -> Sugartypes.program -> Ir.binding list * Ir.computation * nenv =
+  fun compenv env p ->
+    let (bs, body), _ = C.compile compenv env p in
       C.partition_program (bs, body)
 
-let desugar_definitions : env -> Sugartypes.binding list -> Ir.binding list * nenv =
-  fun env bs ->
-    let globals, _, nenv = desugar_program env (bs, None) in
+let desugar_definitions : Compenv.t -> env -> Sugartypes.binding list -> Ir.binding list * nenv =
+  fun compenv env bs ->
+    let globals, _, nenv = desugar_program compenv env (bs, None) in
       globals, nenv
 
 type result =
@@ -1351,7 +1358,8 @@ let program : Context.t -> Types.datatype -> Sugartypes.program -> result
     let venv = Context.variable_environment context in
     (nenv, venv, tenv.Types.effect_row)
   in
-  let program', _ = C.compile env program in
+  let compenv = Context.compilation_environment context in
+  let program', _ = C.compile compenv env program in
   let globals, program'', nenv' = C.partition_program program' in
   let nenv'' = Env.Name.extend nenv nenv' in
   let venv =

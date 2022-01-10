@@ -360,7 +360,7 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
 
   "!",
   (p2 (fun _pid _msg ->
-         assert(false)), (* Now handled in evalir.ml *)
+         assert(false)), (* alias of "Send" *)
    datatype "forall a::Type(Any, Any), e::Row(Unl, Any), f::Row.(Process ({hear:a|e}), a) ~f~> ()",
    IMPURE);
 

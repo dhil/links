@@ -8,10 +8,10 @@ type tenv = Types.datatype Env.Int.t
 
 type env = nenv * tenv * Types.row
 
-val desugar_expression : env -> Sugartypes.phrase -> Ir.computation
-val desugar_definitions : env -> Sugartypes.binding list ->
+val desugar_expression : Compenv.t -> env -> Sugartypes.phrase -> Ir.computation
+val desugar_definitions : Compenv.t -> env -> Sugartypes.binding list ->
   Ir.binding list * nenv
-val desugar_program : env -> Sugartypes.program ->
+val desugar_program : Compenv.t -> env -> Sugartypes.program ->
   Ir.binding list * Ir.computation * nenv
 
 type result =
