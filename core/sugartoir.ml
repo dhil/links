@@ -1148,8 +1148,8 @@ struct
       match bs' with
         | [] -> ec e
         | { node = b; _ }::bs ->
-            begin
-              let open Sugartypes in
+           begin
+             let open Sugartypes in
               match b with
                 | Val ({node=Pattern.Variable bndr; _}, (tyvars, body), _, _)
                      when Binder.has_type bndr ->
@@ -1245,7 +1245,7 @@ struct
                     eval_bindings compenv scope env bs e
                 | Import _ | Open _ | Fun _
                 | AlienBlock _ | Module _  -> assert false
-            end
+           end
 
   and evalv compenv env e =
     I.value_of_comp (eval compenv env e)
@@ -1271,14 +1271,13 @@ struct
         | b::bs ->
             begin
               match b with
-              | Let (b', _) when Binder.is_global (WithPos.node b') ->
-                 let b = WithPos.node b' in
-                 let x = Binder.var b in
-                 let x_name = name_of_binder b in
+              | Let (b', _) when Binder.is_global b' ->
+                 let x = Binder.var b' in
+                 let x_name = name_of_binder b' in
                  partition (b::locals @ globals, [], Env.Name.bind x_name x nenv) bs
               | Fun {fn_binder = b'; _} when Var.(Scope.is_global (scope_of_binder b')) ->
-                 let f = Var.var_of_binder b' in
-                 let f_name = Var.name_of_binder b' in
+                 let f = Binder.var b' in
+                 let f_name = name_of_binder b' in
                  partition (b::locals @ globals, [], Env.Name.bind f_name f nenv) bs
               | Rec defs ->
                  (* we depend on the invariant that mutually
