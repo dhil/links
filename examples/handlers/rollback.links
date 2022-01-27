@@ -1,0 +1,131 @@
+# Modular rollback parsing. Adapted from Lindley et al. (2017),
+# c.f. https://arxiv.org/pdf/1611.09259.pdf
+
+# Parsing interface
+sig peek : () {Peek:Char |_}-> Char
+fun peek() {do Peek}
+
+sig accept : () {Accept:() |_}-> ()
+fun accept() {do Accept}
+
+sig abort : () {Abort:Zero |_}-> a
+fun abort() {switch (do Abort) { }}
+
+# IO interface
+sig getChar : () {GetChar:Char |_}-> Char
+fun getChar() {do GetChar}
+
+sig putChar : (Char) {PutChar:(Char) -> () |_}-> ()
+fun putChar(ch) {do PutChar(ch)}
+
+sig domIO : (String, () {GetChar:Char,PutChar:(Char) -> () |e}~> a) {GetChar{_}, PutChar{_} |e}~> a
+fun domIO(nodeId, m) {
+  var node = getNodeById(nodeId);
+  handle(m()) {
+    case GetChar(resume) ->
+      fun loop() {
+        switch (explode(domGetPropertyFromRef(node, "value"))) {
+          case [] -> loop()
+          case cs -> resume(last(cs))
+        }
+      }
+      loop()
+    case PutChar(ch, resume) ->
+      var cs = explode(domGetPropertyFromRef(node, "value"));
+      domSetPropertyFromRef(node, "value", implode(cs ++ [ch]));
+      resume(())
+  }
+}
+
+# Action log
+typename Log(a, e::Eff) = [|Start:() ~e~> a
+                           |Inched:(Log(a, { |e}), (Char) ~e~> a)
+                           |Ouched:Log(a, { |e})|];
+
+mutual {
+  sig input : ( Log(a, {Abort:Zero, Accept:(), Peek:Char
+                       ,GetChar:Char, PutChar:(Char) -> () |e})
+              , Maybe(Char)
+              , () {Abort:Zero, Accept:(), Peek:Char
+                   ,GetChar:Char, PutChar:(Char) -> () |e}~> a)
+                   {Abort{_}  , Accept{_}, Peek{_}
+                   ,GetChar:Char, PutChar:(Char) -> () |e}~> a
+  fun input(l, buf, m) {
+    shallowhandle(m()) {
+      case Accept(resume) ->
+        switch (buf) {
+          case Just(ch) -> putChar(ch);
+                           input(Ouched(l), Nothing, fun () {resume(())})
+          case Nothing  -> input(l, Nothing, fun() {resume(())})
+        }
+      case Peek(resume) ->
+        switch (buf) {
+          case Just(ch) -> input(l, buf, fun() {resume(ch)})
+          case Nothing  ->
+            switch (getChar()) {
+              case '\b' -> rollback(l)
+              case ch   -> input(Inched(l, resume), Just(ch), fun() {resume(ch)})
+            }
+        }
+      case Abort -> rollback(l)
+    }
+  }
+
+  sig rollback : (Log(a, {Abort:Zero, Accept:(), Peek:Char
+                         , GetChar:Char, PutChar:(Char) -> () |e}))
+                         {Abort{_}, Accept{_}, Peek{_}
+                         , GetChar:Char, PutChar:(Char) -> () |e}~> a
+  fun rollback(l) {
+    switch (l) {
+      case Start(p)  -> parse(p)
+      case Ouched(l) -> putChar('\b'); rollback(l)
+      case Inched(l, resume) -> input(l, Nothing, fun() {resume(peek())})
+    }
+  }
+
+  sig parse : (() {Abort:Zero, Accept:(), Peek:Char
+                  ,GetChar:Char, PutChar:(Char) -> () |e}~> a)
+                  {Abort{_}, Accept{_}, Peek{_}
+                  ,GetChar:Char, PutChar:(Char) -> () |e}~> a
+  fun parse(p) { input(Start(p), Nothing, p) }
+}
+
+sig nest : (List(Char), Int) {Abort:Zero, Accept:(), Peek:Char |_}~> List(Char)
+fun nest(cs, n) {
+  if (n == 0) {
+    switch (peek()) {
+      case '('  -> accept(); nest(cs, 1)
+      case '\n' -> accept(); cs
+      case _    -> abort()
+    }
+  } else {
+    switch (peek()) {
+      case '(' -> accept(); nest(cs, (n + 1))
+      case ')' -> accept(); nest(cs, (n - 1))
+      case c   -> accept(); nest(c :: cs, n)
+    }
+  }
+}
+
+fun mainPage(_) {
+  var pid = spawnClient {
+    fun loop() {
+      domIO("txt", fun() {
+        parse(fun() { nest([], 0) })
+      })
+    }
+    loop()
+  };
+  page
+  <#>
+    <input value="" l:onclick="{ignore(pid)}" id="pid" style="display:hidden;" />
+    <textarea id="txt"></textarea>
+  </#>
+}
+
+fun main() {
+  addRoute("/", mainPage);
+  servePages()
+}
+
+main()
