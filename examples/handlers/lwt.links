@@ -1,0 +1,29 @@
+# Lightweight threading in Links
+
+sig yield : () {Yield:() |_}-> ()
+fun yield() {do Yield}
+
+module Basic {
+   sig lwt : ([() {Yield:() |e}~> ()]) {Yield{_} |e}~> ()
+   fun lwt(fs) {
+      switch (fs) {
+        case [] -> ()
+        case f :: fs' ->
+           shallowhandle(f()) {
+              case Return(())    -> lwt(fs')
+              case Yield(resume) -> lwt(fs' ++ [fun(){resume(())}])
+           }
+      }
+   }
+
+   fun example(n) {
+     fun th(ident) {
+       print(intToString(ident));
+       yield();
+       print(intToString(ident))
+     }
+
+     lwt(mapi(fun(f, i) {fun(){f(i)}}, replicate(n, th)));
+     print("\n")
+   }
+}
