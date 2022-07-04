@@ -30,7 +30,7 @@ let rec get_type_args : gen_kind -> TypeVarSet.t -> datatype -> type_arg list =
         | Not_typed -> raise (internal_error "Not_typed encountered in get_type_args")
         | (Var _ | Recursive _) ->
            failwith ("freestanding Var / Recursive not implemented yet (must be inside Meta)")
-        | Alias ((_, _, ts, _), t) ->
+        | Alias (_, (_, _, ts, _), t) ->
            concat_map (get_type_arg_type_args kind bound_vars) ts @ gt t
         | Application (_, args) ->
            Utility.concat_map (get_type_arg_type_args kind bound_vars) args
@@ -65,7 +65,7 @@ let rec get_type_args : gen_kind -> TypeVarSet.t -> datatype -> type_arg list =
               from_gens @ effect_gens @ to_gens
         | Record row
         | Variant row -> get_row_type_args kind bound_vars row
-        | Table (r, w, n) -> gt r @ gt w @ gt n
+        | Table (_, r, w, n) -> gt r @ gt w @ gt n
         | Lens _ -> []
         | ForAll (qs, t) ->
            get_type_args kind (TypeVarSet.add_quantifiers qs bound_vars) t

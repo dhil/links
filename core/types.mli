@@ -91,6 +91,8 @@ val dom_node     : Abstype.t
 val access_point : Abstype.t
 val socket       : Abstype.t
 val spawn_location : Abstype.t
+val transaction_time_data : Abstype.t
+val valid_time_data : Abstype.t
 
 (* Type groups *)
 
@@ -127,7 +129,7 @@ and typ =
   | Not_typed
   | Var of (tid * Kind.t * Freedom.t)
   | Recursive of (tid * Kind.t * typ)
-  | Alias of ((string * Kind.t list * type_arg list * bool) * typ)
+  | Alias of (PrimaryKind.t * (string * Kind.t list * type_arg list * bool) * typ)
   | Application of (Abstype.t * type_arg list)
   | RecursiveApplication of rec_appl
   | Meta of typ point
@@ -137,7 +139,7 @@ and typ =
   | Lolli of (typ * row * typ)
   | Record of row
   | Variant of row
-  | Table of (typ * typ * typ)
+  | Table of (Temporality.t * typ * typ * typ)
   | Lens of Lens.Type.t
   | ForAll of (Quantifier.t list * typ)
   (* Effect *)
@@ -218,7 +220,7 @@ val get_restriction_constraint : Restriction.t -> (module Constraint) option
 val dual_row : row -> row
 val dual_type : datatype -> datatype
 
-type alias_type = Quantifier.t list * typ [@@deriving show]
+type alias_type = PrimaryKind.t * Quantifier.t list * typ [@@deriving show]
 
 type tycon_spec = [
   | `Alias of alias_type
@@ -265,6 +267,7 @@ val is_builtin_effect : string -> bool
 
 (** get type variables *)
 val free_type_vars : datatype -> TypeVarSet.t
+val free_flexible_type_vars : datatype -> TypeVarSet.t
 val free_row_type_vars : row -> TypeVarSet.t
 val free_tyarg_vars : type_arg -> TypeVarSet.t
 val free_bound_type_vars          : typ      -> Vars.vars_list
@@ -388,8 +391,11 @@ val make_list_type : datatype -> datatype
 val make_process_type : row -> datatype
 val make_record_type  : datatype field_env -> datatype
 val make_variant_type : datatype field_env -> datatype
-val make_table_type : datatype * datatype * datatype -> datatype
+val make_table_type : Temporality.t * datatype * datatype * datatype -> datatype
+val make_tablehandle_alias : datatype * datatype * datatype -> datatype
 val make_endbang_type : datatype
+val make_transaction_time_data_type : datatype -> datatype
+val make_valid_time_data_type : datatype -> datatype
 
 (** subtyping *)
 val is_sub_type : datatype * datatype -> bool
@@ -453,6 +459,7 @@ val pp_row : Format.formatter -> row -> unit
 val pp_row' : Format.formatter -> row' -> unit
 val pp_type_arg : Format.formatter -> type_arg -> unit
 val pp_tycon_spec: Format.formatter -> tycon_spec -> unit
+val pp_field_spec: Format.formatter -> field_spec -> unit
 
 (* Recursive type applications *)
 val recursive_applications : datatype -> string list

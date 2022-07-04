@@ -23,10 +23,10 @@ module AliasEnv = Env.String
 let alias_env : Types.tycon_environment = DefaultAliases.alias_env
 
 let alias_env : Types.tycon_environment =
-  AliasEnv.bind "Repeat" (`Alias ([], (DesugarDatatypes.read ~aliases:alias_env Linksregex.Repeat.datatype))) alias_env
+  AliasEnv.bind "Repeat" (`Alias (pk_type, [], (DesugarDatatypes.read ~aliases:alias_env Linksregex.Repeat.datatype))) alias_env
 
 let alias_env : Types.tycon_environment =
-  AliasEnv.bind "Regex" (`Alias ([], (DesugarDatatypes.read ~aliases:alias_env Linksregex.Regex.datatype))) alias_env
+  AliasEnv.bind "Regex" (`Alias (pk_type, [], (DesugarDatatypes.read ~aliases:alias_env Linksregex.Regex.datatype))) alias_env
 
 let datatype = DesugarDatatypes.read ~aliases:alias_env
 
@@ -126,6 +126,7 @@ let rec equal l r =
         let f1 = CalendarShow.to_unixfloat dt1 in
         let f2 = CalendarShow.to_unixfloat dt2 in
         f1 = f2
+    | `DateTime _, `DateTime _ -> false (* comparing timestamps with (-)infinity *)
     | l, r ->
         runtime_error
           (Printf.sprintf "Comparing %s with %s which either does not make sense or isn't implemented."
@@ -607,19 +608,31 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
   "max",
   (p1 (let max2 x y = if less x y then y else x in
          function
-           | `List [] -> `Variant ("None", `Record [])
-           | `List (x::xs) -> `Variant ("Some", List.fold_left max2 x xs)
+           | `List [] -> `Variant ("Nothing", `Record [])
+           | `List (x::xs) -> `Variant ("Just", List.fold_left max2 x xs)
            | _ -> raise (runtime_type_error "Internal error: non-list passed to max")),
-   datatype "([a]) ~> [|Some:a | None:()|]",
+   datatype "([a]) ~> [|Just:a | Nothing:()|]",
   PURE);
 
   "min",
   (p1 (let min2 x y = if less x y then x else y in
          function
-           | `List [] -> `Variant ("None", `Record [])
-           | `List (x::xs) -> `Variant ("Some", List.fold_left min2 x xs)
+           | `List [] -> `Variant ("Nothing", `Record [])
+           | `List (x::xs) -> `Variant ("Just", List.fold_left min2 x xs)
            | _ -> raise (runtime_type_error "Internal error: non-list passed to min")),
-   datatype "([a]) ~> [|Some:a | None:()|]",
+   datatype "([a]) ~> [|Just:a | Nothing:()|]",
+  PURE);
+
+  (* We need to have these here in order to patch through to the underlying SQL functions. *)
+  (* The over-specific type is there because part of evalNestedQuery is type-directed. *)
+  "least",
+  (p2 (fun x y -> if less x y then x else y),
+   datatype "(DateTime, DateTime) ~> DateTime",
+  PURE);
+
+  "greatest",
+  (p2 (fun x y -> if less x y then y else x),
+   datatype "(DateTime, DateTime) ~> DateTime",
   PURE);
 
   (* XML *)
@@ -1033,7 +1046,7 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
      Ideally, perhaps, a malformed header from the client should
      be ignored at this level (let the HTTP agents handle it).
 
-     An absent cookie should probably be indicated by a None value in
+     An absent cookie should probably be indicated by a Nothing value in
      the Maybe(String) type.
   *)
   "getCookie",
@@ -1049,13 +1062,6 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
            Value.box_string value),
    datatype "(String) ~> String",
   IMPURE);
-
-  (* getCommandOutput disabled for now; possible security risk. *)
-  (*
-    "getCommandOutput",
-    (p1 ((Value.unbox_string ->- Utility.process_output ->- Value.box_string) :> result -> primitive),
-    datatype "(String) -> String");
-  *)
 
   "redirect",
   (p1D (fun url req_data ->
@@ -1211,10 +1217,64 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
     datatype "DateTime",
     PURE);
 
+  "withValidity",
+  (p3 (fun x v_from v_to ->
+    Value.box_record
+      [(TemporalField.data_field, x);
+       (TemporalField.from_field, v_from);
+       (TemporalField.to_field, v_to)]),
+    datatype "((|r), DateTime, DateTime) -> ValidTime((|r))",
+    PURE);
+
+  "ttData",
+  (p1 (Value.unbox_record
+       ->- List.assoc (TemporalField.data_field)),
+   datatype "(TransactionTime((|r))) -> (|r)",
+  PURE);
+
+  "ttFrom",
+  (p1 (Value.unbox_record
+       ->- List.assoc (TemporalField.from_field)),
+   datatype "(TransactionTime(a)) -> DateTime",
+  PURE);
+
+  "ttTo",
+  (p1 (Value.unbox_record
+       ->- List.assoc (TemporalField.to_field)),
+   datatype "(TransactionTime(a)) -> DateTime",
+  PURE);
+
+  "vtData",
+  (p1 (Value.unbox_record
+       ->- List.assoc (TemporalField.data_field)),
+   datatype "(ValidTime((|r))) -> (|r)",
+  PURE);
+
+  "vtFrom",
+  (p1 (Value.unbox_record
+       ->- List.assoc (TemporalField.from_field)),
+   datatype "(ValidTime(a)) -> DateTime",
+  PURE);
+
+  "vtTo",
+  (p1 (Value.unbox_record
+       ->- List.assoc (TemporalField.to_field)),
+   datatype "(ValidTime(a)) -> DateTime",
+  PURE);
   (* Database functions *)
   "AsList",
   (p1 (fun _ -> raise (internal_error "Unoptimized table access!!!")),
    datatype "(TableHandle(r, w, n)) {}-> [r]",
+  IMPURE);
+
+  "AsListT",
+  (p1 (fun _ -> raise (internal_error "Unoptimized table access!!!")),
+   datatype "(TemporalTable(Transaction, r, w, n)) {}-> [TransactionTime(r)]",
+  IMPURE);
+
+  "AsListV",
+  (p1 (fun _ -> raise (internal_error "Unoptimized table access!!!")),
+   datatype "(TemporalTable(Valid, r, w, n)) {}-> [ValidTime(r)]",
   IMPURE);
 
   "Distinct",
@@ -1529,42 +1589,11 @@ let env : (string * (located_primitive * Types.datatype * pure)) list = [
 
     (* END OF LINKS GAME LIBRARY *)
 
-    (* FOR DEBUGGING *)
-
-    "debugGetStats",
-    (`Client, datatype "(String) ~> a", IMPURE);
-
-    "debugChromiumGC",
-    (`Client, datatype "() ~> ()", IMPURE);
-
-    (* END OF DEBUGGING FUNCTIONS *)
-
-
-    (* EQUALITY *)
-
-    "stringEq",
-    (`Client, datatype "(String, String) -> Bool", PURE);
-
-    "intEq",
-    (`Client, datatype "(Int, Int) -> Bool", PURE);
-
-    "floatEq",
-    (`Client, datatype "(Float, Float) -> Bool", PURE);
-
-    "floatNotEq",
-    (`Client, datatype "(Float, Float) -> Bool", PURE);
-
-    "objectEq",
-    (`Client, datatype "(a, a) -> Bool", PURE);
-
-
-    (* END OF EQUALITY FUNCTIONS *)
-
-        "gensym",
-        (let idx = ref 0 in
-         `PFun (fun _ _ -> let i = !idx in idx := i+1; (Value.box_int i)),
-         datatype "() -> Int",
-         IMPURE);
+    "gensym",
+    (let idx = ref 0 in
+     `PFun (fun _ _ -> let i = !idx in idx := i+1; (Value.box_int i)),
+      datatype "() -> Int",
+      IMPURE);
 
     "connectSocket",
     (`Server (p2 (fun serverv portv ->

@@ -33,7 +33,7 @@ let rec is_guarded : TypeVarSet.t -> StringSet.t -> int -> datatype -> bool =
         | Not_typed -> true
         | (Var _ | Recursive _) ->
            failwith ("freestanding Var / Recursive not implemented yet (must be inside Meta)")
-        | Alias (_, t) -> isg t
+        | Alias (_, _, t) -> isg t
         | Application (_, ts) ->
             (* don't treat abstract type constructors as guards *)
             List.for_all (is_guarded_type_arg bound_vars expanded_apps var) ts
@@ -79,7 +79,7 @@ let rec is_guarded : TypeVarSet.t -> StringSet.t -> int -> datatype -> bool =
                 isgr row
            end
         | Variant row -> isgr row
-        | Table (f, d, r) -> isg f && isg d && isg r
+        | Table (_, f, d, r) -> isg f && isg d && isg r
         | Lens _sort -> true (* does not contain type variables *)
         | ForAll (qs, t) ->
             is_guarded
@@ -138,7 +138,7 @@ let rec is_negative : TypeVarSet.t -> StringSet.t -> int -> datatype -> bool =
         | Not_typed -> false
         | (Var _ | Recursive _) ->
            failwith ("freestanding Var / Recursive not implemented yet (must be inside Meta)")
-        | Alias (_, t) -> isn t
+        | Alias (_, _, t) -> isn t
         | Application (_, ts) ->
             List.exists (is_negative_type_arg bound_vars expanded_apps var) ts
         | RecursiveApplication { r_unique_name; r_args; r_unwind; r_dual; _ } ->
@@ -166,7 +166,7 @@ let rec is_negative : TypeVarSet.t -> StringSet.t -> int -> datatype -> bool =
             isp f || isnr m || isn t
         | Record row -> isnr row
         | Variant row -> isnr row
-        | Table (f, d, r) -> isn f || isn d || isn r
+        | Table (_, f, d, r) -> isn f || isn d || isn r
         | Lens typ -> is_negative_lens_type bound_vars expanded_apps var typ
         | ForAll (qs, t) ->
             is_negative
@@ -225,7 +225,7 @@ and is_positive : TypeVarSet.t -> StringSet.t -> int -> datatype -> bool =
         | Not_typed -> false
         | (Var _ | Recursive _) ->
            failwith ("freestanding Var / Recursive not implemented yet (must be inside Meta)")
-        | Alias (_, t) -> isp t
+        | Alias (_, _, t) -> isp t
         | Application (_, ts) ->
             List.exists (is_positive_type_arg bound_vars expanded_apps var) ts
         | RecursiveApplication { r_unique_name; r_args; r_unwind; r_dual; _ } ->
@@ -253,7 +253,7 @@ and is_positive : TypeVarSet.t -> StringSet.t -> int -> datatype -> bool =
             isn f || ispr m || isp t
         | Record row -> ispr row
         | Variant row -> ispr row
-        | Table (f, d, r) -> isp f || isp d || isp r
+        | Table (_, f, d, r) -> isp f || isp d || isp r
         | Lens typ -> is_positive_lens_type bound_vars expanded_apps var typ
         | ForAll (qs, t) ->
             is_positive

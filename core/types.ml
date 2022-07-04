@@ -87,6 +87,18 @@ let spawn_location = {
   arity = []
 }
 
+let transaction_time_data = {
+  Abstype.id = "TransactionTime";
+  name       = "TransactionTime";
+  arity      = [pk_type, (lin_any, res_any)]
+}
+
+let valid_time_data = {
+  Abstype.id = "ValidTime";
+  name       = "ValidTime";
+  arity      = [pk_type, (lin_any, res_any)]
+}
+
 (* When unifying, we need to keep track of both mu-bound recursive variables
  * and names of recursive type applications. The `rec_id` type allows us to
  * abstract this and keep both in the same environment. *)
@@ -126,7 +138,7 @@ and typ =
   | Not_typed
   | Var of (tid * Kind.t * Freedom.t)
   | Recursive of (tid * Kind.t * typ)
-  | Alias of ((string * Kind.t list * type_arg list * bool) * typ)
+  | Alias of (PrimaryKind.t * (string * Kind.t list * type_arg list * bool) * typ)
   | Application of (Abstype.t * type_arg list)
   | RecursiveApplication of rec_appl
   | Meta of typ point
@@ -136,7 +148,7 @@ and typ =
   | Lolli of (typ * row * typ)
   | Record of row
   | Variant of row
-  | Table of (typ * typ * typ)
+  | Table of (Temporality.t * typ * typ * typ)
   | Lens of Lens.Type.t
   | ForAll of (Quantifier.t list * typ)
   (* Effect *)
@@ -209,14 +221,13 @@ let is_present = function
   | _ ->
      failwith "Expected presence constructor."
 
-type alias_type = Quantifier.t list * typ [@@deriving show]
+type alias_type = PrimaryKind.t * Quantifier.t list * typ [@@deriving show]
 
 type tycon_spec = [
   | `Alias of alias_type
   | `Abstract of Abstype.t
   | `Mutual of (Quantifier.t list * tygroup ref) (* Type in same recursive group *)
 ] [@@deriving show]
-
 
 (* Generation of fresh type variables *)
 let type_variable_counter = ref 0
@@ -246,6 +257,7 @@ sig
     method type_arg : type_arg -> ('self_type * type_arg)
   end
 end
+
 
 (* FIXME: these will probably go when we relax the constraint that
    Var, Recursive, and Closed constructors can only appear inside a
@@ -349,10 +361,10 @@ struct
          (o, Not_typed)
       | (Var _ | Recursive _ | Closed) ->
          failwith ("[0] freestanding Var / Recursive / Closed not implemented yet (must be inside Meta)")
-      | Alias ((name, params, args, is_dual), t) ->
+      | Alias (k, (name, params, args, is_dual), t) ->
          let (o, args') = o#type_args args in
          let (o, t') = o#typ t in
-         (o, Alias ((name, params, args', is_dual), t'))
+         (o, Alias (k, (name, params, args', is_dual), t'))
       | Application (con, args) ->
          let (o, args') = o#type_args args in
          (o, Application (con, args'))
@@ -385,12 +397,17 @@ struct
       | Variant row ->
          let (o, row') = o#row row in
          (o, Variant row')
-      | Table (read, write, needed) ->
+      | Table (temporality, read, write, needed) ->
          let (o, read') = o#typ read in
          let (o, write') = o#typ write in
          let (o, needed') = o#typ needed in
-         (o, Table (read', write', needed'))
-      | Lens _ -> assert false (* TODO FIXME *)
+         (o, Table (temporality, read', write', needed'))
+      | Lens t ->
+         (* Lens types are substantially more complex than allowed for by a
+            visitor. If this functionality is needed, then the visitor can
+            be extended and a separate visitor can be written for lens types
+            separately. *)
+         (o, Lens t)
       | ForAll (names, body) ->
          let (o, names') = o#list (fun o -> o#quantifier) names in
          let (o, body') = o#typ body in
@@ -586,7 +603,7 @@ class virtual type_predicate = object(self)
     | Not_typed -> assert false
     | Var _ | Recursive _ | Closed ->
        failwith ("[1] freestanding Var / Recursive / Closed not implemented yet (must be inside Meta)")
-    | Alias (_, t) -> self#type_satisfies vars t
+    | Alias (_, _, t) -> self#type_satisfies vars t
     | Application (_, ts) ->
        (* This does assume that all abstract types satisfy the predicate. *)
        List.for_all (self#type_satisfies_arg vars) ts
@@ -658,7 +675,7 @@ class virtual type_iter = object(self)
     | Not_typed -> assert false
     | Var _ | Recursive _ | Closed ->
        failwith ("[2] freestanding Var / Recursive / Closed not implemented yet (must be inside Meta)")
-    | Alias (_, t) -> self#visit_type vars t
+    | Alias (_, _, t) -> self#visit_type vars t
     | Application (_, ts) -> List.iter (self#visit_type_arg vars) ts
     | RecursiveApplication { r_args; _ } -> List.iter (self#visit_type_arg vars) r_args
     | Meta point -> self#visit_point self#visit_type vars point
@@ -1177,11 +1194,11 @@ let free_type_vars, free_row_type_vars, free_tyarg_vars =
     | Lolli (f, m, t)         ->
        S.union_all [free_type_vars' rec_vars f; free_row_type_vars' rec_vars m; free_type_vars' rec_vars t]
     | Effect row | Record row | Variant row -> free_row_type_vars' rec_vars row
-    | Table (r, w, n)         ->
+    | Table (_, r, w, n)         ->
        S.union_all
          [free_type_vars' rec_vars r; free_type_vars' rec_vars w; free_type_vars' rec_vars n]
     | Lens _          -> S.empty
-    | Alias ((_, _, ts, _), datatype) ->
+    | Alias (_, (_, _, ts, _), datatype) ->
        S.union (S.union_all (List.map (free_tyarg_vars' rec_vars) ts)) (free_type_vars' rec_vars datatype)
     | Application (_, tyargs) -> S.union_all (List.map (free_tyarg_vars' rec_vars) tyargs)
     | RecursiveApplication { r_args; _ } ->
@@ -1342,7 +1359,7 @@ let rec dual_type : var_map -> datatype -> datatype =
   | RecursiveApplication appl ->
      RecursiveApplication { appl with r_dual = (not appl.r_dual) }
   | End -> End
-  | Alias ((f,ks,args,isdual),t)         -> Alias ((f,ks,args,not(isdual)),dt t)
+  | Alias (k, (f,ks,args,isdual),t)         -> Alias (k, (f,ks,args,not(isdual)),dt t)
   | t -> raise (Invalid_argument ("Attempt to dualise non-session type: " ^ show_datatype @@ DecycleTypes.datatype t))
 and dual_row : var_map -> row -> row =
   fun rec_points row ->
@@ -1374,10 +1391,10 @@ and subst_dual_type : var_map -> datatype -> datatype =
   | Record row -> Record (sdr row)
   | Variant row -> Variant (sdr row)
   | Effect row -> Effect (sdr row)
-  | Table (r, w, n) -> Table (sdt r, sdt w, sdt n)
+  | Table (t, r, w, n) -> Table (t, sdt r, sdt w, sdt n)
   | Lens _sort -> t
   (* TODO: we could do a check to see if we can preserve aliases here *)
-  | Alias (_, t) -> sdt t
+  | Alias (_, _, t) -> sdt t
   | Application (abs, ts) -> Application (abs, List.map (subst_dual_type_arg rec_points) ts)
   | RecursiveApplication app ->
      (* I don't think we need to do anything with the dualisation flag
@@ -1450,7 +1467,8 @@ and flatten_row : row -> row = fun row ->
     | Row _ -> row
     (* HACK: this probably shouldn't happen! *)
     | Meta row_var -> Row (StringMap.empty, row_var, false)
-    | _ -> assert false in
+    | _ -> raise (internal_error "attempt to flatten, row expected")
+  in
   let dual_if =
     match row with
     | Row (_, _, dual) ->
@@ -1556,7 +1574,8 @@ and unwrap_row : row -> (row * row_var option) = function
      in
      let field_env = concrete_fields field_env in
      Row (field_env, row_var, dual), rec_row
-  | _ -> raise tag_expectation_mismatch
+  | _ ->
+    raise tag_expectation_mismatch
 
 
 
@@ -1577,11 +1596,10 @@ and normalise_datatype rec_names t =
   | Record row              -> Record (nr row)
   | Variant row             -> Variant (nr row)
   | Effect row              -> Effect (nr row)
-  | Table (r, w, n)         ->
-     Table (nt r, nt w, nt n)
+  | Table (t, r, w, n)      -> Table (t, nt r, nt w, nt n)
   | Lens sort               -> Lens sort
-  | Alias ((name, qs, ts, is_dual), datatype) ->
-     Alias ((name, qs, ts, is_dual), nt datatype)
+  | Alias (k, (name, qs, ts, is_dual), datatype) ->
+     Alias (k, (name, qs, ts, is_dual), nt datatype)
   | Application (abs, tyargs) ->
      Application (abs, List.map (normalise_type_arg rec_names) tyargs)
   | RecursiveApplication app ->
@@ -1692,7 +1710,7 @@ let bool_type     = Primitive Primitive.Bool
 let int_type      = Primitive Primitive.Int
 let float_type    = Primitive Primitive.Float
 let datetime_type = Primitive Primitive.DateTime
-let xml_type      = Alias (("Xml", [], [], false), Application (list, [(PrimaryKind.Type, Primitive Primitive.XmlItem)]))
+let xml_type      = Alias (pk_type, ("Xml", [], [], false), Application (list, [(PrimaryKind.Type, Primitive Primitive.XmlItem)]))
 let database_type = Primitive Primitive.DB
 (* Empty type, used for exceptions *)
 let empty_type    = Variant (make_empty_closed_row ())
@@ -1753,7 +1771,7 @@ exception TypeDestructionError of string
 let concrete_type' t =
   let rec ct rec_names t : datatype =
     match t with
-    | Alias (_, t) -> ct rec_names t
+    | Alias (_, _, t) -> ct rec_names t
     | Meta point ->
        begin
          match Unionfind.find point with
@@ -1846,7 +1864,7 @@ struct
     | Not_typed -> []
     | Var _ | Recursive _ | Closed ->
        failwith ("[10] freestanding Var / Recursive / Closed not implemented yet (must be inside Meta)")
-    | Alias ((_, _, ts, _), _) ->
+    | Alias (_, (_, _, ts, _), _) ->
        concat_map (free_bound_tyarg_vars bound_vars) ts
     | Application (_, tyargs) ->
        List.concat (List.map (free_bound_tyarg_vars bound_vars) tyargs)
@@ -1872,7 +1890,7 @@ struct
        (fbtv f) @ (free_bound_row_type_vars bound_vars m) @ (fbtv t)
     | Record row
       | Variant row -> free_bound_row_type_vars bound_vars row
-    | Table (r, w, n) -> (fbtv r) @ (fbtv w) @ (fbtv n)
+    | Table (_, r, w, n) -> (fbtv r) @ (fbtv w) @ (fbtv n)
     | Lens _ -> []
     | ForAll (tyvars, body) ->
        let bound_vars, vars =
@@ -1929,7 +1947,7 @@ struct
             (TypeVarSet.add var bound_vars, (var, spec)::vars)) (bound_vars, []) tyvars in
       (bound_vars, List.rev vars) in
     match tycon_spec with
-      | `Alias (tyvars, body) ->
+      | `Alias (_, tyvars, body) ->
           let (bound_vars, vars) = split_vars tyvars in
           vars @ (free_bound_type_vars bound_vars body)
       | `Mutual (tyvars, _) -> snd (split_vars tyvars)
@@ -1995,6 +2013,17 @@ struct
   let find      var tbl = fst (Hashtbl.find tbl var)
   let find_spec var tbl =      Hashtbl.find tbl var
 end
+
+let free_flexible_type_vars t =
+  let free_vars = Vars.free_bound_type_vars TypeVarSet.empty t in
+  let add_if_flexible set var_entry =
+    let (id, (flavour, _kind, _scope)) = var_entry in
+    if flavour = `Flexible then
+      TypeVarSet.add id set
+    else
+      set
+  in
+  List.fold_left add_if_flexible TypeVarSet.empty free_vars
 
 (** Type printers *)
 
@@ -2290,7 +2319,7 @@ struct
   (** If this type may contain a shared effect. *)
   let maybe_shared_effect = function
     | Function _ | Lolli _ -> true
-    | Alias ((_, qs, _, _), _) | RecursiveApplication { r_quantifiers = qs; _ } ->
+    | Alias (_, (_, qs, _, _), _) | RecursiveApplication { r_quantifiers = qs; _ } ->
        begin match ListUtils.last_opt qs with
        | Some (PrimaryKind.Row, (_, Restriction.Effect)) -> true
        | _ -> false
@@ -2314,7 +2343,7 @@ struct
       match t with
       | Function (_, _, r) | Lolli (_, _, r) when maybe_shared_effect r -> find_shared_var r
       | Function (_, e, _) | Lolli (_, e, _) -> find_row_var e
-      | Alias ((_, _, ts, _), _) | RecursiveApplication { r_args = ts; _ } when maybe_shared_effect t ->
+      | Alias (_, (_, _, ts, _), _) | RecursiveApplication { r_args = ts; _ } when maybe_shared_effect t ->
          begin match ListUtils.last ts with
          | (PrimaryKind.Row, (Row _ as r)) -> find_row_var r
          | _ -> None
@@ -2519,7 +2548,7 @@ struct
          | Not_typed       -> "not typed"
          | Var _ | Recursive _ | Closed ->
             failwith ("[11] freestanding Var / Recursive / Closed not implemented yet (must be inside Meta)")
-         | Alias ((s, _, ts, is_dual), _) | RecursiveApplication { r_name = s; r_args = ts; r_dual = is_dual; _ } ->
+         | Alias (_, (s, _, ts, is_dual), _) | RecursiveApplication { r_name = s; r_args = ts; r_dual = is_dual; _ } ->
             let ts =
               match ListUtils.unsnoc_opt ts, context.shared_effect with
               | Some (ts, (PrimaryKind.Row, (Row r as r'))), Some v when maybe_shared_effect t && is_row_var v r ->
@@ -2589,12 +2618,11 @@ struct
             (if is_tuple ur then string_of_tuple context r
              else "(" ^ row "," context p (Row r) ^ ")")
          | Variant r -> "[|" ^ row "|" context p r ^ "|]"
-         | Table (r, w, n)   ->
+         | Table (t, r, w, n)   ->
             (* TODO: pretty-print this using constraints? *)
-            "TableHandle(" ^
-              sd r ^ "," ^
-                sd w ^ "," ^
-                  sd n ^ ")"
+            Printf.sprintf "TemporalTable(%s, %s, %s, %s)"
+                (Temporality.show t)
+                (sd r) (sd w) (sd n)
          | Lens _typ ->
             let open Lens in
             let sort = Type.sort _typ in
@@ -2730,7 +2758,7 @@ struct
            TypeVarSet.add (Quantifier.to_var tyvar) bound_vars)
         bound_vars tyvars
     in function
-    | `Alias (tyvars, body) ->
+    | `Alias (_, tyvars, body) ->
        let ctx = { context with bound_vars = bound_vars tyvars } in
        begin
          match tyvars with
@@ -2927,7 +2955,7 @@ module RoundtripPrinter : PRETTY_PRINTER = struct
          need those to share an effect variable, we only need to look at the surface
          (here the kinds of type arguments), because if this has a shared effect, it
          must be visible in type arguments *)
-      | Alias ((_, kinds, _, _), _)
+      | Alias (_, (_, kinds, _, _), _)
         | RecursiveApplication { r_quantifiers = kinds; _ } ->
          begin
            (* by convention, if the alias has an argument containing shared effect, it
@@ -2970,7 +2998,7 @@ module RoundtripPrinter : PRETTY_PRINTER = struct
 
                (* alternatively, this is the rightmost alias, which can also have a
                   shared effect - this is by convention the last argument *)
-               | Alias ((_,_,type_args,_), _)
+               | Alias (_, (_,_,type_args,_), _)
                  | RecursiveApplication { r_args = type_args ; _ }
                     when implicit_allowed_in tp ->
                   begin
@@ -3080,7 +3108,7 @@ module RoundtripPrinter : PRETTY_PRINTER = struct
              let (o, _) = o#effect_row e in
              let (o, _) = o#typ r in
              (o, tp)
-          | Alias ((_,kinds,tyargs,_), _)
+          | Alias (_, (_,kinds,tyargs,_), _)
             | RecursiveApplication { r_quantifiers = kinds; r_args = tyargs ; _ } ->
              (o#alias_recapp kinds tyargs, tp)
           | _ -> super#typ tp
@@ -3257,7 +3285,7 @@ module RoundtripPrinter : PRETTY_PRINTER = struct
             (** Deconstruct Alias, let tyarg_list handle it *)
             method alias : typ -> 'self_type * typ
               = fun al ->
-              let ((name, kinds, tyargs, dual), tp) = match al with
+              let (k, (name, kinds, tyargs, dual), tp) = match al with
                 | Alias a -> a
                 | _ -> assert false
               in
@@ -3267,7 +3295,7 @@ module RoundtripPrinter : PRETTY_PRINTER = struct
                 else o#tyarg_list kinds tyargs
               in
               (* let (o, tp) = o#typ tp in *)
-              let al = Alias ((name, kinds, tyargs, dual), tp) in
+              let al = Alias (k, (name, kinds, tyargs, dual), tp) in
               (o, al)
 
             (** Deconstruct Rec.App., let tyarg_list handle it *)
@@ -3999,11 +4027,12 @@ module RoundtripPrinter : PRETTY_PRINTER = struct
           in
           StringBuffer.write buf ret)
 
-  and table : (typ * typ * typ) printer
+  and table : (Temporality.t * typ * typ * typ) printer
     = let open Printer in
-      Printer (fun ctx (r, w, n) buf ->
+      Printer (fun ctx (t, r, w, n) buf ->
           let ctx = Context.toplevel ctx in
-          StringBuffer.write buf "TableHandle(";
+          StringBuffer.write buf "TemporalTable(";
+          StringBuffer.write buf (Temporality.show t ^ ",");
           Printer.concat_items ~sep:"," datatype [ r ;  w ;  n ] ctx buf;
           StringBuffer.write buf ")")
 
@@ -4018,12 +4047,13 @@ module RoundtripPrinter : PRETTY_PRINTER = struct
             | Var (vid, knd, _)  -> with_value var (vid, knd)
             | Recursive v        -> with_value recursive v
             | Application a      -> with_value application a
-            | Alias ((name, arg_kinds, arg_types, is_dual), _)
+            | Alias (_, (name, arg_kinds, arg_types, is_dual), _)
               | RecursiveApplication { r_name = name; r_quantifiers = arg_kinds ; r_args = arg_types; r_dual = is_dual; _ }
               -> with_value alias_recapp (name, arg_kinds, arg_types, is_dual)
 
             | Meta pt            -> meta ctx pt
             | Present t          -> with_value presence t
+            | Absent             -> constant "-"
             | Primitive t        -> with_value primitive t
 
             | Function f         -> let ambient = if Context.is_ambient_effect ctx
@@ -4096,7 +4126,7 @@ module RoundtripPrinter : PRETTY_PRINTER = struct
     = let open Printer in
       Printer (fun ctx v buf ->
           match v with
-          | `Alias (tyvars, body) ->
+          | `Alias (_, tyvars, body) ->
              let ctx = Context.bind_tyvars (List.map Quantifier.to_var tyvars) ctx in
              begin
                match tyvars with
@@ -4139,7 +4169,7 @@ module DerivedPrinter : PRETTY_PRINTER = struct
   let string_of_tycon_spec : Policy.t -> names -> tycon_spec -> string
     = fun _policy _names tycon ->
     let decycle_tycon_spec = function
-      | `Alias (qlist, ty) -> `Alias (List.map DecycleTypes.quantifier qlist, DecycleTypes.datatype ty)
+      | `Alias (k, qlist, ty) -> `Alias (k, List.map DecycleTypes.quantifier qlist, DecycleTypes.datatype ty)
       | other -> other
     in
     show_tycon_spec (decycle_tycon_spec tycon)
@@ -4209,7 +4239,7 @@ let empty_typing_environment = { var_env = Env.empty;
                                  rec_vars = Env.Dom.empty;
                                  tycon_env =  TCEnv.empty;
                                  effect_row = make_empty_closed_row ();
-                                 desugared = false }
+                                 desugared  = false }
 
 (* Which printer to use *)
 type pretty_printer_engine = Old | Roundtrip | Derived
@@ -4364,9 +4394,9 @@ let make_fresh_envs : datatype -> datatype IntMap.t * row IntMap.t * field_spec 
     | Function (f, m, t)      -> union [make_env boundvars f; make_env boundvars m; make_env boundvars t]
     | Lolli (f, m, t)         -> union [make_env boundvars f; make_env boundvars m; make_env boundvars t]
     | Effect row | Record row | Variant row -> make_env boundvars row
-    | Table (r, w, n)         -> union [make_env boundvars r; make_env boundvars w; make_env boundvars n]
+    | Table (_, r, w, n)      -> union [make_env boundvars r; make_env boundvars w; make_env boundvars n]
     | Lens _                  -> empties
-    | Alias ((_, _, ts, _), d) -> union (List.map (make_env_ta boundvars) ts @ [make_env boundvars d])
+    | Alias (_, (_, _, ts, _), d) -> union (List.map (make_env_ta boundvars) ts @ [make_env boundvars d])
     | Application (_, ds)     -> union (List.map (make_env_ta boundvars) ds)
     | RecursiveApplication { r_args ; _ } -> union (List.map (make_env_ta boundvars) r_args)
     | ForAll (qs, t)          ->
@@ -4497,10 +4527,10 @@ let is_sub_type, is_sub_row =
               | Recursive _ -> false
               | t' -> is_sub_type rec_vars (t, t')
           end
-      | Alias ((name, [], [], is_dual), _), Alias ((name', [], [], is_dual'), _)
-        when name=name' && is_dual=is_dual' -> true
-      | (Alias (_, t)), t'
-      | t, (Alias (_, t')) -> is_sub_type rec_vars (t, t')
+      | Alias (k, (name, [], [], is_dual), _), Alias (k', (name', [], [], is_dual'), _)
+        when k=k' && name=name' && is_dual=is_dual' -> true
+      | (Alias (_, _, t)), t'
+      | t, (Alias (_, _, t')) -> is_sub_type rec_vars (t, t')
       | ForAll _, ForAll _ ->
           raise (internal_error "not implemented subtyping on forall types yet")
       | _, _ -> false
@@ -4594,6 +4624,13 @@ let make_tuple_type (ts : datatype list) : datatype =
 let make_list_type t = Application (list, [PrimaryKind.Type, t])
 let make_process_type r = Application (process, [PrimaryKind.Row, r])
 
+let make_transaction_time_data_type typ =
+  Application (transaction_time_data, [PrimaryKind.Type, typ])
+
+let make_valid_time_data_type typ =
+  Application (valid_time_data, [PrimaryKind.Type, typ])
+
+
 let extend_row_check_duplicates fields row =
   match row with
   | Row (fields', row_var, dual) ->
@@ -4645,8 +4682,17 @@ let make_closed_row : datatype field_env -> row =
 let make_record_type ts = Record (make_closed_row ts)
 let make_variant_type ts = Variant (make_closed_row ts)
 
-let make_table_type (r, w, n) = Table (r, w, n)
-let make_endbang_type : datatype = Alias (("EndBang", [], [], false), Output (unit_type, End))
+let make_table_type (t, r, w, n) = Table (t, r, w, n)
+
+(* Alias of more general TemporalTable type *)
+let make_tablehandle_alias (r, w, n) =
+    let kind = (PrimaryKind.Type, (lin_unl, res_any)) in
+    let kinds = List.init 3 (fun _ -> kind) in
+    let tyargs = List.map (fun x -> (PrimaryKind.Type, x)) [r; w; n] in
+    Alias (pk_type, ("TableHandle", kinds, tyargs, false),
+        Table (Temporality.current, r, w, n))
+
+let make_endbang_type : datatype = Alias (pk_type, ("EndBang", [], [], false), Output (unit_type, End))
 
 let make_function_type : ?linear:bool -> datatype list -> row -> datatype -> datatype
   = fun ?(linear=false) args effs range ->
@@ -4707,7 +4753,7 @@ let pp_type_arg : Format.formatter -> type_arg -> unit = fun fmt t ->
 
 let pp_tycon_spec : Format.formatter -> tycon_spec -> unit = fun fmt t ->
   let decycle_tycon_spec = function
-    | `Alias (qlist, ty) -> `Alias (List.map DecycleTypes.quantifier qlist, DecycleTypes.datatype ty)
+    | `Alias (k, qlist, ty) -> `Alias (k, List.map DecycleTypes.quantifier qlist, DecycleTypes.datatype ty)
     | other -> other in
 
   if Settings.get print_types_pretty then

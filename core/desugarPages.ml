@@ -55,7 +55,7 @@ let rec desugar_page compenv (o, page_type) =
            let a = Types.fresh_type_variable (lin_any, res_any) in
            let b = Types.fresh_type_variable (lin_any, res_any) in
            let form_p = Prelude.canonical_name "formP" compenv in
-           Unify.datatypes (Types.Alias (("Formlet", [(Type, default_subkind)], [(Type, a)], false), b), formlet_type);
+           Unify.datatypes (Types.Alias (pk_type, ("Formlet", [(Type, default_subkind)], [(Type, a)], false), b), formlet_type);
            fn_appl form_p [(Type, a); (Row, o#lookup_effects)] [formlet; handler; attributes]
         | PagePlacement (page) -> page
         | Xml ("#", [], _, children) ->

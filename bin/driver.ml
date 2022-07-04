@@ -206,4 +206,94 @@ module Phases = struct
     |> Compile.IR.run
     |> Transform.run
     |> Evaluate.run
+
+  let compile_js_only : Context.t -> string -> string -> unit
+    = fun initial_context source_file object_file ->
+      (* Process source file (and its dependencies. *)
+      let result =
+        Parse.run initial_context source_file
+        |> Desugar.run
+        |> (fun result -> if Settings.get typecheck_only then exit 0 else result)
+        |> Compile.IR.run
+        |> Transform.run
+      in
+      let context, program = result.Backend.context, result.Backend.program in
+      (* let valenv    = Context.value_environment context in *)
+      let nenv  = Context.name_environment context in
+      (* let tenv      = Context.typing_environment context in *)
+      let venv =
+        Env.Name.fold
+          (fun name v venv -> Env.Int.bind v (CommonTypes.Name.to_string name) venv) (* TODO FIXME: Should bind a canonical name here. *)
+          nenv
+          Env.Int.empty
+      in
+      (* let tenv = Var.varify_env (nenv, tenv.Types.var_env) in *)
+      let ffi_files =
+        Context.ffi_files context
+      in
+      let open Irtojs in
+      let _venv', code =
+        let program' =
+          let (bs, tc) = program in
+          (* TODO(dhil): This is a slight hack. We shouldn't need to
+             use the webserver to retrieve the prelude, alas, the
+             current infrastructure does not let us get hold of the
+             prelude bindings by other means. *)
+          (Webserver.get_prelude () @ bs, tc)
+        in
+        Compiler.generate_program venv program'
+      in
+      (* Prepare object file. *)
+      let oc =
+        try open_out object_file
+        with Sys_error reason -> raise (Errors.cannot_open_file object_file reason)
+      in
+      try
+        if Settings.get Basicsettings.System.link_js_runtime
+        then begin
+            Js_CodeGen.output oc Compiler.primitive_bindings;
+            let runtime_files =
+              match Settings.get Basicsettings.System.custom_js_runtime with
+              | [] ->
+                let file =
+                  begin match Settings.get jslib_dir with
+                    | None | Some "" ->
+                      begin
+                        Filename.concat
+                          (match Utility.getenv "LINKS_LIB" with
+                            | None -> Filename.dirname Sys.executable_name
+                            | Some path -> path)
+                            (Filename.concat "js" "jslib.js")
+                      end
+                    | Some path -> Filename.concat path "jslib.js"
+                  end
+                in [file]
+              | files -> files
+            in
+            List.iter
+              (fun runtime_file ->
+                let ic =
+                  try open_in runtime_file
+                  with Sys_error reason -> raise (Errors.cannot_open_file runtime_file reason)
+                in
+                try
+                  Utility.IO.Channel.cat ic oc;
+                  close_in ic
+                with e -> close_in ic; raise e)
+              runtime_files;
+          end;
+        (* Copy contents of FFI files. *)
+        List.iter
+          (fun ffi_file ->
+            let ic = open_in ffi_file in
+            try
+              Utility.IO.Channel.cat ic oc;
+              close_in ic
+            with e -> close_in ic; raise e)
+          ffi_files;
+        (* Emit the JavaScript code produced by irtojs. *)
+        Js_CodeGen.output oc code;
+        close_out oc
+      with Sys_error reason ->
+        close_out oc; raise (Errors.object_file_write_error object_file reason)
 end

@@ -173,7 +173,7 @@ fun zip(l, r) {
 }
 
 fun replicate(n, item) {
-  if (n == 0) []
+  if (n <= 0) []
   else item :: replicate(n-1, item)
 }
 
@@ -1609,4 +1609,44 @@ fun localMilliseconds(dt) { dateMilliseconds(dt) }
 sig showLocal : (DateTime) ~> String
 fun showLocal(dt) {
     show(dt)
+}
+
+### Temporal DB functions
+
+# Transaction-time timeslice for current DB
+fun ttCurrent(tbl) {
+    query nested {
+        for (x <-t- tbl)
+            where (ttTo(x) == forever)
+            [ ttData(x) ]
+    }
+}
+
+# Transaction-time timeslice for DB at a given time
+fun ttAt(tbl, timestamp) {
+    query nested {
+        for (x <-t- tbl)
+            where (ttFrom(x) <= timestamp && timestamp < ttTo(x))
+            [ ttData(x) ]
+    }
+}
+
+
+# Valid-time timeslice for current DB
+fun vtCurrent(tbl) {
+    query nested {
+        var time = now();
+        for (x <-v- tbl)
+            where (time >= vtFrom(x) && time < vtTo(x))
+            [ vtData(x) ]
+    }
+}
+
+# Valid-time timeslice for DB at a given time
+fun vtAt(tbl, time) {
+    query nested {
+        for (x <-v- tbl)
+            where (time >= vtFrom(x) && time < vtTo(x))
+            [ vtData(x) ]
+    }
 }

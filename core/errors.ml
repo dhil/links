@@ -45,10 +45,12 @@ exception UnboundTyCon of (Position.t * string)
 exception InternalError of { filename: string; message: string }
 exception TypeApplicationArityMismatch of
   { pos: Position.t; name: string; expected: int; provided: int}
-
 (* tyarg_number is 1-based index *)
 exception TypeApplicationKindMismatch of
   { pos: Position.t; name: string; tyarg_number: int;
+    expected: string; provided: string }
+exception TypeApplicationGlobalKindMismatch of
+  { pos: Position.t; name: string;
     expected: string; provided: string }
 exception SettingsError of string
 exception DynlinkError of string
@@ -57,6 +59,9 @@ exception DisabledExtension of Position.t option * (string * bool) option * stri
 exception PrimeAlien of Position.t
 exception ForbiddenClientCall of string * string
 exception MissingBuiltinType of string
+exception MissingSSLCertificate
+exception CannotOpenFile of string * string
+exception ObjectFileWriteError of string * string
 
 exception LocateFailure of string
 let driver_locate_failure driver = LocateFailure driver
@@ -131,6 +136,11 @@ let format_exception =
       pos_prefix ~pos
         (Printf.sprintf "Kind mismatch: Type argument %d for type constructor %s has kind %s, but an argument of kind %s was expected. \nIn:\n%s\n"
              tyarg_number name provided expected expr)
+  | TypeApplicationGlobalKindMismatch { pos; name; expected; provided } ->
+      let pos, expr = Position.resolve_start_expr pos in
+      pos_prefix ~pos
+        (Printf.sprintf "Kind mismatch: Type constructor %s has kind %s, but something of kind %s was expected. \nIn:\n%s\n"
+             name provided expected expr)
   | SettingsError message ->
       pos_prefix (Printf.sprintf "Settings Error: %s" message)
   | ModuleError (message, pos) ->
@@ -192,6 +202,11 @@ let format_exception =
   | ForbiddenClientCall (fn, reason) ->
      pos_prefix (Printf.sprintf "Error: Cannot call client side function '%s' because of %s\n" fn reason)
   | MissingBuiltinType alias -> Printf.sprintf "Error: Missing builtin type with alias '%s'. Is it defined in the prelude?" alias
+  | MissingSSLCertificate -> "Error: SSL mode requires both a valid certificate and key\n"
+  | CannotOpenFile (filename, reason) ->
+     Printf.sprintf "Error: Cannot open file '%s' (%s)\n" filename reason
+  | ObjectFileWriteError (filename, reason) ->
+    Printf.sprintf "Error: Cannot write to file '%s' (%s)\n" filename reason
   | Sys.Break -> "Caught interrupt"
   | UnboundVariable (name, pos) ->
      let pos, _ = Position.resolve_start_expr pos in
@@ -246,3 +261,10 @@ let disabled_extension ?pos ?setting ?flag name =
 let prime_alien pos = PrimeAlien pos
 let forbidden_client_call fn reason = ForbiddenClientCall (fn, reason)
 let unbound_variable pos name = UnboundVariable (name, pos)
+let cannot_open_file filename reason = CannotOpenFile (filename, reason)
+let object_file_write_error filename reason = ObjectFileWriteError (filename, reason)
+let type_application_kind_mismatch pos name tyarg_number expected provided =
+    TypeApplicationKindMismatch { pos; name; tyarg_number; expected; provided }
+let type_application_global_kind_mismatch pos name expected provided =
+    TypeApplicationGlobalKindMismatch { pos; name; expected; provided }
+let unbound_tycon pos message = UnboundTyCon (pos, message)

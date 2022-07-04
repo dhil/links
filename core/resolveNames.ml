@@ -136,8 +136,8 @@ module Resolve = struct
         Funs fs''
         | (Infix _) as node -> node
         | Exp exp -> Exp (self#phrase exp)
-        | Typenames ts -> Typenames ts (* TODO(dhil): Name resolution
-                                          for types. *)
+        | Aliases ts -> Aliases ts (* TODO(dhil): Name resolution for
+                                      types. *)
         | Open  _
         | Import _
         | Module _ -> assert false (* TODO(dhil): For now we assume

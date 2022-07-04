@@ -13,9 +13,9 @@ let to_links_map m =
 
 let lookup_alias context ~alias =
   match Env.String.find_opt alias context with
-  | Some (`Alias (_, body)) ->
+  | Some (`Alias (k, _, body)) ->
       let tycon = (alias, [], [], false) in
-      T.Alias (tycon, body)
+      T.Alias (k, tycon, body)
   | _ -> Errors.MissingBuiltinType alias |> raise
 
 let rec type_of_lens_phrase_type ~context t =
@@ -46,7 +46,7 @@ let rec lens_phrase_type_of_type t =
           failwith
           @@ Format.asprintf
                "Unsupported primitive type %a in lens_phrase_type_of_type." T.pp
-               t )
+               t)
   | T.Record r -> lens_phrase_type_of_type r
   | T.Row (fields, _, _) ->
       let fields =
@@ -93,7 +93,7 @@ let sort_cols_of_table t ~table =
     match TypeUtils.concrete_type t with
     | T.Application (_, (* args *) [ (_pk, r) ]) ->
         r (* get the first argument of a type application *)
-    | T.Table (read, _, _) -> read (* use the read type of a table *)
+    | T.Table (_, read, _, _) -> read (* use the read type of a table *)
     | T.Record r -> r (* Use the row of a record type. *)
     | _ -> failwith "LensTypes does not type."
   in

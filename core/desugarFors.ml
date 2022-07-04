@@ -114,21 +114,31 @@ object (o : 'self_type)
                    let xb = Binder.make' ~ty:element_type ~name:var () in
                      o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,
                          xb :: xs, element_type::ts)
-               | Table (p, e) ->
+               | Table (tmp, p, e) ->
                    let (o, e, t) = o#phrase e in
                    let (o, p) = o#pattern p in
-
-                   let element_type = TypeUtils.table_read_type t in
 
                    let r = TypeUtils.table_read_type   t in
                    let w = TypeUtils.table_write_type  t in
                    let n = TypeUtils.table_needed_type t in
 
                    let open PrimaryKind in
-                   let e =
-                     let as_list = Compenv.Lib.canonical_name "AsList" compenv in
-                     fn_appl as_list [(Type, r); (Type, w); (Type, n)] [e]
+                   let fn_name, element_type =
+                       let open Temporality in
+                       let element_type = TypeUtils.table_read_type t in
+                       match tmp with
+                       | Current ->
+                         Compenv.Lib.canonical_name "AsList" compenv,
+                         element_type
+                       | Transaction ->
+                         Compenv.Lib.canonical_name "AsListT" compenv,
+                         Types.make_transaction_time_data_type element_type
+                       | Valid ->
+                         Compenv.Lib.canonical_name "AsListV" compenv,
+                         Types.make_valid_time_data_type element_type
                    in
+                   let e = fn_appl fn_name [(Type, r); (Type, w); (Type, n)] [e] in
+
                    let var = Utility.gensym ~prefix:"_for_" () in
                    let xb = Binder.make' ~name:var ~ty:element_type () in
                      o, (e::es, with_dummy_pos (Pattern.As (xb, p))::ps,

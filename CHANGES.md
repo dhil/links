@@ -1,11 +1,84 @@
+# Unreleased
+
+Notable changes made to `master` since the previous release.
+
+* **Breaking change**: The Links standard library has adopted `Maybe` as it optional type. Previously, the standard library made inconsistent use of both `Option` and `Maybe` types. As a consequence of this change, every instance of `Option` has been turned into a `Maybe` type.
+
+# 0.9.6
+
+This release extends the core features of Links and resolves various
+minor bugs.
+
+* Links now supports System F-style explicit type abstractions:
+  For instance, writing `/\ [a, e::Row] { foo }` abstracts the expression `foo`
+  over type variable `a` and row variable `e`. Here, `foo` must have a unique
+  type and must be pure (to satisfy the value restriction).
+* Fixed a bug in "mixing" query normalisation, which prevented certain queries using
+  concatenation inside `for` statements from being correctly converted to SQL.
+* Links now has basic support for temporal database operations. More information
+  can be found on the [Wiki](https://github.com/links-lang/links/wiki/Temporal-Databases).
+  There are new keywords: `valid`, `to`, `vt_insert`, `tt_insert`, and `TemporalTable`.
+* A new commandline option `--compile` (shorthand `-c`) has been
+  added, which runs Links in a "compile only" mode. In this mode the
+  JavaScript compilation artefact can be saved to a file (the naming
+  of this file is controlled via the commandline option `-o`). Note
+  that the generated file may not be directly runnable without linking
+  the runtime system first. Currently, the runtime system must be
+  linked manually.
+* Fixed a bug where calling either of `newAP`, `newClientAP`, and
+  `newServerAP` on the client-side would crash the client.
+* It is now possible to dispatch an MVU message from outside of the
+  event loop. This is particularly useful, for example, when dealing
+  with a persistent, stateful thread which is receiving messages from
+  a server. New things include:
+  + A new type alias `MvuHandle(msg)`.
+  + A family of runners: `runHandle`, `runCmdHandle`,
+    `runSimpleHandle` which return an `MvuHandle(msg)` rather than the
+    unit value.
+  + A new dispatcher `Mvu.dispatch : (msg, MvuHandle(msg)) ~> ()`,
+    which directly dispatches a message to the MVU loop.
+
+* The built-in webserver now supports SSL connections.  To enable
+  secure connections, you must first obtain an adequate certificate
+  and key, e.g. via Let's Encrypt or a self-signed certificate. The
+  latter can be useful for testing, e.g. the following command starts
+  an interactive process to create a self-signed certificate (that
+  uses 4096 bits RSA encryption and is valid for 365 days):
+```shell
+openssl req -x509 -newkey rsa:4096 -keyout server.key -out server.crt -days 365 -nodes
+```
+  After obtaining a valid certificate, you must tell Links to run in SSL
+  mode and you must also tell it how to locate the `key` and `crt`
+  file. This can be done via a configuration file, e.g.
+
+```
+# ssl.config
+ssl=true
+ssl_cert_file=server.crt
+ssl_key_file=server.key
+```
+  Then running `./links --config=ssl.config <file.links>` will cause
+  the webserver to only serve requests via https.
+
+  When a webpage is served via https, then the websocket layer will
+  automatically communicate via the wss protocol.
+* Other various bug fixes.
+
 # 0.9.5
 
-WIP
+This is a minor hotfix release.
+
+* The database query deduplication now correctly handles subexpressions recursively.
+* Fixed a bug whereby messages received on the client-side would not
+  be deserialised correctly.
+* The Links runtime, now internally, uses `Lwt.pause` rather than the
+  deprecated `Lwt_main.yield`. As a side effect we have updated the
+  Lwt version constraint to be greater or equal to `5.0.0`.
 
 # 0.9.4
 
 ## Queries mixing set and bag semantics
-Links now provides experimental support for SQL queries mixing set and bag semantics. 
+Links now provides experimental support for SQL queries mixing set and bag semantics.
 
 When the `mixing_norm=on` flag is added to the configuration file, or when a query is defined in a `query mixing { ... }` block, Links will use a new query evaluator, allowing the programmer to call deduplication functions (`dedup` and `distinct`) within database queries. These are handled with set-based SQL statements `select distinct / union`, in addition to the usual bag-based `select / union all`.
 
@@ -29,7 +102,7 @@ to work seamlessly with timestamps in the database.
 Obtain a DateTime via:
 
   *  the `now()` function to get a timestamp for the current local time
-  *  Using `parseDate` on an ISO-formatted string (e.g., `parseDate("26-07-2021 14:26:00+1")`)
+  *  Using `parseDate` on an ISO-formatted string (e.g., `parseDate("2021-07-26 14:26:00+1")`)
   *  A `DateTime` field in the database
   *  `intToDate(X)` where `X` is a UNIX timestamp
   *  `beginningOfTime` and `forever`, which are special timestamps guaranteed to be less than (resp. greater than) all other timestamps
@@ -73,7 +146,7 @@ It is now possible to annotate type variables with `Mono` restriction, e.g. `sig
 ### Recursive rows
 
 * Effect variables can be recursive, e.g. `{ |(mu a.F:(() { |a}-> ()) {}-> b|c)}`.
-* **Breaking change**: Recursive rows are no longer restricted to variant syntax, i.e. separating fields using `|`. Recursive record and effects rows separate fields using `,` now. 
+* **Breaking change**: Recursive rows are no longer restricted to variant syntax, i.e. separating fields using `|`. Recursive record and effects rows separate fields using `,` now.
 * Recursive variants with no directly exposed fields no longer require the vertical bar separating fields from the row variable, e.g. `[|(mu a. Foo)|]` is equivalent to `[| |(mu a . Foo)|]`.
 
 ## Roundtrip: New pretty printer for types

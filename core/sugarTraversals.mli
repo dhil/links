@@ -44,6 +44,8 @@ class map :
     method regexflag       : regexflag -> regexflag
     method regex           : regex -> regex
     method position        : Position.t -> Position.t
+    method temporal_update : temporal_update -> temporal_update
+    method temporal_deletion : temporal_deletion -> temporal_deletion
     method given_spawn_location : given_spawn_location -> given_spawn_location
     method phrasenode      : phrasenode -> phrasenode
     method phrase          : phrase -> phrase
@@ -64,6 +66,7 @@ class map :
     method datatype        : Datatype.with_pos -> Datatype.with_pos
     method datatypenode    : Datatype.t -> Datatype.t
     method datatype'       : datatype' -> datatype'
+    method row'            : row' -> row'
     method type_arg        : Datatype.type_arg -> Datatype.type_arg
     method type_arg'       : type_arg' -> type_arg'
     method constant        : Constant.t -> Constant.t
@@ -71,8 +74,9 @@ class map :
     method tybinop         : tyarg list * Name.t -> tyarg list * Name.t
     method bindingnode     : bindingnode -> bindingnode
     method binding         : binding -> binding
-    method typenamenode    : typenamenode -> typenamenode
-    method typename        : typename -> typename
+    method aliasnode       : aliasnode -> aliasnode
+    method alias           : alias -> alias
+    method aliasbody       : aliasbody -> aliasbody
     method function_definition : function_definition -> function_definition
     method recursive_function  : recursive_function -> recursive_function
     method recursive_functionnode : recursive_functionnode -> recursive_functionnode
@@ -126,6 +130,8 @@ class fold :
     method regex           : regex -> 'self
     method position        : Position.t -> 'self
     method given_spawn_location : given_spawn_location -> 'self
+    method temporal_update : temporal_update -> 'self
+    method temporal_deletion : temporal_deletion -> 'self
     method phrasenode      : phrasenode -> 'self
     method phrase          : phrase -> 'self
     method cp_phrasenode   : cp_phrasenode -> 'self
@@ -144,6 +150,7 @@ class fold :
     method datatype        : Datatype.with_pos -> 'self
     method datatypenode    : Datatype.t -> 'self
     method datatype'       : datatype' -> 'self
+    method row'            : row' -> 'self
     method type_arg        : Datatype.type_arg -> 'self
     method type_arg'       : type_arg' -> 'self
     method constant        : Constant.t -> 'self
@@ -151,8 +158,9 @@ class fold :
     method tybinop         : tyarg list * Name.t -> 'self
     method bindingnode     : bindingnode -> 'self
     method binding         : binding -> 'self
-    method typenamenode    : typenamenode -> 'self
-    method typename        : typename -> 'self
+    method aliasnode       : aliasnode -> 'self
+    method alias           : alias -> 'self
+    method aliasbody       : aliasbody -> 'self
     method function_definition : function_definition -> 'self
     method recursive_function  : recursive_function -> 'self
     method recursive_functionnode  : recursive_functionnode -> 'self
@@ -177,8 +185,9 @@ object ('self)
   method binder          : Binder.with_pos -> 'self * Binder.with_pos
   method binding         : binding -> 'self * binding
   method bindingnode     : bindingnode -> 'self * bindingnode
-  method typenamenode    : typenamenode -> 'self * typenamenode
-  method typename        : typename -> 'self * typename
+  method aliasnode       : aliasnode -> 'self * aliasnode
+  method alias           : alias -> 'self * alias
+  method aliasbody       : aliasbody -> 'self * aliasbody
   method binop           : Name.t -> 'self * Name.t
   method tybinop         : tyarg list * Name.t -> 'self * (tyarg list * Name.t)
   method bool            : bool -> 'self * bool
@@ -188,6 +197,7 @@ object ('self)
   method datatype        : Datatype.with_pos -> 'self * Datatype.with_pos
   method datatypenode    : Datatype.t -> 'self * Datatype.t
   method datatype'       : datatype' -> 'self * datatype'
+  method row'            : row' -> 'self * row'
   method type_arg'       : type_arg' -> 'self * type_arg'
   method directive       : directive -> 'self * directive
   method fieldconstraint : fieldconstraint -> 'self * fieldconstraint
@@ -205,6 +215,8 @@ object ('self)
   method patternnode     : Pattern.t -> 'self * Pattern.t
   method pattern         : Pattern.with_pos -> 'self * Pattern.with_pos
   method phrase          : phrase -> 'self * phrase
+  method temporal_update : temporal_update -> ('self * temporal_update)
+  method temporal_deletion : temporal_deletion -> ('self * temporal_deletion)
   method given_spawn_location : given_spawn_location -> 'self * given_spawn_location
   method phrasenode      : phrasenode -> 'self * phrasenode
   method cp_phrasenode   : cp_phrasenode -> 'self * cp_phrasenode
